@@ -1,0 +1,57 @@
+name: MOBS Auto v1 closure audit
+
+on:
+  push:
+    branches:
+      - feature/mobs-auto-router-v1
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  closure:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feature/mobs-auto-router-v1
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install validation dependencies
+        run: python -m pip install --upgrade pip pytest pytest-asyncio SQLAlchemy
+
+      - name: Audit temporary artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e scripts/apply_mobs_auto_actual_model_fix.py
+          test ! -e .github/workflows/mobs-auto-actual-model-fix.yml
+          test ! -e scripts/apply_mobs_auto_final_fix.py
+          test ! -e .github/workflows/mobs-auto-final-fix.yml
+          changed="$(git diff --name-only origin/dev...HEAD)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -E '(^|/)(apply_.*mobs_auto.*\.py|.*mobs-auto.*fix.*\.ya?ml)$' || true)"
+          test -z "$unexpected"
+          git diff --check origin/dev...HEAD
+
+      - name: Validate implementation
+        run: |
+          python -m py_compile routes/chat_routes.py routes/session_routes.py src/llm_core.py src/mobs_auto_router.py tests/test_mobs_auto_router.py
+          python -m pytest -q tests/test_mobs_auto_router.py
+          node --check static/js/chatRenderer.js
+          node --check static/js/modelPicker.js
+
+      - name: Record closure audit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/mobs-auto-v1-closure.yml
+          git commit -m "chore: close MOBS Auto router v1 cycle"
+          git push origin HEAD:feature/mobs-auto-router-v1
