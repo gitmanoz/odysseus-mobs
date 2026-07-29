@@ -1,6 +1,7 @@
 name: MOBS Auto one-shot consolidation
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/mobs-auto-router-v1
