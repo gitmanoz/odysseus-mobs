@@ -8,6 +8,9 @@ import { sortModelObjects } from './modelSort.js';
 import spinnerModule from './spinner.js';
 
 const API_BASE = window.location.origin;
+const MOBS_AUTO_MODEL_ID = '__mobs_auto__';
+const MOBS_GENERAL_MODEL = 'qwen3:8b';
+const MOBS_CODER_MODEL = 'qwen2.5-coder:7b';
 
 // ── Recent + Favorites persistence ──
 // Recent is auto-tracked (last 5 picks, most-recent-first) and lives in its
@@ -324,6 +327,22 @@ function _initModelPickerDropdown() {
         });
       });
     });
+    const general = result.find(m => m.mid === MOBS_GENERAL_MODEL && !m.stale);
+    const coder = result.find(m => m.mid === MOBS_CODER_MODEL && !m.stale);
+    if (general && coder) {
+      result.unshift({
+        key: MOBS_AUTO_MODEL_ID,
+        mid: MOBS_AUTO_MODEL_ID,
+        display: 'MOBS Auto',
+        url: general.url,
+        endpointId: general.endpointId,
+        epName: 'Automatic routing',
+        category: 'local',
+        providerText: 'MOBS Auto automatic routing qwen3 coder',
+        stale: false,
+        offline: false,
+      });
+    }
     return sortModelObjects(result);
   }
 
@@ -476,7 +495,7 @@ function _initModelPickerDropdown() {
         row.style.opacity = '0.45';
         row.title = `Local server appears offline: ${m.staleReason}. Click to try anyway, or relaunch in Cookbook.`;
       }
-      const _mlogo = providerLogo(m.mid);
+      const _mlogo = m.mid === MOBS_AUTO_MODEL_ID ? '' : providerLogo(m.mid);
       if (_mlogo) {
         const logoSpan = document.createElement('span');
         logoSpan.className = 'provider-logo';
@@ -504,6 +523,7 @@ function _initModelPickerDropdown() {
 
       // Inline favorite dot — toggles favorite, never picks the model.
       const favDot = document.createElement('button');
+      if (m.mid === MOBS_AUTO_MODEL_ID) favDot.style.visibility = 'hidden';
       favDot.type = 'button';
       favDot.className = 'mp-fav-dot' + (favs.includes(m.mid) ? ' active' : '');
       favDot.textContent = '●';
