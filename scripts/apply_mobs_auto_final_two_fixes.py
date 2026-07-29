@@ -22,6 +22,18 @@ replace_once(
     '''                endpoint_url=_ollama_native_chat_url(base),\n                model=candidate,\n                headers={\n                    **(build_headers(endpoint.api_key or "", endpoint.base_url or "") if endpoint.api_key else {}),\n                    "X-MOBS-Auto": "1",\n                },\n''',
 )
 
+# Keep the tests aligned with the intentional endpoint change.
+replace_once(
+    "tests/test_mobs_auto_router.py",
+    "    _openai_compatible_chat_url,\n",
+    "    _ollama_native_chat_url,\n",
+)
+replace_once(
+    "tests/test_mobs_auto_router.py",
+    '''def test_mobs_auto_uses_ollama_openai_compatible_endpoint():\n    assert _openai_compatible_chat_url("http://host.docker.internal:11434") == (\n        "http://host.docker.internal:11434/v1/chat/completions"\n    )\n    assert _openai_compatible_chat_url("http://localhost:11434/v1") == (\n        "http://localhost:11434/v1/chat/completions"\n    )\n''',
+    '''def test_mobs_auto_uses_ollama_native_endpoint():\n    assert _ollama_native_chat_url("http://host.docker.internal:11434") == (\n        "http://host.docker.internal:11434/api/chat"\n    )\n    assert _ollama_native_chat_url("http://localhost:11434/v1") == (\n        "http://localhost:11434/api/chat"\n    )\n    assert _ollama_native_chat_url("http://localhost:11434/v1/chat/completions") == (\n        "http://localhost:11434/api/chat"\n    )\n''',
+)
+
 # 2) Consume the internal marker before the upstream request and disable thinking
 # only for MOBS Auto on both sync/async streaming paths.
 replace_once(
