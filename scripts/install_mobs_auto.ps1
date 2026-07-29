@@ -131,17 +131,17 @@ Replace-Once -RelativePath 'routes/chat_routes.py' `
 
 Replace-Once -RelativePath 'routes/chat_routes.py' `
     -Old (("        _recover_empty_session_model(sess, session, owner=owner)" + $Nl) +
-          ('        if not getattr(sess, "model", "").strip():' -replace '\\"','"') + $Nl) `
+          ('        if not getattr(sess, "model", "").strip():' + $Nl)) `
     -New (("        _recover_empty_session_model(sess, session, owner=owner)" + $Nl) +
           ("        try:" + $Nl) +
           ("            sess = _resolved_mobs_auto_session(sess, message, owner=owner)" + $Nl) +
           ("        except RuntimeError as exc:" + $Nl) +
           ("            raise HTTPException(503, str(exc))" + $Nl) +
-          (('        if not getattr(sess, "model", "").strip():' -replace '\\"','"') + $Nl))
+          ('        if not getattr(sess, "model", "").strip():' + $Nl))
 
 Replace-Once -RelativePath 'routes/chat_routes.py' `
     -Old (("            _recover_empty_session_model(sess, session, owner=owner)" + $Nl) +
-          (('            if not getattr(sess, "model", "").strip():' -replace '\\"','"') + $Nl)) `
+          ('            if not getattr(sess, "model", "").strip():' + $Nl)) `
     -New (("            _recover_empty_session_model(sess, session, owner=owner)" + $Nl) +
           ("            try:" + $Nl) +
           ("                sess = _resolved_mobs_auto_session(" + $Nl) +
@@ -150,6 +150,6 @@ Replace-Once -RelativePath 'routes/chat_routes.py' `
           ("                )" + $Nl) +
           ("            except RuntimeError as exc:" + $Nl) +
           ("                raise HTTPException(503, str(exc))" + $Nl) +
-          ((('            if not getattr(sess, "model", "").strip():' -replace '\\"','"')) + $Nl))
+          ('            if not getattr(sess, "model", "").strip():' + $Nl))
 
 Write-Host 'MOBS Auto integration applied. Review git diff, then rebuild Docker.'
