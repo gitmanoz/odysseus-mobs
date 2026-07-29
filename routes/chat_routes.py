@@ -1,6 +1,7 @@
 """Chat routes — /api/chat, /api/chat_stream, /api/inject_context, /api/search."""
 
 import asyncio
+import copy
 import json
 import os
 import re
@@ -43,6 +44,7 @@ from routes.chat_helpers import (
 )
 from src.action_intents import ToolIntent, classify_tool_intent as _classify_tool_intent
 from src.image_model_ids import looks_like_image_generation_model
+from src.mobs_auto_router import is_mobs_auto, resolve_mobs_auto_route
 from src.tool_policy import (
     WEB_TOOL_NAMES,
     build_effective_tool_policy,
@@ -51,6 +53,41 @@ from src.tool_policy import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolved_mobs_auto_session(
+    sess,
+    message: str,
+    *,
+    owner: str | None = None,
+    chat_mode: str = "chat",
+    tool_intent=None,
+    workspace: str = "",
+    plan_mode: bool = False,
+):
+    """Return a shallow execution copy when the session uses MOBS Auto."""
+    if not is_mobs_auto(getattr(sess, "model", "")):
+        return sess
+    route = resolve_mobs_auto_route(
+        message,
+        owner=owner,
+        chat_mode=chat_mode,
+        tool_intent=tool_intent,
+        workspace=workspace,
+        plan_mode=plan_mode,
+    )
+    execution = copy.copy(sess)
+    execution.model = route.model
+    execution.endpoint_url = route.endpoint_url
+    execution.headers = route.headers
+    execution.requested_model = route.requested_model
+    execution.display_name = route.display_name
+    execution.disable_thinking = route.disable_thinking
+    logger.info(
+        "MOBS Auto resolved session=%s model=%s reason=%s fallback=%s",
+        getattr(sess, "id", ""), route.model, route.reason, route.used_fallback,
+    )
+    return execution
 
 # Track active streams for partial-save safety net
 _active_streams: Dict[str, dict] = {}
@@ -617,6 +654,10 @@ def setup_chat_routes(
         # the endpoint's cached model list before privilege checks, which
         # otherwise see "" and behave inconsistently with the allowlist.
         _recover_empty_session_model(sess, session, owner=owner)
+        try:
+            sess = _resolved_mobs_auto_session(sess, message, owner=owner)
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc))
         if not getattr(sess, "model", "").strip():
             raise HTTPException(
                 400,
@@ -890,6 +931,13 @@ def setup_chat_routes(
             # upstream isn't called with model="" (which surfaces as a
             # generic 401/503).
             _recover_empty_session_model(sess, session, owner=owner)
+            try:
+                sess = _resolved_mobs_auto_session(
+                    sess, message, owner=owner, chat_mode=chat_mode,
+                    tool_intent=_tool_intent, workspace=workspace, plan_mode=plan_mode,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(503, str(exc))
             if not getattr(sess, "model", "").strip():
                 raise HTTPException(
                     400,
@@ -1410,7 +1458,11 @@ def setup_chat_routes(
 
             # Send model name early so the frontend can show it during streaming
             _model_suffix = "Research" if effective_do_research else None
-            _model_info = {"type": "model_info", "model": sess.model}
+            _model_info = {
+                "type": "model_info",
+                "model": sess.model,
+                "requested_model": getattr(sess, "requested_model", sess.model),
+            }
             if _model_suffix:
                 _model_info["suffix"] = _model_suffix
             if ctx.preset.character_name:
@@ -1518,7 +1570,7 @@ def setup_chat_routes(
             elif chat_mode == "chat":
                 _chat_start = time.time()
                 _answered_by = None  # set if the selected model failed and a fallback answered
-                _requested_model = sess.model
+                _requested_model = getattr(sess, "requested_model", sess.model)
                 _actual_model = None
                 # ── Chat mode: call stream_llm directly, NO tools, NO document access ──
                 try:
@@ -1566,7 +1618,7 @@ def setup_chat_routes(
                                     last_metrics = data.get("data", {})
                                     _reported_model = last_metrics.get("model")
                                     last_metrics["requested_model"] = _requested_model
-                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or _requested_model
+                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or sess.model
                                     if ctx.context_trimmed:
                                         last_metrics["context_trimmed"] = True
                                         last_metrics["context_messages_before_trim"] = ctx.context_messages_before_trim
@@ -1612,7 +1664,7 @@ def setup_chat_routes(
                                     "request_context_tokens": _est_in,
                                     "context_percent": _ctx_pct,
                                     "context_length": ctx.context_length,
-                                    "model": _actual_model or _answered_by or _requested_model,
+                                    "model": _actual_model or _answered_by or sess.model,
                                     "requested_model": _requested_model,
                                     "usage_source": "estimated",
                                 }
@@ -1650,7 +1702,7 @@ def setup_chat_routes(
                             full_response,
                             {
                                 "stopped": True,
-                                "model": _actual_model or _answered_by or _requested_model,
+                                "model": _actual_model or _answered_by or sess.model,
                                 "requested_model": _requested_model,
                             },
                         )
@@ -1664,7 +1716,7 @@ def setup_chat_routes(
                 _agent_rounds = 0
                 _agent_tool_calls = 0
                 _answered_by = None  # set if the selected model failed and a fallback answered
-                _requested_model = sess.model
+                _requested_model = getattr(sess, "requested_model", sess.model)
                 _actual_model = None
                 try:
                     from src.settings import get_setting
@@ -1765,7 +1817,7 @@ def setup_chat_routes(
                                     last_metrics = data.get("data", {})
                                     _reported_model = last_metrics.get("model")
                                     last_metrics["requested_model"] = last_metrics.get("requested_model") or _requested_model
-                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or _requested_model
+                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or sess.model
                                     if ctx.context_trimmed:
                                         last_metrics["context_trimmed"] = True
                                         last_metrics["context_messages_before_trim"] = ctx.context_messages_before_trim
@@ -1822,7 +1874,7 @@ def setup_chat_routes(
                                 full_response,
                                 {
                                     "stopped": True,
-                                    "model": _actual_model or _answered_by or _requested_model,
+                                    "model": _actual_model or _answered_by or sess.model,
                                     "requested_model": _requested_model,
                                 },
                             )

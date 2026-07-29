@@ -10,6 +10,7 @@ import logging
 from core.session_manager import SessionManager
 from core.models import ChatMessage
 from src.request_models import SessionResponse
+from src.mobs_auto_router import is_mobs_auto
 from core.database import Session as DbSession, SessionLocal, Document, GalleryImage, utcnow_naive
 from src.auth_helpers import effective_user, _auth_disabled, owner_filter
 from src.session_image_cleanup import _generated_image_path_for_cleanup, session_image_refs
@@ -375,7 +376,11 @@ def setup_session_routes(
             from src.endpoint_resolver import build_headers
             validation_headers = build_headers(effective_api_key, endpoint_base_url or endpoint_url)
 
-        if skip_val:
+        if is_mobs_auto(model_to_use):
+            # MOBS Auto is a strategy sentinel, not a provider model.
+            # The concrete route is resolved for each turn in chat_routes.
+            pass
+        elif skip_val:
             # skip_validation = trust the caller and do NOT probe /v1/models.
             # Used for custom endpoints AND for bare placeholder sessions with no
             # model at all (e.g. an email reply draft just needs a session to live
