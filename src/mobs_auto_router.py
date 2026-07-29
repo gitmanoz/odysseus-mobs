@@ -6,12 +6,14 @@ from dataclasses import dataclass
 import json
 import re
 from typing import Any, Iterable
+from urllib.parse import urlparse, urlunparse
 
 from core.database import ModelEndpoint, SessionLocal
 from src.auth_helpers import owner_filter
-from src.endpoint_resolver import build_chat_url, build_headers, normalize_base
+from src.endpoint_resolver import build_headers, normalize_base
 
 MOBS_AUTO_MODEL_ID = "__mobs_auto__"
+MOBS_AUTO_DISPLAY_NAME = "MOBS Auto"
 MOBS_GENERAL_MODEL = "qwen3:8b"
 MOBS_CODER_MODEL = "qwen2.5-coder:7b"
 
@@ -31,6 +33,9 @@ class ResolvedMobsRoute:
     model: str
     headers: dict[str, str]
     reason: str
+    requested_model: str = MOBS_AUTO_MODEL_ID
+    display_name: str = MOBS_AUTO_DISPLAY_NAME
+    disable_thinking: bool = True
     used_fallback: bool = False
 
 
@@ -101,6 +106,24 @@ def _iter_enabled_endpoints(owner: str | None = None) -> Iterable[ModelEndpoint]
         db.close()
 
 
+def _openai_compatible_chat_url(base: str) -> str:
+    """Use Ollama's OpenAI-compatible chat endpoint for MOBS Auto.
+
+    Odysseus already sends ``think: false`` for thinking-capable models on this
+    endpoint. Keeping this decision inside the MOBS route avoids changing the
+    behavior of manually selected Ollama models.
+    """
+    parsed = urlparse(normalize_base(base))
+    path = (parsed.path or "").rstrip("/")
+    if path.endswith("/v1"):
+        target_path = f"{path}/chat/completions"
+    elif path:
+        target_path = f"{path}/v1/chat/completions"
+    else:
+        target_path = "/v1/chat/completions"
+    return urlunparse(parsed._replace(path=target_path, query="", fragment=""))
+
+
 def resolve_mobs_auto_route(
     message: str,
     *,
@@ -127,7 +150,7 @@ def resolve_mobs_auto_route(
             base = normalize_base(endpoint.base_url or "")
             return ResolvedMobsRoute(
                 endpoint_id=str(endpoint.id or ""),
-                endpoint_url=build_chat_url(base),
+                endpoint_url=_openai_compatible_chat_url(base),
                 model=candidate,
                 headers=build_headers(endpoint.api_key or "", endpoint.base_url or "") if endpoint.api_key else {},
                 reason=reason if not used_fallback else f"{reason}:fallback",
