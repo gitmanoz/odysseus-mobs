@@ -25,7 +25,7 @@ jobs:
           cache: pip
 
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip pytest
+        run: python -m pip install --upgrade pip pytest SQLAlchemy
 
       - name: Apply patch
         run: python scripts/apply_mobs_auto_followup.py
