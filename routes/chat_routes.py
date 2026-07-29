@@ -1618,7 +1618,7 @@ def setup_chat_routes(
                                     last_metrics = data.get("data", {})
                                     _reported_model = last_metrics.get("model")
                                     last_metrics["requested_model"] = _requested_model
-                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or _requested_model
+                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or sess.model
                                     if ctx.context_trimmed:
                                         last_metrics["context_trimmed"] = True
                                         last_metrics["context_messages_before_trim"] = ctx.context_messages_before_trim
@@ -1664,7 +1664,7 @@ def setup_chat_routes(
                                     "request_context_tokens": _est_in,
                                     "context_percent": _ctx_pct,
                                     "context_length": ctx.context_length,
-                                    "model": _actual_model or _answered_by or _requested_model,
+                                    "model": _actual_model or _answered_by or sess.model,
                                     "requested_model": _requested_model,
                                     "usage_source": "estimated",
                                 }
@@ -1702,7 +1702,7 @@ def setup_chat_routes(
                             full_response,
                             {
                                 "stopped": True,
-                                "model": _actual_model or _answered_by or _requested_model,
+                                "model": _actual_model or _answered_by or sess.model,
                                 "requested_model": _requested_model,
                             },
                         )
@@ -1817,7 +1817,7 @@ def setup_chat_routes(
                                     last_metrics = data.get("data", {})
                                     _reported_model = last_metrics.get("model")
                                     last_metrics["requested_model"] = last_metrics.get("requested_model") or _requested_model
-                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or _requested_model
+                                    last_metrics["model"] = _reported_model or _actual_model or _answered_by or sess.model
                                     if ctx.context_trimmed:
                                         last_metrics["context_trimmed"] = True
                                         last_metrics["context_messages_before_trim"] = ctx.context_messages_before_trim
@@ -1874,7 +1874,7 @@ def setup_chat_routes(
                                 full_response,
                                 {
                                     "stopped": True,
-                                    "model": _actual_model or _answered_by or _requested_model,
+                                    "model": _actual_model or _answered_by or sess.model,
                                     "requested_model": _requested_model,
                                 },
                             )
