@@ -66,6 +66,57 @@ function _displayModelName(modelId) {
   return modelId.split('/').pop();
 }
 
+let _mobsAutoRoleObserver = null;
+let _mobsAutoPresentationActive = false;
+
+function _presentMobsAutoRole(roleEl) {
+  if (!roleEl) return;
+  const timestamp = roleEl.querySelector('.role-timestamp');
+  const visibleText = [...roleEl.childNodes]
+    .filter(node => node !== timestamp && node.nodeType === Node.TEXT_NODE)
+    .map(node => node.textContent || '')
+    .join(' ')
+    .trim();
+  const hasProviderLogo = !!roleEl.querySelector('.role-provider-logo');
+  if (visibleText === MOBS_AUTO_DISPLAY && !hasProviderLogo) return;
+
+  [...roleEl.childNodes].forEach(node => {
+    if (node !== timestamp) node.remove();
+  });
+  roleEl.classList.remove('has-logo');
+  roleEl.insertBefore(document.createTextNode(`${MOBS_AUTO_DISPLAY} `), timestamp || null);
+  roleEl.title = `${MOBS_AUTO_DISPLAY} · automatic routing`;
+}
+
+function _applyMobsAutoRolePresentation() {
+  if (!_mobsAutoPresentationActive) return;
+  const history = document.getElementById('chat-history');
+  if (!history) return;
+  history.querySelectorAll('.msg-ai .role, .agent-thread .role').forEach(_presentMobsAutoRole);
+}
+
+function _syncMobsAutoPresentation(active) {
+  _mobsAutoPresentationActive = !!active;
+  document.documentElement.classList.toggle('mobs-auto-active', _mobsAutoPresentationActive);
+  if (_mobsAutoRoleObserver) {
+    _mobsAutoRoleObserver.disconnect();
+    _mobsAutoRoleObserver = null;
+  }
+  if (!_mobsAutoPresentationActive) return;
+
+  _applyMobsAutoRolePresentation();
+  const history = document.getElementById('chat-history');
+  if (!history) return;
+  _mobsAutoRoleObserver = new MutationObserver(() => {
+    queueMicrotask(_applyMobsAutoRolePresentation);
+  });
+  _mobsAutoRoleObserver.observe(history, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+}
+
 function _handlePickerKeydown(e, listEl, itemSelector, closeFn) {
   if (e.key === 'Escape') { closeFn(); return; }
   if (e.key === 'Enter') {
@@ -517,6 +568,7 @@ export function updateModelPicker() {
   }
   const latestPending = _deps.getPendingChat && _deps.getPendingChat();
   if (!currentSessionId && !_autoSelectingDefault && window.modelsModule && window.modelsModule.getCachedItems && (!modelId || (latestPending && latestPending.source === 'fallback'))) _ensureDefaultPendingChat();
+  _syncMobsAutoPresentation(modelId === MOBS_AUTO_MODEL_ID);
   const displayName = _displayModelName(modelId);
   label.title = modelId === MOBS_AUTO_MODEL_ID ? MOBS_AUTO_DISPLAY : (modelId || '');
   const logo = modelId && modelId !== MOBS_AUTO_MODEL_ID ? providerLogo(modelId) : null;
