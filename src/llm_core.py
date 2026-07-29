@@ -2035,10 +2035,13 @@ async def llm_call_async(
         h = {"Content-Type": "application/json"}
         if headers:
             h.update(headers)
+        mobs_auto_request = h.pop("X-MOBS-Auto", None) == "1"
         payload = _build_ollama_payload(
             model, messages_copy, temperature, max_tokens,
             stream=False, num_ctx=get_context_length(url, model),
         )
+        if mobs_auto_request:
+            payload["think"] = False
     else:
         target_url = _normalize_openai_chat_url(url)
         h = _provider_headers(provider, headers)
@@ -2190,10 +2193,13 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
         h = {"Content-Type": "application/json"}
         if headers:
             h.update(headers)
+        mobs_auto_request = h.pop("X-MOBS-Auto", None) == "1"
         payload = _build_ollama_payload(
             model, messages_copy, temperature, max_tokens,
             stream=True, tools=tools, num_ctx=get_context_length(url, model),
         )
+        if mobs_auto_request:
+            payload["think"] = False
     elif provider == "chatgpt-subscription":
         target_url = _normalize_chatgpt_subscription_url(url)
         h = _provider_headers(provider, headers)

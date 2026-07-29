@@ -106,21 +106,15 @@ def _iter_enabled_endpoints(owner: str | None = None) -> Iterable[ModelEndpoint]
         db.close()
 
 
-def _openai_compatible_chat_url(base: str) -> str:
-    """Use Ollama's OpenAI-compatible chat endpoint for MOBS Auto.
-
-    Odysseus already sends ``think: false`` for thinking-capable models on this
-    endpoint. Keeping this decision inside the MOBS route avoids changing the
-    behavior of manually selected Ollama models.
-    """
+def _ollama_native_chat_url(base: str) -> str:
+    """Return Ollama's native /api/chat endpoint for MOBS Auto."""
     parsed = urlparse(normalize_base(base))
     path = (parsed.path or "").rstrip("/")
-    if path.endswith("/v1"):
-        target_path = f"{path}/chat/completions"
-    elif path:
-        target_path = f"{path}/v1/chat/completions"
-    else:
-        target_path = "/v1/chat/completions"
+    for suffix in ("/v1/chat/completions", "/v1", "/api/chat", "/api"):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+            break
+    target_path = (path.rstrip("/") + "/api/chat") if path else "/api/chat"
     return urlunparse(parsed._replace(path=target_path, query="", fragment=""))
 
 
@@ -150,9 +144,12 @@ def resolve_mobs_auto_route(
             base = normalize_base(endpoint.base_url or "")
             return ResolvedMobsRoute(
                 endpoint_id=str(endpoint.id or ""),
-                endpoint_url=_openai_compatible_chat_url(base),
+                endpoint_url=_ollama_native_chat_url(base),
                 model=candidate,
-                headers=build_headers(endpoint.api_key or "", endpoint.base_url or "") if endpoint.api_key else {},
+                headers={
+                    **(build_headers(endpoint.api_key or "", endpoint.base_url or "") if endpoint.api_key else {}),
+                    "X-MOBS-Auto": "1",
+                },
                 reason=reason if not used_fallback else f"{reason}:fallback",
                 used_fallback=used_fallback,
             )

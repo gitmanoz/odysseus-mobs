@@ -6,7 +6,7 @@ from src.mobs_auto_router import (
     MOBS_CODER_MODEL,
     MOBS_GENERAL_MODEL,
     ResolvedMobsRoute,
-    _openai_compatible_chat_url,
+    _ollama_native_chat_url,
     choose_mobs_model,
     is_mobs_auto,
 )
@@ -55,10 +55,13 @@ def test_resolved_route_preserves_symbolic_identity():
     assert route.disable_thinking is True
 
 
-def test_mobs_auto_uses_ollama_openai_compatible_endpoint():
-    assert _openai_compatible_chat_url("http://host.docker.internal:11434") == (
-        "http://host.docker.internal:11434/v1/chat/completions"
+def test_mobs_auto_uses_ollama_native_endpoint():
+    assert _ollama_native_chat_url("http://host.docker.internal:11434") == (
+        "http://host.docker.internal:11434/api/chat"
     )
-    assert _openai_compatible_chat_url("http://localhost:11434/v1") == (
-        "http://localhost:11434/v1/chat/completions"
+    assert _ollama_native_chat_url("http://localhost:11434/v1") == (
+        "http://localhost:11434/api/chat"
+    )
+    assert _ollama_native_chat_url("http://localhost:11434/v1/chat/completions") == (
+        "http://localhost:11434/api/chat"
     )

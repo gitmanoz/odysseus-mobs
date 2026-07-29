@@ -88,11 +88,25 @@ function _presentMobsAutoRole(roleEl) {
   roleEl.title = `${MOBS_AUTO_DISPLAY} · automatic routing`;
 }
 
+function _sanitizeMobsAutoVisibleText(root = document.body) {
+  if (!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    const parent = node.parentElement;
+    if (!parent || ['SCRIPT', 'STYLE', 'TEXTAREA'].includes(parent.tagName)) return;
+    if ((node.nodeValue || '').includes(MOBS_AUTO_MODEL_ID)) {
+      node.nodeValue = node.nodeValue.split(MOBS_AUTO_MODEL_ID).join(MOBS_AUTO_DISPLAY);
+    }
+  });
+}
+
 function _applyMobsAutoRolePresentation() {
   if (!_mobsAutoPresentationActive) return;
   const history = document.getElementById('chat-history');
-  if (!history) return;
-  history.querySelectorAll('.msg-ai .role, .agent-thread .role').forEach(_presentMobsAutoRole);
+  if (history) history.querySelectorAll('.msg-ai .role, .agent-thread .role').forEach(_presentMobsAutoRole);
+  _sanitizeMobsAutoVisibleText();
 }
 
 function _syncMobsAutoPresentation(active) {
