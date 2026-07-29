@@ -80,6 +80,9 @@ def _resolved_mobs_auto_session(
     execution.model = route.model
     execution.endpoint_url = route.endpoint_url
     execution.headers = route.headers
+    execution.requested_model = route.requested_model
+    execution.display_name = route.display_name
+    execution.disable_thinking = route.disable_thinking
     logger.info(
         "MOBS Auto resolved session=%s model=%s reason=%s fallback=%s",
         getattr(sess, "id", ""), route.model, route.reason, route.used_fallback,
@@ -1455,7 +1458,11 @@ def setup_chat_routes(
 
             # Send model name early so the frontend can show it during streaming
             _model_suffix = "Research" if effective_do_research else None
-            _model_info = {"type": "model_info", "model": sess.model}
+            _model_info = {
+                "type": "model_info",
+                "model": sess.model,
+                "requested_model": getattr(sess, "requested_model", sess.model),
+            }
             if _model_suffix:
                 _model_info["suffix"] = _model_suffix
             if ctx.preset.character_name:
@@ -1563,7 +1570,7 @@ def setup_chat_routes(
             elif chat_mode == "chat":
                 _chat_start = time.time()
                 _answered_by = None  # set if the selected model failed and a fallback answered
-                _requested_model = sess.model
+                _requested_model = getattr(sess, "requested_model", sess.model)
                 _actual_model = None
                 # ── Chat mode: call stream_llm directly, NO tools, NO document access ──
                 try:
@@ -1709,7 +1716,7 @@ def setup_chat_routes(
                 _agent_rounds = 0
                 _agent_tool_calls = 0
                 _answered_by = None  # set if the selected model failed and a fallback answered
-                _requested_model = sess.model
+                _requested_model = getattr(sess, "requested_model", sess.model)
                 _actual_model = None
                 try:
                     from src.settings import get_setting

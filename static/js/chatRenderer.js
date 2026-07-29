@@ -583,6 +583,7 @@ const IMAGE_PRICING = {
 export function shortModel(name) {
   if (!name) return '...';
   if (typeof name !== 'string') name = String(name);
+  if (name === '__mobs_auto__') return 'MOBS Auto';
   let short = name.split('/').pop();
   // Strip .gguf extension
   short = short.replace(/\.gguf$/i, '');
@@ -615,6 +616,7 @@ export function sameModelName(left, right) {
 export function modelRouteLabel(requestedModel, actualModel) {
   const requested = modelValue(requestedModel);
   const actual = modelValue(actualModel) || requested;
+  if (requested === '__mobs_auto__') return 'MOBS Auto';
   if (!requested || sameModelName(requested, actual)) return shortModel(actual || requested);
   return shortModel(requested) + ' -> ' + shortModel(actual);
 }
@@ -665,6 +667,7 @@ function _fmtCtx(n) {
  */
 export function applyModelColor(roleEl, modelName) {
   if (!modelName) return;
+  roleEl.dataset.actualModel = modelName;
   const color = modelColor(modelName);
   if (color) {
     roleEl.style.color = color;
@@ -690,15 +693,16 @@ export function applyModelColor(roleEl, modelName) {
     roleEl.addEventListener('click', (e) => {
       e.stopPropagation();
       document.querySelectorAll('.ctx-popup').forEach(p => { if (typeof p._dismiss === 'function') p._dismiss(); else p.remove(); });
-      const info = getModelInfo(modelName);
-      const short = shortModel(modelName);
-      const logoHtml = providerLogo(modelName);
+      const activeModelName = roleEl.dataset.actualModel || modelName;
+      const info = getModelInfo(activeModelName);
+      const short = shortModel(activeModelName);
+      const logoHtml = providerLogo(activeModelName);
       const popup = document.createElement('div');
       popup.className = 'ctx-popup';
       let html = '<div style="font-weight:600;margin-bottom:6px;color:var(--fg);display:flex;align-items:center;gap:6px;">';
       if (logoHtml) html += '<span class="role-provider-logo" style="opacity:0.7">' + logoHtml + '</span>';
       html += uiModule.esc(short) + '</div>';
-      html += '<div><span class="ctx-label">Model</span> ' + uiModule.esc(modelName.split('/').pop()) + '</div>';
+      html += '<div><span class="ctx-label">Model</span> ' + uiModule.esc(activeModelName.split('/').pop()) + '</div>';
       // Provider = the serving endpoint, distinct from the model vendor/logo
       // (e.g. the same model via OpenRouter vs Copilot vs Anthropic direct).
       const _epUrl = (window.sessionModule && window.sessionModule.getCurrentEndpointUrl)
@@ -706,7 +710,7 @@ export function applyModelColor(roleEl, modelName) {
       const _provLabel = providerLabel(_epUrl);
       if (_provLabel) html += '<div><span class="ctx-label">Provider</span> ' + uiModule.esc(_provLabel) + '</div>';
       // Show static context initially, then fetch real from server
-      const _realCtx = window._realContextLengths && window._realContextLengths[modelName];
+      const _realCtx = window._realContextLengths && window._realContextLengths[activeModelName];
       if (_realCtx) {
         html += '<div><span class="ctx-label">Context</span> ' + _fmtCtx(_realCtx) + ' tokens';
         if (info && info.ctx && info.ctx !== _realCtx) html += ' <span style="opacity:0.35">(spec: ' + _fmtCtx(info.ctx) + ')</span>';
@@ -721,7 +725,7 @@ export function applyModelColor(roleEl, modelName) {
           fetch('/api/session/' + _sid + '/context_info').then(r => r.ok ? r.json() : null).then(d => {
             if (d && d.context_length) {
               if (!window._realContextLengths) window._realContextLengths = {};
-              window._realContextLengths[modelName] = d.context_length;
+              window._realContextLengths[activeModelName] = d.context_length;
               const el = document.getElementById('_ctx-val');
               if (el) {
                 el.innerHTML = _fmtCtx(d.context_length) + ' tokens';
