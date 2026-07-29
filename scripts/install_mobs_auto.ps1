@@ -11,17 +11,21 @@ function Replace-Once {
 
     $Path = Join-Path $Root $RelativePath
     $Text = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+    $Text = $Text.Replace("`r`n", "`n")
+    $Old = $Old.Replace("`r`n", "`n")
+    $New = $New.Replace("`r`n", "`n")
 
     if ($Text.Contains($New)) {
         Write-Host "already patched: $RelativePath"
         return
     }
 
-    if (-not $Text.Contains($Old)) {
+    $Index = $Text.IndexOf($Old, [System.StringComparison]::Ordinal)
+    if ($Index -lt 0) {
         throw "anchor not found in $RelativePath"
     }
 
-    $Updated = $Text.Replace($Old, $New)
+    $Updated = $Text.Substring(0, $Index) + $New + $Text.Substring($Index + $Old.Length)
     [System.IO.File]::WriteAllText($Path, $Updated, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "patched: $RelativePath"
 }
