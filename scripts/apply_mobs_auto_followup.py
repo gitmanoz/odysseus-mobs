@@ -4,170 +4,81 @@ from pathlib import Path
 def replace_once(path: str, old: str, new: str) -> None:
     p = Path(path)
     text = p.read_text(encoding="utf-8")
-    if old not in text:
-        if new in text:
-            return
-        raise SystemExit(f"anchor not found in {path}: {old[:80]!r}")
+    count = text.count(old)
+    if count != 1:
+        raise RuntimeError(f"{path}: expected one match, found {count}: {old[:80]!r}")
     p.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-# Preserve symbolic/public identity while retaining the concrete routed model.
+def replace_all(path: str, old: str, new: str, expected: int) -> None:
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != expected:
+        raise RuntimeError(f"{path}: expected {expected} matches, found {count}: {old[:80]!r}")
+    p.write_text(text.replace(old, new), encoding="utf-8")
+
+
+# Preserve symbolic identity and the resolved execution model separately.
 replace_once(
     "routes/chat_routes.py",
-    """    execution.model = route.model
-    execution.endpoint_url = route.endpoint_url
-    execution.headers = route.headers
-""",
-    """    execution.model = route.model
-    execution.endpoint_url = route.endpoint_url
-    execution.headers = route.headers
-    execution.mobs_auto_requested_model = route.requested_model
-    execution.mobs_auto_display_name = route.display_name
-    execution.mobs_auto_actual_model = route.model
-""",
+    """    execution.model = route.model\n    execution.endpoint_url = route.endpoint_url\n    execution.headers = route.headers\n""",
+    """    execution.model = route.model\n    execution.endpoint_url = route.endpoint_url\n    execution.headers = route.headers\n    execution.requested_model = route.requested_model\n    execution.display_name = route.display_name\n    execution.disable_thinking = route.disable_thinking\n""",
 )
 replace_once(
     "routes/chat_routes.py",
-    """            _model_info = {"type": "model_info", "model": sess.model}
-""",
-    """            _public_model = getattr(sess, "mobs_auto_display_name", None) or sess.model
-            _model_info = {"type": "model_info", "model": _public_model}
-            if getattr(sess, "mobs_auto_actual_model", None):
-                _model_info["actual_model"] = sess.mobs_auto_actual_model
-                _model_info["requested_model"] = getattr(sess, "mobs_auto_requested_model", "__mobs_auto__")
-""",
+    """            _model_info = {\"type\": \"model_info\", \"model\": sess.model}\n""",
+    """            _model_info = {\n                \"type\": \"model_info\",\n                \"model\": sess.model,\n                \"requested_model\": getattr(sess, \"requested_model\", sess.model),\n            }\n""",
+)
+replace_all(
+    "routes/chat_routes.py",
+    """                _requested_model = sess.model\n""",
+    """                _requested_model = getattr(sess, \"requested_model\", sess.model)\n""",
+    expected=2,
 )
 
-p = Path("routes/chat_routes.py")
-text = p.read_text(encoding="utf-8")
-old = """                _requested_model = sess.model
-                _actual_model = None
-"""
-new = """                _requested_model = getattr(sess, "mobs_auto_requested_model", None) or sess.model
-                _actual_model = getattr(sess, "mobs_auto_actual_model", None)
-"""
-if old in text:
-    text = text.replace(old, new)
-elif new not in text:
-    raise SystemExit("requested/actual model anchors not found")
-p.write_text(text, encoding="utf-8")
-
-# Native Ollama requests must disable reasoning too; /v1 already receives this.
-replace_once(
+# Ollama's /v1 compatibility surface accepts `think: false`; do not depend on
+# model-name heuristics because deployed tags may include suffixes/aliases.
+replace_all(
     "src/llm_core.py",
-    """    if tools:
-        payload["tools"] = tools
-    return payload
-""",
-    """    if tools:
-        payload["tools"] = tools
-    if _supports_thinking(model):
-        payload["think"] = False
-    return payload
-""",
+    """        if _is_ollama_openai_compat_url(url) and _supports_thinking(model):\n            payload[\"think\"] = False\n""",
+    """        if _is_ollama_openai_compat_url(url):\n            payload[\"think\"] = False\n""",
+    expected=2,
 )
 
-# Ensure alias never leaks and route details remain available on click.
+# Public identity is MOBS Auto; the concrete model remains available in the
+# popup and metrics as the actual model.
 replace_once(
     "static/js/chatRenderer.js",
-    """const CHECK_ICON =""",
-    """const MOBS_AUTO_MODEL_ID = '__mobs_auto__';
-const MOBS_AUTO_DISPLAY = 'MOBS Auto';
-const CHECK_ICON =""",
+    """export function shortModel(name) {\n  if (!name) return '...';\n  if (typeof name !== 'string') name = String(name);\n""",
+    """export function shortModel(name) {\n  if (!name) return '...';\n  if (typeof name !== 'string') name = String(name);\n  if (name === '__mobs_auto__') return 'MOBS Auto';\n""",
 )
 replace_once(
     "static/js/chatRenderer.js",
-    """export function shortModel(name) {
-  if (!name) return '...';
-  if (typeof name !== 'string') name = String(name);
-""",
-    """export function shortModel(name) {
-  if (!name) return '...';
-  if (typeof name !== 'string') name = String(name);
-  if (name.trim() === MOBS_AUTO_MODEL_ID || name.trim() === MOBS_AUTO_DISPLAY) return MOBS_AUTO_DISPLAY;
-""",
+    """export function modelRouteLabel(requestedModel, actualModel) {\n  const requested = modelValue(requestedModel);\n  const actual = modelValue(actualModel) || requested;\n  if (!requested || sameModelName(requested, actual)) return shortModel(actual || requested);\n  return shortModel(requested) + ' -> ' + shortModel(actual);\n}\n""",
+    """export function modelRouteLabel(requestedModel, actualModel) {\n  const requested = modelValue(requestedModel);\n  const actual = modelValue(actualModel) || requested;\n  if (requested === '__mobs_auto__') return 'MOBS Auto';\n  if (!requested || sameModelName(requested, actual)) return shortModel(actual || requested);\n  return shortModel(requested) + ' -> ' + shortModel(actual);\n}\n""",
 )
 replace_once(
     "static/js/chatRenderer.js",
-    """  if (!requested || sameModelName(requested, actual)) return shortModel(actual || requested);
-  return shortModel(requested) + ' -> ' + shortModel(actual);
-""",
-    """  if (requested === MOBS_AUTO_MODEL_ID || requested === MOBS_AUTO_DISPLAY) return MOBS_AUTO_DISPLAY;
-  if (!requested || sameModelName(requested, actual)) return shortModel(actual || requested);
-  return shortModel(requested) + ' -> ' + shortModel(actual);
-""",
+    """export function applyModelColor(roleEl, modelName) {\n  if (!modelName) return;\n  const color = modelColor(modelName);\n""",
+    """export function applyModelColor(roleEl, modelName) {\n  if (!modelName) return;\n  roleEl.dataset.actualModel = modelName;\n  const color = modelColor(modelName);\n""",
 )
 replace_once(
     "static/js/chatRenderer.js",
-    """      const info = getModelInfo(modelName);
-      const short = shortModel(modelName);
-      const logoHtml = providerLogo(modelName);
-""",
-    """      const popupModel = roleEl.dataset.mobsActualModel || modelName;
-      const info = getModelInfo(popupModel);
-      const short = shortModel(popupModel);
-      const logoHtml = providerLogo(popupModel);
-""",
+    """      const info = getModelInfo(modelName);\n      const short = shortModel(modelName);\n      const logoHtml = providerLogo(modelName);\n""",
+    """      const activeModelName = roleEl.dataset.actualModel || modelName;\n      const info = getModelInfo(activeModelName);\n      const short = shortModel(activeModelName);\n      const logoHtml = providerLogo(activeModelName);\n""",
 )
-replace_once(
+replace_all(
     "static/js/chatRenderer.js",
-    """      html += '<div><span class="ctx-label">Model</span> ' + uiModule.esc(modelName.split('/').pop()) + '</div>';
-""",
-    """      html += '<div><span class="ctx-label">Model</span> ' + uiModule.esc(popupModel.split('/').pop()) + '</div>';
-""",
+    """uiModule.esc(modelName.split('/').pop())""",
+    """uiModule.esc(activeModelName.split('/').pop())""",
+    expected=1,
+)
+replace_all(
+    "static/js/chatRenderer.js",
+    """window._realContextLengths[modelName]""",
+    """window._realContextLengths[activeModelName]""",
+    expected=2,
 )
 
-# Streaming metadata should consistently preserve concrete model for the popup.
-replace_once(
-    "static/js/chat.js",
-    """                    holder._requestedModel = json.requested_model || json.model || holder._requestedModel;
-                    holder._actualModel = json.model || holder._actualModel || holder._requestedModel;
-""",
-    """                    holder._requestedModel = json.requested_model || json.model || holder._requestedModel;
-                    holder._actualModel = json.actual_model || json.model || holder._actualModel || holder._requestedModel;
-                    if (json.actual_model) roleEl.dataset.mobsActualModel = json.actual_model;
-""",
-)
-
-# Strengthen the existing presentation observer: retain actual model and scrub alias globally.
-p = Path("static/js/modelPicker.js")
-text = p.read_text(encoding="utf-8")
-old = """  const hasProviderLogo = !!roleEl.querySelector('.role-provider-logo');
-  if (visibleText === MOBS_AUTO_DISPLAY && !hasProviderLogo) return;
-
-  [...roleEl.childNodes].forEach(node => {
-"""
-new = """  const holder = roleEl.closest('.msg-ai, .agent-thread');
-  const actualModel = (holder && holder._actualModel) || roleEl.dataset.mobsActualModel || '';
-  if (actualModel && actualModel !== MOBS_AUTO_MODEL_ID && actualModel !== MOBS_AUTO_DISPLAY) {
-    roleEl.dataset.mobsActualModel = actualModel;
-  } else if (visibleText && visibleText !== MOBS_AUTO_MODEL_ID && visibleText !== MOBS_AUTO_DISPLAY) {
-    roleEl.dataset.mobsActualModel = visibleText;
-  }
-  const hasProviderLogo = !!roleEl.querySelector('.role-provider-logo');
-  if (visibleText === MOBS_AUTO_DISPLAY && !hasProviderLogo) return;
-
-  [...roleEl.childNodes].forEach(node => {
-"""
-if old not in text:
-    if new not in text:
-        raise SystemExit("modelPicker role anchor not found")
-else:
-    text = text.replace(old, new, 1)
-old2 = """  history.querySelectorAll('.msg-ai .role, .agent-thread .role').forEach(_presentMobsAutoRole);
-"""
-new2 = """  history.querySelectorAll('.msg-ai .role, .agent-thread .role').forEach(_presentMobsAutoRole);
-  document.querySelectorAll('[data-model], .chat-header, .session-header, .chat-meta').forEach(el => {
-    for (const node of el.childNodes) {
-      if (node.nodeType === Node.TEXT_NODE && node.textContent.includes(MOBS_AUTO_MODEL_ID)) {
-        node.textContent = node.textContent.replaceAll(MOBS_AUTO_MODEL_ID, MOBS_AUTO_DISPLAY);
-      }
-    }
-  });
-"""
-if old2 not in text:
-    if new2 not in text:
-        raise SystemExit("modelPicker presentation anchor not found")
-else:
-    text = text.replace(old2, new2, 1)
-p.write_text(text, encoding="utf-8")
+print("MOBS Auto follow-up patch applied")
