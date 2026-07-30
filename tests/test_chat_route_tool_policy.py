@@ -127,6 +127,25 @@ def test_workspace_auto_escalation_keeps_shell_tools():
     assert "if auto_escalated and not _workspace_agent_intent:" in source
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        (
+            "Use obrigatoriamente as ferramentas disponíveis.\n"
+            "Execute exatamente:\n"
+            "cd /workspace/missao-mobs && pwd\n"
+            "cd /workspace/missao-mobs && ls\n"
+            "cd /workspace/missao-mobs && head -n 5 PROJECT_INDEX.md"
+        ),
+        "Leia o arquivo PROJECT_INDEX.md deste repositório.",
+    ],
+)
+def test_portuguese_workspace_requests_auto_escalate(message):
+    intent = classify_tool_intent(message)
+    assert intent.needs_tools
+    assert intent.category in {"shell", "workspace"}
+
+
 # ── Functional tests of the disabled-tools logic ───────────────
 
 

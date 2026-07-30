@@ -3935,6 +3935,14 @@ async def stream_agent_loop(
         round_response = ""
         round_reasoning = ""  # reasoning_content deltas (DeepSeek-thinking, vLLM --reasoning-parser)
         native_tool_calls = []  # populated if model uses function calling
+        # Workspace-dependent prose is untrusted until this turn has produced
+        # successful real tool evidence. Buffer it instead of streaming a
+        # plausible-but-invented command transcript to the user.
+        _buffer_workspace_round = bool(
+            _workspace_evidence_required
+            and not _workspace_evidence_satisfied
+            and not _force_answer
+        )
         # Reset doc streaming state per round
         _doc_acc = ""
         _doc_opened = False
@@ -4163,9 +4171,16 @@ async def stream_agent_loop(
                             if _ody_qwen_finetune_model:
                                 _delta_text = _normalize_ody_qwen_text_artifacts(_delta_text)
                             round_response += _delta_text
-                            full_response += _delta_text
+                            if not _buffer_workspace_round:
+                                full_response += _delta_text
                             data["delta"] = _delta_text
-                        if not _ody_qwen_finetune_model or data.get("thinking"):
+                        if (
+                            data.get("thinking")
+                            or (
+                                not _buffer_workspace_round
+                                and not _ody_qwen_finetune_model
+                            )
+                        ):
                             yield f"data: {json.dumps(data)}\n\n"
                         # Detect text-fence doc streaming. Normal agent prompts
                         # use ```create_document; the doc LoRA streaming path
@@ -4422,8 +4437,16 @@ async def stream_agent_loop(
         # persisted text either — otherwise it streams once and then disappears
         # on reload (#3222 follow-up).
         cleaned_round = strip_tool_blocks(round_response, skip_fenced=(_is_api_model and not used_native and not guide_only)).strip()
-        round_texts.append(cleaned_round)
-        if _ody_qwen_finetune_model and not tool_blocks and cleaned_round:
+        # Preserve round numbering for tool-event reconstruction, but never
+        # persist unverified workspace prose that was withheld from the live
+        # stream. Otherwise the fake transcript would reappear after reload.
+        round_texts.append("" if _buffer_workspace_round else cleaned_round)
+        if (
+            _ody_qwen_finetune_model
+            and not tool_blocks
+            and cleaned_round
+            and not _buffer_workspace_round
+        ):
             yield f'data: {json.dumps({"delta": cleaned_round})}\n\n'
 
         if not tool_blocks:

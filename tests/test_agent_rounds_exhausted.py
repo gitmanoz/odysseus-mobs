@@ -134,6 +134,15 @@ def test_workspace_request_retries_text_transcript_and_executes_real_tool(monkey
 
     assert calls == [("get_workspace", "/workspace/missao-mobs")]
     assert rounds == 3
+    assert not any(
+        "/workspace/missao-mobs" in str(e.get("delta") or "")
+        for e in events
+    )
+    metrics = next(e["data"] for e in events if e.get("type") == "metrics")
+    assert not any(
+        "/workspace/missao-mobs" in str(text)
+        for text in metrics.get("round_texts", [])
+    )
     assert any(e.get("type") == "tool_start" and e.get("tool") == "get_workspace" for e in events)
     assert not any(
         e.get("reason") == "workspace_tool_evidence_required"
@@ -146,7 +155,11 @@ def test_workspace_evidence_guard_reports_failure_instead_of_accepting_fake_outp
 
     async def _fake_stream(_candidates, messages, **kwargs):
         yield 'data: ' + json.dumps({
-            "delta": "```bash\npwd\n```\n/workspace/missao-mobs"
+            "delta": (
+                "```plaintext /workspace/missao-mobs /project_index.md /src /tests README.md\n"
+                "# Missão Móveis Project Index\n"
+                "This project is designed to manage mobile application development."
+            )
         }) + "\n\n"
         yield "data: [DONE]\n\n"
 
@@ -168,6 +181,10 @@ def test_workspace_evidence_guard_reports_failure_instead_of_accepting_fake_outp
     assert guard is not None, events
     assert guard["nudges"] == 2
     assert guard["workspace"] == "/workspace/missao-mobs"
+    assert not any(
+        "Missão Móveis" in str(e.get("delta") or "")
+        for e in events
+    )
 
 
 def test_emits_loop_breaker_triggered_when_loop_breaker_trips(monkeypatch):
