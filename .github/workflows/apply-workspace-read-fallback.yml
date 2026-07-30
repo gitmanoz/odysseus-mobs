@@ -1,0 +1,169 @@
+name: Apply workspace read fallback
+
+on:
+  push:
+    branches:
+      - agent/mount-mobs-workspace
+    paths:
+      - .github/workflows/apply-workspace-read-fallback.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/mount-mobs-workspace
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply deterministic workspace read fallback
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/agent_loop.py')
+          source = path.read_text(encoding='utf-8')
+
+          helper_anchor = '''def _looks_like_local_computer_request(text: str) -> bool:\n'''
+          helper = r'''_EXPLICIT_WORKSPACE_FILE_READ_RE = re.compile(
+              r'''(?is)\b(?:read|open|inspect|check|ler|leia|abra|abrir|verifique|verificar)\b'''
+              r'''[^\n]{0,240}?(?P<path>/workspace/[A-Za-z0-9._~+@%/:=-]+)'''
+          )
+
+
+          def _deterministic_workspace_read_block(
+              workspace: Optional[str],
+              text: str,
+              relevant_tools: Optional[Set[str]],
+              disabled_tools: Set[str],
+          ) -> Optional[ToolBlock]:
+              """Return a confined read_file call for an explicit absolute workspace path.
+
+              This is a narrow recovery path for local models that repeatedly answer in
+              prose instead of emitting tool syntax. It does not infer filenames or shell
+              commands: the user must explicitly request reading/opening/checking one
+              absolute /workspace/... path, and the normal read_file sandbox still
+              performs the authoritative confinement and filesystem checks.
+              """
+              if not workspace or "read_file" in (disabled_tools or set()):
+                  return None
+              if relevant_tools is not None and "read_file" not in relevant_tools:
+                  return None
+              match = _EXPLICIT_WORKSPACE_FILE_READ_RE.search(str(text or ""))
+              if not match:
+                  return None
+              candidate = match.group("path").rstrip(".,;:!?)]}")
+              root = str(workspace).rstrip("/")
+              if candidate != root and not candidate.startswith(root + "/"):
+                  return None
+              return ToolBlock("read_file", candidate)
+
+
+          '''
+          if helper_anchor not in source:
+              raise SystemExit('helper anchor not found')
+          source = source.replace(helper_anchor, helper + helper_anchor, 1)
+
+          supervisor_anchor = '''        if not tool_blocks:\n            # ── Workspace evidence supervisor ────────────────────────\n'''
+          deterministic = '''        if not tool_blocks and _workspace_evidence_required and not _workspace_evidence_satisfied:\n            _deterministic_read = _deterministic_workspace_read_block(\n                workspace,\n                _last_user,\n                _relevant_tools,\n                disabled_tools,\n            )\n            if _deterministic_read is not None:\n                logger.info(\n                    "[agent] deterministically executing explicit workspace read path=%r",\n                    _deterministic_read.content,\n                )\n                tool_blocks = [_deterministic_read]\n\n        if not tool_blocks:\n            # ── Workspace evidence supervisor ────────────────────────\n'''
+          if supervisor_anchor not in source:
+              raise SystemExit('supervisor anchor not found')
+          source = source.replace(supervisor_anchor, deterministic, 1)
+
+          old_evidence = '''                workspace\n                and block.tool_type in _WORKSPACE_EVIDENCE_TOOLS\n                and not result.get("error")\n                and not result.get("blocked")\n                and result.get("exit_code") in (None, 0)\n            ):\n                _workspace_evidence_satisfied = True\n'''
+          new_evidence = '''                workspace\n                and block.tool_type in _WORKSPACE_EVIDENCE_TOOLS\n                and not result.get("blocked")\n            ):\n                # A real failed read/command is still authoritative evidence. This\n                # lets the following model round explain ENOENT, permission errors,\n                # or non-zero exits instead of treating them as another refusal to\n                # execute a tool and exhausting the workspace guard.\n                _workspace_evidence_satisfied = True\n'''
+          if old_evidence not in source:
+              raise SystemExit('evidence anchor not found')
+          source = source.replace(old_evidence, new_evidence, 1)
+          path.write_text(source, encoding='utf-8')
+
+          tests = Path('tests/test_agent_rounds_exhausted.py')
+          test_source = tests.read_text(encoding='utf-8')
+          addition = r'''
+
+          def test_explicit_missing_workspace_file_uses_real_read_and_explains_failure(monkeypatch):
+              _patch_common(monkeypatch)
+              calls = []
+              rounds = 0
+
+              async def _fake_exec(block, *args, **kwargs):
+                  calls.append((block.tool_type, block.content, kwargs.get("workspace")))
+                  return (
+                      "read_file",
+                      {
+                          "error": "File not found: /workspace/missao-mobs/ARQUIVO_INEXISTENTE_TESTE.md",
+                          "exit_code": 1,
+                      },
+                  )
+
+              async def _fake_stream(_candidates, messages, **kwargs):
+                  nonlocal rounds
+                  rounds += 1
+                  if rounds == 1:
+                      yield 'data: ' + json.dumps({"delta": "Vou tentar ler o arquivo solicitado."}) + "\n\n"
+                  else:
+                      yield 'data: ' + json.dumps({
+                          "delta": (
+                              "A ferramenta real de leitura foi executada, mas o sistema "
+                              "informou que o arquivo não existe. Nenhum conteúdo foi inventado."
+                          )
+                      }) + "\n\n"
+                  yield "data: [DONE]\n\n"
+
+              monkeypatch.setattr(al, "execute_tool_block", _fake_exec, raising=False)
+              monkeypatch.setattr(al, "stream_llm_with_fallback", _fake_stream, raising=False)
+
+              requested = "/workspace/missao-mobs/ARQUIVO_INEXISTENTE_TESTE.md"
+              gen = al.stream_agent_loop(
+                  "http://host.docker.internal:11434/api/chat",
+                  "qwen2.5-coder:7b",
+                  [{
+                      "role": "user",
+                      "content": (
+                          "Tenho um workspace Docker montado em /workspace/missao-mobs. "
+                          f"Utilizando exclusivamente as ferramentas reais disponíveis, tente ler o arquivo: {requested}"
+                      ),
+                  }],
+                  max_rounds=4,
+                  relevant_tools={"read_file", "get_workspace"},
+                  workspace="/workspace/missao-mobs",
+              )
+              events = _types(_collect(gen))
+
+              assert calls == [("read_file", requested, "/workspace/missao-mobs")]
+              assert rounds == 2
+              assert any(
+                  "arquivo não existe" in str(e.get("delta") or "")
+                  for e in events
+              )
+              assert not any(
+                  e.get("reason") == "workspace_tool_evidence_required"
+                  for e in events
+              )
+          '''
+          if 'def test_explicit_missing_workspace_file_uses_real_read_and_explains_failure' not in test_source:
+              tests.write_text(test_source.rstrip() + addition + '\n', encoding='utf-8')
+          PY
+
+      - name: Validate focused tests
+        run: |
+          python -m compileall -q src/agent_loop.py
+          pytest -q tests/test_agent_rounds_exhausted.py tests/test_chat_route_tool_policy.py tests/test_tool_policy.py
+
+      - name: Commit completed patch
+        shell: bash
+        run: |
+          rm .github/workflows/apply-workspace-read-fallback.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/agent_loop.py tests/test_agent_rounds_exhausted.py .github/workflows/apply-workspace-read-fallback.yml
+          git commit -m "fix(workspace): execute explicit file reads deterministically"
+          git push origin HEAD:agent/mount-mobs-workspace
