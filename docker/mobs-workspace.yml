@@ -1,0 +1,18 @@
+# Optional writable M.O.P workspace mount.
+#
+# Enable on Linux/macOS in .env:
+#   COMPOSE_FILE=docker-compose.yml:docker/mobs-workspace.yml
+#   MOBS_WORKSPACE_PATH=/absolute/path/to/M.O.P
+#
+# Enable on Windows in .env:
+#   COMPOSE_FILE=docker-compose.yml;docker/mobs-workspace.yml
+#   MOBS_WORKSPACE_PATH=C:/absolute/path/to/M.O.P
+#
+# The host path remains outside Git. Odysseus exposes the repository at
+# /workspace/M.O.P so it can be selected as an agent workspace.
+services:
+  odysseus:
+    volumes:
+      - type: bind
+        source: ${MOBS_WORKSPACE_PATH:?Set MOBS_WORKSPACE_PATH to the host M.O.P repository}
+        target: /workspace/M.O.P
