@@ -34,8 +34,8 @@ jobs:
 
           helper_anchor = '''def _looks_like_local_computer_request(text: str) -> bool:\n'''
           helper = r'''_EXPLICIT_WORKSPACE_FILE_READ_RE = re.compile(
-              r'''(?is)\b(?:read|open|inspect|check|ler|leia|abra|abrir|verifique|verificar)\b'''
-              r'''[^\n]{0,240}?(?P<path>/workspace/[A-Za-z0-9._~+@%/:=-]+)'''
+              r"(?is)\b(?:read|open|inspect|check|ler|leia|abra|abrir|verifique|verificar)\b"
+              r"[^\n]{0,240}?(?P<path>/workspace/[A-Za-z0-9._~+@%/:=-]+)"
           )
 
 
