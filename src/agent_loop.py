@@ -1070,6 +1070,23 @@ _LOCAL_COMPUTER_REFERENCE_RE = re.compile(
     r"|\b(?:on|from)\s+(?!this\b|my\b|the\b|a\b|an\b)(?:[a-z][a-z0-9_.-]{1,31})\b",
     re.IGNORECASE,
 )
+_WORKSPACE_COMMAND_RE = re.compile(
+    r"(?m)^\s*(?:cd|pwd|ls|head|tail|cat|rg|grep|find|git|pytest|npm|pnpm|"
+    r"yarn|python|python3|node|docker)\b",
+    re.IGNORECASE,
+)
+_WORKSPACE_EVIDENCE_TOOLS = frozenset({
+    "get_workspace",
+    "ls",
+    "glob",
+    "grep",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "apply_patch",
+    "bash",
+    "python",
+})
 
 
 def _looks_like_workspace_coding_request(text: str) -> bool:
@@ -1085,6 +1102,33 @@ def _looks_like_workspace_coding_request(text: str) -> bool:
     if re.search(r"\b(?:pull request|pr|diff|patch)\b", text, re.IGNORECASE):
         return True
     return bool(_WORKSPACE_CODE_ACTION_RE.search(text) and _WORKSPACE_CODE_TARGET_RE.search(text))
+
+
+def _requires_workspace_tool_evidence(
+    workspace: Optional[str],
+    intent: Dict[str, object],
+    text: str,
+    *,
+    guide_only: bool = False,
+) -> bool:
+    """Return whether this turn must prove it touched the bound workspace.
+
+    A model can print a plausible command transcript in an ordinary fenced code
+    block. The chat UI then offers its generic Run button, but the agent itself
+    has not executed anything. For workspace/file requests, accepting that text
+    as a completed turn is both misleading and operationally useless.
+    """
+    if not workspace or guide_only:
+        return False
+    text = str(text or "")
+    domains = set(intent.get("domains") or [])
+    return bool(
+        "files" in domains
+        or _looks_like_workspace_coding_request(text)
+        or workspace in text
+        or "/workspace/" in text
+        or _WORKSPACE_COMMAND_RE.search(text)
+    )
 
 
 def _looks_like_local_computer_request(text: str) -> bool:
@@ -1124,6 +1168,7 @@ def _workspace_coding_rules(workspace: Optional[str]) -> str:
         f"- Active workspace: `{workspace}`. Treat relative paths as relative to this folder.\n"
         "- This mode is for coding, debugging, shell, file, build, benchmark, and repo tasks. Do not use personal-assistant tools like email, calendar, notes, memory, documents, gallery, or UI panels for workspace work.\n"
         "- Work from the real filesystem and command output. Inspect before editing.\n"
+        "- When the request needs workspace facts or command output, call the real tools yourself. Never print commands or a plausible transcript in an ordinary code block as a substitute for execution, and never ask the user to click Run.\n"
         "- Start by orienting with `get_workspace` plus `grep`/`glob`/`ls`/`read_file`; prefer targeted reads over dumping whole files.\n"
         "- For multi-step coding work, call `todowrite` and keep the task list current.\n"
         "- Change repo files with `apply_patch` for related source edits, `edit_file` for one exact replacement, or `write_file` for new/full files. Do not use `create_document`, shell redirects, heredocs, or `sed -i` to modify repo files.\n"
@@ -3152,6 +3197,12 @@ async def stream_agent_loop(
             temperature = 0.2
     _ody_memory_identity_turn = _looks_like_memory_identity_turn(_last_user)
     _intent = _classify_agent_request(messages, _last_user)
+    _workspace_evidence_required = _requires_workspace_tool_evidence(
+        workspace,
+        _intent,
+        _last_user,
+        guide_only=guide_only,
+    )
     _low_signal_turn = bool(_intent.get("low_signal"))
     _casual_low_signal_turn = _is_casual_low_signal(_last_user)
     _existing_conversation = _user_turn_count(messages) > 1
@@ -3845,6 +3896,9 @@ async def stream_agent_loop(
     # that *can't* call the tool from looping forever.
     _intent_nudge_count = 0
     _MAX_INTENT_NUDGES = 2
+    _workspace_evidence_nudge_count = 0
+    _MAX_WORKSPACE_EVIDENCE_NUDGES = 2
+    _workspace_evidence_satisfied = False
 
     # "I said I would, then didn't" detector. The pattern that breaks debug
     # loops on weak models (deepseek-v4-flash mid-2026): the model writes
@@ -4373,6 +4427,66 @@ async def stream_agent_loop(
             yield f'data: {json.dumps({"delta": cleaned_round})}\n\n'
 
         if not tool_blocks:
+            # ── Workspace evidence supervisor ────────────────────────
+            # A normal fenced block renders a manual "Run" button in chat. It
+            # is not a tool call and proves nothing was read or executed. When
+            # the current request depends on an active workspace, refuse to
+            # accept a text-only transcript and give the model another chance
+            # to call a real workspace-scoped tool.
+            if (
+                _workspace_evidence_required
+                and not _workspace_evidence_satisfied
+                and not _force_answer
+            ):
+                if _workspace_evidence_nudge_count < _MAX_WORKSPACE_EVIDENCE_NUDGES:
+                    _workspace_evidence_nudge_count += 1
+                    logger.info(
+                        "[agent] workspace-evidence nudge #%d on round %d workspace=%r",
+                        _workspace_evidence_nudge_count,
+                        round_num,
+                        workspace,
+                    )
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            f"The active workspace is `{workspace}` and this request "
+                            "requires real workspace I/O. Your previous response made "
+                            "no tool call, so any commands, file listings, or outputs "
+                            "you printed are unverified and must not be presented as "
+                            "results. Call `get_workspace` and the appropriate real "
+                            "file/shell tools NOW. Ordinary fenced code blocks and "
+                            "instructions for the user to click Run do not count. "
+                            "If tools cannot execute, return an explicit technical "
+                            "error instead of inventing output."
+                        ),
+                    })
+                    yield f'data: {json.dumps({"type": "agent_step", "round": round_num + 1})}\n\n'
+                    continue
+
+                _guard_message = (
+                    "The agent could not verify the active workspace because it "
+                    "repeatedly returned text instead of executing a workspace tool."
+                )
+                logger.warning(
+                    "[agent] workspace-evidence guard exhausted on round %d after %d nudges workspace=%r",
+                    round_num,
+                    _workspace_evidence_nudge_count,
+                    workspace,
+                )
+                yield (
+                    "data: "
+                    + json.dumps({
+                        "type": "intent_nudge_exhausted",
+                        "reason": "workspace_tool_evidence_required",
+                        "message": _guard_message,
+                        "round": round_num,
+                        "nudges": _workspace_evidence_nudge_count,
+                        "workspace": workspace,
+                    })
+                    + "\n\n"
+                )
+                break
+
             # ── Completion verifier (mechanism 3a) ────────────────────
             # The model is finishing. If this was an effectful agentic turn,
             # have a fresh-context verifier independently check the work
@@ -5062,6 +5176,14 @@ async def stream_agent_loop(
                 # message removes it as answered.
                 tool_event["ask_user"] = _pending_ask_user_event
             tool_events.append(tool_event)
+            if (
+                workspace
+                and block.tool_type in _WORKSPACE_EVIDENCE_TOOLS
+                and not result.get("error")
+                and not result.get("blocked")
+                and result.get("exit_code") in (None, 0)
+            ):
+                _workspace_evidence_satisfied = True
             if block.tool_type in _VERIFIER_EFFECTFUL_TOOLS:
                 _effectful_used = True
 

@@ -81,6 +81,95 @@ def test_emits_intent_nudge_exhausted_when_cap_is_exhausted(monkeypatch):
     assert guard["nudges"] == 2
 
 
+def test_workspace_request_retries_text_transcript_and_executes_real_tool(monkeypatch):
+    _patch_common(monkeypatch)
+    calls = []
+    rounds = 0
+
+    async def _fake_exec(block, *args, **kwargs):
+        calls.append((block.tool_type, kwargs.get("workspace")))
+        return ("workspace", {"output": kwargs.get("workspace"), "exit_code": 0})
+
+    async def _fake_stream(_candidates, messages, **kwargs):
+        nonlocal rounds
+        rounds += 1
+        if rounds == 1:
+            # Native models normally treat this as illustrative text, so the
+            # chat would render a manual Run button instead of executing it.
+            yield 'data: ' + json.dumps({
+                "delta": "```bash\ncd /workspace/missao-mobs && pwd\n```\n/workspace/missao-mobs"
+            }) + "\n\n"
+        elif rounds == 2:
+            yield 'data: ' + json.dumps({
+                "type": "tool_calls",
+                "calls": [{
+                    "id": "call_workspace",
+                    "name": "get_workspace",
+                    "arguments": "{}",
+                }],
+            }) + "\n\n"
+        else:
+            yield 'data: ' + json.dumps({"delta": "Workspace verified."}) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(al, "execute_tool_block", _fake_exec, raising=False)
+    monkeypatch.setattr(al, "stream_llm_with_fallback", _fake_stream, raising=False)
+
+    gen = al.stream_agent_loop(
+        "https://api.openai.com/v1",
+        "gpt-test",
+        [{
+            "role": "user",
+            "content": (
+                "Execute exactly:\n"
+                "cd /workspace/missao-mobs && pwd\n"
+                "head -n 5 /workspace/missao-mobs/PROJECT_INDEX.md"
+            ),
+        }],
+        max_rounds=4,
+        relevant_tools={"get_workspace", "bash"},
+        workspace="/workspace/missao-mobs",
+    )
+    events = _types(_collect(gen))
+
+    assert calls == [("get_workspace", "/workspace/missao-mobs")]
+    assert rounds == 3
+    assert any(e.get("type") == "tool_start" and e.get("tool") == "get_workspace" for e in events)
+    assert not any(
+        e.get("reason") == "workspace_tool_evidence_required"
+        for e in events
+    )
+
+
+def test_workspace_evidence_guard_reports_failure_instead_of_accepting_fake_output(monkeypatch):
+    _patch_common(monkeypatch)
+
+    async def _fake_stream(_candidates, messages, **kwargs):
+        yield 'data: ' + json.dumps({
+            "delta": "```bash\npwd\n```\n/workspace/missao-mobs"
+        }) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(al, "stream_llm_with_fallback", _fake_stream, raising=False)
+    gen = al.stream_agent_loop(
+        "https://api.openai.com/v1",
+        "gpt-test",
+        [{"role": "user", "content": "Run pwd in /workspace/missao-mobs"}],
+        max_rounds=4,
+        relevant_tools={"get_workspace", "bash"},
+        workspace="/workspace/missao-mobs",
+    )
+    events = _types(_collect(gen))
+
+    guard = next(
+        (e for e in events if e.get("reason") == "workspace_tool_evidence_required"),
+        None,
+    )
+    assert guard is not None, events
+    assert guard["nudges"] == 2
+    assert guard["workspace"] == "/workspace/missao-mobs"
+
+
 def test_emits_loop_breaker_triggered_when_loop_breaker_trips(monkeypatch):
     _patch_common(monkeypatch)
 

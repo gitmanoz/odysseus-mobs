@@ -32,34 +32,34 @@ binds the web UI to `127.0.0.1` by default. If the port is taken, set
 `APP_PORT=7001` in `.env` and recreate the container. Set `APP_BIND=0.0.0.0`
 only when you intentionally want LAN/reverse-proxy access.
 
-#### Mount an external M.O.P workspace
+#### Mount an external missao-mobs workspace
 
 Docker containers cannot browse arbitrary host folders until they are explicitly
-mounted. To make a local M.O.P checkout available to the Odysseus agent, enable
+mounted. To make a local missao-mobs checkout available to the Odysseus agent, enable
 the optional workspace overlay in your untracked `.env`.
 
 Windows with Docker Desktop:
 
 ```env
 COMPOSE_FILE=docker-compose.yml;docker/mobs-workspace.yml
-MOBS_WORKSPACE_PATH=C:/absolute/path/to/M.O.P
+MOBS_WORKSPACE_PATH=C:/absolute/path/to/missao-mobs
 ```
 
 Linux or macOS:
 
 ```env
 COMPOSE_FILE=docker-compose.yml:docker/mobs-workspace.yml
-MOBS_WORKSPACE_PATH=/absolute/path/to/M.O.P
+MOBS_WORKSPACE_PATH=/absolute/path/to/missao-mobs
 ```
 
 Recreate the Odysseus service after saving `.env`:
 
 ```bash
 docker compose up -d --force-recreate odysseus
-docker compose exec odysseus ls -la /workspace/M.O.P
+docker compose exec -T odysseus ls -la /workspace/missao-mobs
 ```
 
-Then open **Agent -> Workspace**, select `/workspace/M.O.P`, and choose
+Then open **Agent -> Workspace**, select `/workspace/missao-mobs`, and choose
 **Use this folder**. The mount is writable so the agent can create and edit
 repository files; review changes before committing or pushing them. Keep the
 real host path in `.env`, which is not committed.
