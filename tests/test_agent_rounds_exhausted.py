@@ -195,3 +195,105 @@ def test_emits_loop_breaker_triggered_when_loop_breaker_trips(monkeypatch):
     guard = next((e for e in events if e.get("type") == "loop_breaker_triggered"), None)
     assert guard is not None, events
     assert guard["reason"] == "loop_breaker_stall"
+
+
+def test_explicit_missing_workspace_file_uses_real_read_and_explains_failure(monkeypatch):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(al, "blocked_tools_for_owner", lambda owner: set(), raising=False)
+    calls = []
+    rounds = 0
+
+    async def _fake_exec(block, *args, **kwargs):
+        calls.append((block.tool_type, block.content, kwargs.get("workspace")))
+        return (
+            "read_file",
+            {
+                "error": "File not found: /workspace/missao-mobs/ARQUIVO_INEXISTENTE_TESTE.md",
+                "exit_code": 1,
+            },
+        )
+
+    async def _fake_stream(_candidates, messages, **kwargs):
+        nonlocal rounds
+        rounds += 1
+        if rounds == 1:
+            yield 'data: ' + json.dumps({"delta": "Vou tentar ler o arquivo solicitado."}) + "\n\n"
+        else:
+            yield 'data: ' + json.dumps({
+                "delta": (
+                    "A ferramenta real de leitura foi executada, mas o sistema "
+                    "informou que o arquivo não existe. Nenhum conteúdo foi inventado."
+                )
+            }) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(al, "execute_tool_block", _fake_exec, raising=False)
+    monkeypatch.setattr(al, "stream_llm_with_fallback", _fake_stream, raising=False)
+
+    requested = "/workspace/missao-mobs/ARQUIVO_INEXISTENTE_TESTE.md"
+    gen = al.stream_agent_loop(
+        "http://host.docker.internal:11434/api/chat",
+        "qwen2.5-coder:7b",
+        [{
+            "role": "user",
+            "content": (
+                "Tenho um workspace Docker montado em /workspace/missao-mobs. "
+                f"Utilizando exclusivamente as ferramentas reais disponíveis, tente ler o arquivo: {requested}"
+            ),
+        }],
+        max_rounds=4,
+        relevant_tools={"read_file", "get_workspace"},
+        workspace="/workspace/missao-mobs",
+    )
+    events = _types(_collect(gen))
+
+    assert calls == [("read_file", requested, "/workspace/missao-mobs")]
+    assert rounds == 2
+    assert any(
+        "arquivo não existe" in str(e.get("delta") or "")
+        for e in events
+    )
+    assert not any(
+        e.get("reason") == "workspace_tool_evidence_required"
+        for e in events
+    )
+
+
+def test_deterministic_read_rejects_path_outside_active_workspace():
+    block = al._deterministic_workspace_read_block(
+        "/workspace/missao-mobs",
+        "Leia /workspace/outro-repo/SECRET.md",
+        {"read_file"},
+        set(),
+    )
+    assert block is None
+
+def test_deterministic_read_accepts_explicit_active_workspace_path():
+    requested = "/workspace/missao-mobs/ARQUIVO_INEXISTENTE_TESTE.md"
+    block = al._deterministic_workspace_read_block(
+        "/workspace/missao-mobs",
+        f"tente ler o arquivo: {requested}",
+        {"read_file"},
+        set(),
+    )
+    assert block == al.ToolBlock("read_file", requested)
+
+
+def test_deterministic_read_requires_selected_read_file_tool():
+    block = al._deterministic_workspace_read_block(
+        "/workspace/missao-mobs",
+        "Leia /workspace/missao-mobs/README.md",
+        {"get_workspace", "ls"},
+        set(),
+    )
+    assert block is None
+
+
+def test_deterministic_read_rejects_disabled_read_file_tool():
+    block = al._deterministic_workspace_read_block(
+        "/workspace/missao-mobs",
+        "Leia /workspace/missao-mobs/README.md",
+        {"read_file"},
+        {"read_file"},
+    )
+    assert block is None

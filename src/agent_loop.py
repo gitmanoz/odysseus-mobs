@@ -1131,6 +1131,42 @@ def _requires_workspace_tool_evidence(
     )
 
 
+_EXPLICIT_WORKSPACE_FILE_READ_RE = re.compile(
+    r"(?is)\b(?:read|open|inspect|check|ler|leia|abra|abrir|verifique|verificar)\b"
+    r".{0,240}?(?P<path>/workspace/[A-Za-z0-9._~+@%/:=-]+)"
+)
+
+
+def _deterministic_workspace_read_block(
+    workspace: Optional[str],
+    text: str,
+    relevant_tools: Optional[Set[str]],
+    disabled_tools: Set[str],
+) -> Optional[ToolBlock]:
+    """Build a confined ``read_file`` call for one explicit workspace path.
+
+    This is a deliberately narrow recovery path for local models that answer in
+    prose instead of emitting tool syntax. The user must explicitly ask to read,
+    open, inspect, or check an absolute ``/workspace/...`` file path. The normal
+    ``read_file`` implementation remains responsible for confinement and actual
+    filesystem errors.
+    """
+    if (
+        not workspace
+        or (relevant_tools is not None and "read_file" not in relevant_tools)
+        or "read_file" in (disabled_tools or set())
+    ):
+        return None
+    match = _EXPLICIT_WORKSPACE_FILE_READ_RE.search(str(text or ""))
+    if not match:
+        return None
+    candidate = match.group("path").rstrip(".,;:!?)]}")
+    root = str(workspace).rstrip("/")
+    if candidate != root and not candidate.startswith(root + "/"):
+        return None
+    return ToolBlock("read_file", candidate)
+
+
 def _looks_like_local_computer_request(text: str) -> bool:
     text = str(text or "")
     return bool(text.strip() and _LOCAL_COMPUTER_REFERENCE_RE.search(text))
@@ -4449,6 +4485,25 @@ async def stream_agent_loop(
         ):
             yield f'data: {json.dumps({"delta": cleaned_round})}\n\n'
 
+        if (
+            not tool_blocks
+            and _workspace_evidence_required
+            and not _workspace_evidence_satisfied
+            and not _force_answer
+        ):
+            _deterministic_read = _deterministic_workspace_read_block(
+                workspace,
+                _last_user,
+                _relevant_tools,
+                disabled_tools,
+            )
+            if _deterministic_read is not None:
+                logger.info(
+                    "[agent] deterministically executing explicit workspace read path=%r",
+                    _deterministic_read.content,
+                )
+                tool_blocks = [_deterministic_read]
+
         if not tool_blocks:
             # ── Workspace evidence supervisor ────────────────────────
             # A normal fenced block renders a manual "Run" button in chat. It
@@ -5202,10 +5257,11 @@ async def stream_agent_loop(
             if (
                 workspace
                 and block.tool_type in _WORKSPACE_EVIDENCE_TOOLS
-                and not result.get("error")
                 and not result.get("blocked")
-                and result.get("exit_code") in (None, 0)
             ):
+                # A real failed read/command is still authoritative evidence.
+                # Preserve ENOENT, permission errors, and non-zero exits for the
+                # next model round instead of treating them as refusal to act.
                 _workspace_evidence_satisfied = True
             if block.tool_type in _VERIFIER_EFFECTFUL_TOOLS:
                 _effectful_used = True
