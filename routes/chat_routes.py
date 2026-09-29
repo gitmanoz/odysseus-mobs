@@ -45,6 +45,10 @@ from routes.chat_helpers import (
 from src.action_intents import ToolIntent, classify_tool_intent as _classify_tool_intent
 from src.image_model_ids import looks_like_image_generation_model
 from src.mobs_auto_router import is_mobs_auto, resolve_mobs_auto_route
+from src.mobs_mandate_builder import (
+    MandateProposalError, apply_proposal_action, build_proposal, proposal_summary,
+    save_proposal, set_status,
+)
 from src.tool_policy import (
     WEB_TOOL_NAMES,
     build_effective_tool_policy,
@@ -777,8 +781,15 @@ def setup_chat_routes(
         chat_mode = str(form_data.get("mode", "")).lower()  # 'chat' or 'agent'
         # Workspace: confine the agent's file/shell tools to this folder.
         workspace, workspace_rejected = _resolve_request_workspace(
-            request, form_data.get("workspace")
+            request, form_data.get("workspace") or (body or {}).get("workspace")
         )
+        # MOBS is an explicit chat action. It is never inferred from a message
+        # or model choice, and the Agent Loop still validates its contract.
+        mobs_action = str(form_data.get("mobs_action") or (body or {}).get("mobs_action") or "").strip().lower()
+        mobs_authority_workspace = str(form_data.get("mobs_authority_workspace") or (body or {}).get("mobs_authority_workspace") or "").strip()
+        mobs_category = str(form_data.get("mobs_category") or (body or {}).get("mobs_category") or "").strip()
+        mobs_profile = str(form_data.get("mobs_profile") or (body or {}).get("mobs_profile") or "read_only").strip()
+        mobs_project_profile = str(form_data.get("mobs_project_profile") or (body or {}).get("mobs_project_profile") or "generic").strip()
         # Plan mode is a modifier on agent mode — it only makes sense with tools.
         if plan_mode:
             chat_mode = "agent"
@@ -992,9 +1003,84 @@ def setup_chat_routes(
         # Ensure session has auth headers
         resolve_session_auth(sess, session, owner=effective_user(request))
 
+        async def _mobs_reply(kind: str, data: dict):
+            yield f'data: {json.dumps({"type": kind, "data": data})}\n\n'
+            yield "data: [DONE]\n\n"
+
+        mobs_execution = None
+        if mobs_action:
+            if mobs_action not in {"propose", "review", "approve", "cancel"}:
+                raise HTTPException(400, "Invalid MOBS action")
+            from src.tool_security import owner_is_admin_or_single_user
+            if not owner_is_admin_or_single_user(effective_user(request)):
+                raise HTTPException(403, "MOBS workspace access is not authorized")
+            payload = {**(body or {}), **dict(form_data)}
+            allowed_fields = {"mobs_action"}
+            if mobs_action == "propose":
+                allowed_fields |= {"mobs_authority_workspace", "mobs_category", "mobs_profile", "mobs_project_profile"}
+            else:
+                allowed_fields |= {"mobs_proposal_id", "mobs_proposal_digest", "mobs_authority_snapshot"}
+            trusted_fields = {"source", "target", "authorities", "authority_documents", "authority_review",
+                              "authority_snapshot", "baseline", "approvals", "mobs_execution", "proposal",
+                              "proposal_id", "proposal_digest", "capabilities", "project_profile",
+                              "capability_profile_version", "allowed_paths", "allowed_tools", "allowed_commands",
+                              "allowed_operations", "limits", "approval_required_operations", "exclusions", "scope"}
+            trusted_fields |= {"authorization", "review_record", "reviewer", "reviewer_binding", "installation_id",
+                               "account", "account_digest", "approval", "approval_reference", "binding_sha256",
+                               "reviewer_authorization", "founder_approval", "authorization_id", "authorization_version",
+                               "approval_evidence", "founder_confirmed", "principal"}
+            if any(key in trusted_fields or (key.startswith("mobs_") and key not in allowed_fields)
+                   for key in payload):
+                raise HTTPException(400, "Client cannot replace trusted MOBS proposal state")
+            if mobs_action == "propose":
+                try:
+                    proposal = build_proposal(
+                        message, target_workspace=workspace,
+                        authority_workspace=mobs_authority_workspace or None,
+                        category=mobs_category, profile=mobs_profile,
+                        project_profile=mobs_project_profile,
+                    )
+                    save_proposal(session, proposal)
+                except MandateProposalError as exc:
+                    raise HTTPException(400, f"MOBS proposal blocked: {exc}") from exc
+                return StreamingResponse(
+                    _mobs_reply("mobs_mandate_proposal", proposal_summary(proposal)),
+                    media_type="text/event-stream",
+                )
+            reference = {key: str(payload.get("mobs_" + key) or "") for key in
+                         ("proposal_id", "proposal_digest", "authority_snapshot")}
+            if mobs_action == "approve" and _is_image_generation_session(sess, owner=effective_user(request)):
+                raise HTTPException(400, "MOBS execution requires an Agent Loop compatible model")
+            try:
+                from src.mobs_reviewer_authorization import human_reviewer, ReviewerAuthorizationError
+                try:
+                    actor = human_reviewer(request) if mobs_action in {"review", "approve"} else effective_user(request)
+                    if mobs_action in {"review", "approve"} and actor.username != effective_user(request):
+                        raise HTTPException(400, "MOBS requester identity does not match the human session")
+                except ReviewerAuthorizationError as exc:
+                    raise HTTPException(403, str(exc)) from exc
+                result = apply_proposal_action(session, mobs_action, reference, actor)
+            except MandateProposalError as exc:
+                raise HTTPException(400, f"MOBS action blocked: {exc}") from exc
+            if mobs_action in {"review", "cancel"}:
+                return StreamingResponse(
+                    _mobs_reply("mobs_authority_reviewed" if mobs_action == "review" else "mobs_mandate_cancelled", result),
+                    media_type="text/event-stream",
+                )
+            mobs_execution = result
+            message = str(result["request"])
+            workspace = result["target"]["path"]
+            chat_mode = "agent"
+            plan_mode = False
+            use_research = use_web = use_rag = "false"
+            compare_mode = False
+            _search_enabled = False
+            _explicit_browser_intent = False
+            auto_escalated = False
+
         # Check for research_pending BEFORE mode persist overwrites it
         do_research = str(use_research).lower() == "true"
-        if not do_research:
+        if not do_research and mobs_execution is None:
             if get_session_mode(session) == 'research_pending':
                 do_research = True
                 logger.info(f"Session {session} in research_pending — auto-triggering research")
@@ -1010,14 +1096,14 @@ def setup_chat_routes(
 
         image_generation_session = _is_image_generation_session(sess, owner=effective_user(request))
         no_memory = str(form_data.get("no_memory", "")).lower() == "true"
-        if image_generation_session:
+        if image_generation_session or mobs_execution is not None:
             no_memory = True
             use_rag = "false"
             search_context = None
         pre_context_tool_policy = build_effective_tool_policy(
             last_user_message=message,
         )
-        allow_tool_preprocessing = not pre_context_tool_policy.block_all_tool_calls
+        allow_tool_preprocessing = mobs_execution is None and not pre_context_tool_policy.block_all_tool_calls
 
         # Build shared context (stream path uses enhanced_message for context preface)
         ctx = await build_chat_context(
@@ -1718,6 +1804,7 @@ def setup_chat_routes(
                 _answered_by = None  # set if the selected model failed and a fallback answered
                 _requested_model = getattr(sess, "requested_model", sess.model)
                 _actual_model = None
+                _mobs_ledger = []
                 try:
                     from src.settings import get_setting
                     from src.agent_tools import MAX_AGENT_ROUNDS as _DEFAULT_ROUNDS
@@ -1768,6 +1855,7 @@ def setup_chat_routes(
                         workspace=workspace or None,
                         forced_tools=_forced_tools,
                         uploaded_files=ctx.uploaded_files,
+                        **({"mobs_execution": mobs_execution} if mobs_execution is not None else {}),
                     ):
                         if chunk.startswith("data: ") and not chunk.startswith("data: [DONE]"):
                             try:
@@ -1800,6 +1888,9 @@ def setup_chat_routes(
                                     elif data.get("type") == "tool_start":
                                         _agent_tool_calls += 1
                                     yield chunk
+                                elif data.get("type", "").startswith("institutional_"):
+                                    _mobs_ledger.append(data)
+                                    yield chunk
                                 elif data.get("type") == "fallback":
                                     # Selected model failed; a fallback answered.
                                     # Forward the notice and remember the real
@@ -1830,6 +1921,10 @@ def setup_chat_routes(
                         elif chunk.startswith("event: "):
                             yield chunk
                         elif chunk == "data: [DONE]\n\n":
+                            if mobs_execution:
+                                _mobs_final = "blocked" if any(item.get("type") == "institutional_blocked" for item in _mobs_ledger) else "completed"
+                                set_status(session, _mobs_final, _mobs_ledger,
+                                           proposal_id=mobs_execution["proposal_id"])
                             _has_tool_events = bool((last_metrics or {}).get("tool_events"))
                             if full_response or _has_tool_events:
                                 _response_to_save = full_response or "Done."
@@ -1930,6 +2025,19 @@ def setup_chat_routes(
         _verify_session_owner(request, session_id)
         if not agent_runs.is_active(session_id):
             raise HTTPException(404, "No active run for this session")
+        from src.mobs_mandate_builder import load_proposal, load_authority_review, validate_execution_review, validate_authority_snapshot
+        proposal = load_proposal(session_id)
+        if proposal is not None and proposal["status"] == "approved":
+            from src.mobs_reviewer_authorization import human_reviewer, authorize_reviewer, ReviewerAuthorizationError
+            try:
+                actor = human_reviewer(request)
+                validate_authority_snapshot(proposal)
+                review = load_authority_review(proposal["authority_snapshot"], actor.username)
+                validate_execution_review(proposal, review)
+                if authorize_reviewer(proposal, actor) != review["authorization"]:
+                    raise ReviewerAuthorizationError("Reviewer authorization has changed")
+            except (MandateProposalError, ReviewerAuthorizationError) as exc:
+                raise HTTPException(403, f"MOBS resume blocked: {exc}") from exc
         return StreamingResponse(agent_runs.subscribe(session_id), media_type="text/event-stream")
 
     # ------------------------------------------------------------------ #

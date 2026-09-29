@@ -280,18 +280,26 @@ class BashTool:
         progress_cb = ctx.get("progress_cb")
         _subproc_env = ctx.get("subproc_env")
         session_id = ctx.get("session_id")
+        configured_timeout = ctx.get("shell_timeout")
+        timeout = (
+            configured_timeout
+            if isinstance(configured_timeout, (int, float))
+            and not isinstance(configured_timeout, bool)
+            and configured_timeout > 0
+            else DEFAULT_BASH_TIMEOUT
+        )
         if session_id and shutil.which("tmux"):
             stdout, stderr, rc, timed_out = await _run_tmux_bash(
                 content,
                 session_id=str(session_id),
                 cwd=agent_cwd(),
                 env=_subproc_env,
-                timeout=DEFAULT_BASH_TIMEOUT,
+                timeout=timeout,
                 progress_cb=progress_cb,
             )
             if timed_out:
                 return {
-                    "error": f"bash: timed out after {DEFAULT_BASH_TIMEOUT}s — sent Ctrl-C to tmux session",
+                    "error": f"bash: timed out after {timeout}s — sent Ctrl-C to tmux session",
                     "exit_code": 124,
                     "stdout": _truncate(stdout, MAX_OUTPUT_CHARS),
                     "stderr": _truncate(stderr, MAX_OUTPUT_CHARS),
@@ -316,11 +324,11 @@ class BashTool:
         )
         stdout, stderr, rc, timed_out = await _run_subprocess_streaming(
             proc,
-            timeout=DEFAULT_BASH_TIMEOUT,
+            timeout=timeout,
             progress_cb=progress_cb,
         )
         if timed_out:
-            return {"error": f"bash: timed out after {DEFAULT_BASH_TIMEOUT}s — process killed", "exit_code": 124, "stdout": _truncate(stdout, MAX_OUTPUT_CHARS), "stderr": _truncate(stderr, MAX_OUTPUT_CHARS)}
+            return {"error": f"bash: timed out after {timeout}s — process killed", "exit_code": 124, "stdout": _truncate(stdout, MAX_OUTPUT_CHARS), "stderr": _truncate(stderr, MAX_OUTPUT_CHARS)}
         output = stdout.rstrip()
         err = stderr.rstrip()
         if err:

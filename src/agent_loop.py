@@ -3076,7 +3076,49 @@ def _detect_runaway_call(call_freq, threshold=15):
     return sig.split(":", 1)[0] if sig else None
 
 
-async def stream_agent_loop(
+_MOBS_NOT_REQUESTED = object()
+
+
+async def stream_agent_loop(*args, mobs_execution=_MOBS_NOT_REQUESTED, **kwargs) -> AsyncGenerator[str, None]:
+    """Existing executor, with an explicit opt-in institutional preflight.
+
+    Only trusted runtime callers submit reviewed MOBS mandates. No model-name
+    or natural-language heuristic silently grants institutional authority.
+    """
+    from src.mobs_institutional_boot import institutional_boot, InstitutionalBootError
+    context = None
+    try:
+        if mobs_execution is not _MOBS_NOT_REQUESTED:
+            from src.tool_security import owner_is_admin_or_single_user
+            if not owner_is_admin_or_single_user(kwargs.get("owner")):
+                raise InstitutionalBootError("Institutional workspace access is not authorized")
+            context = await asyncio.to_thread(
+                institutional_boot, mobs_execution, kwargs.get("workspace")
+            )
+            if kwargs.get("owner") != context.review_record.get("reviewer"):
+                raise InstitutionalBootError("Execution owner does not match the authorized reviewer")
+            yield f"data: {json.dumps({'type': 'institutional_boot', 'data': {'source': context.source, 'target': context.target, 'authorities': list(context.documents)}})}\n\n"
+            # The mandate narrows the existing dispatcher; it never adds a
+            # second tool path or grants a tool by natural-language inference.
+            allowed = set(context.execution.allowed_tools)
+            kwargs["plan_mode"] = allowed.issubset({"read_file", "ls", "grep", "glob", "get_workspace"})
+            kwargs["disabled_tools"] = set(kwargs.get("disabled_tools") or ()) | (set(TOOL_TAGS) - allowed)
+            kwargs["relevant_tools"] = allowed
+        async for chunk in _stream_agent_loop(*args, institutional_context=context, **kwargs):
+            if context and chunk == "data: [DONE]\n\n":
+                continue
+            yield chunk
+        if context:
+            await asyncio.to_thread(context.verify)
+            yield f"data: {json.dumps({'type': 'institutional_verified', 'data': {'source': context.source, 'target': context.target, 'final_target': context.expected_target, 'mutations': context.mutation_ledger}})}\n\n"
+            yield "data: [DONE]\n\n"
+    except InstitutionalBootError as exc:
+        yield f"data: {json.dumps({'delta': 'MOBS execution blocked: ' + str(exc)})}\n\n"
+        yield f"data: {json.dumps({'type': 'institutional_blocked', 'reason': str(exc)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+
+async def _stream_agent_loop(
     endpoint_url: str,
     model: str,
     messages: List[Dict],
@@ -3102,6 +3144,7 @@ async def stream_agent_loop(
     uploaded_files: Optional[List[Dict]] = None,
     workload: str = "foreground",
     _is_teacher_run: bool = False,
+    institutional_context=None,
 ) -> AsyncGenerator[str, None]:
     """Streaming agent loop generator.
 
@@ -3114,7 +3157,7 @@ async def stream_agent_loop(
       - data: [DONE]                                        (end)
     """
 
-    mcp_mgr = get_mcp_manager()
+    mcp_mgr = None if institutional_context else get_mcp_manager()
     prep_timings: Dict[str, float] = {}
     disabled_tools = set(disabled_tools or [])
     if tool_policy:
@@ -3741,6 +3784,9 @@ async def stream_agent_loop(
             messages.insert(0, {"role": "system", "content": GUIDE_ONLY_DIRECTIVE})
     prep_timings["prompt_build"] = time.time() - _t2
 
+    if institutional_context:
+        messages = _insert_before_latest_user(messages, institutional_context.message())
+
     _t3 = time.time()
     try:
         from src.context_compactor import trim_for_context
@@ -3792,6 +3838,16 @@ async def stream_agent_loop(
     except Exception as e:
         logger.warning("[agent] Soft context trim skipped: %s", e)
     prep_timings["context_trim"] = time.time() - _t3
+
+    if institutional_context:
+        # A future reducer must not silently drop any reviewed authority.
+        protected = institutional_context.message()
+        if not any(m.get("content") == protected["content"] for m in messages):
+            from src.mobs_institutional_boot import InstitutionalBootError
+            raise InstitutionalBootError("Institutional context lost during prompt reduction")
+        if context_length and estimate_tokens(messages) + max_tokens > context_length:
+            from src.mobs_institutional_boot import InstitutionalBootError
+            raise InstitutionalBootError("Reviewed institutional context exceeds model capacity")
 
     # Strip internal metadata keys before sending to the LLM API
     messages = [{k: v for k, v in msg.items() if k != "_protected"} for msg in messages]
@@ -3878,6 +3934,14 @@ async def stream_agent_loop(
     _exhausted_rounds = False
 
     for round_num in range(1, max_rounds + 1):
+        if institutional_context:
+            await asyncio.to_thread(institutional_context.verify)
+            if not any(m.get("content") == institutional_context.message()["content"] for m in messages):
+                from src.mobs_institutional_boot import InstitutionalBootError
+                raise InstitutionalBootError("Institutional context lost between rounds")
+            if context_length and estimate_tokens(messages) + max_tokens > context_length:
+                from src.mobs_institutional_boot import InstitutionalBootError
+                raise InstitutionalBootError("Institutional context exceeds model capacity")
         round_response = ""
         round_reasoning = ""  # reasoning_content deltas (DeepSeek-thinking, vLLM --reasoning-parser)
         native_tool_calls = []  # populated if model uses function calling
@@ -4605,6 +4669,12 @@ async def stream_agent_loop(
         tool_result_texts = []  # plain text for native tool role messages
         budget_hit = False
         for i, block in enumerate(tool_blocks):
+            pending_action = None
+            if institutional_context:
+                from src.mobs_institutional_boot import InstitutionalBootError
+                pending_action = await asyncio.to_thread(
+                    institutional_context.authorize_tool, block.tool_type, block.content
+                )
             # --- Tool budget check ---
             if max_tool_calls > 0 and total_tool_calls >= max_tool_calls:
                 yield f'data: {json.dumps({"type": "budget_exceeded", "limit": max_tool_calls, "used": total_tool_calls})}\n\n'
@@ -4657,6 +4727,11 @@ async def stream_agent_loop(
                             owner=owner,
                             progress_cb=_push_progress,
                             workspace=workspace,
+                            shell_timeout=(
+                                institutional_context.execution.command_timeout_seconds
+                                if institutional_context and block.tool_type == "bash"
+                                else None
+                            ),
                         )
                     finally:
                         # Sentinel so the drainer knows to stop.
@@ -4688,6 +4763,19 @@ async def stream_agent_loop(
                             await _tool_task
                         except (asyncio.CancelledError, Exception):
                             pass
+
+            if institutional_context and pending_action:
+                if block.tool_type == "bash":
+                    action = await asyncio.to_thread(
+                        institutional_context.complete_command, pending_action, result
+                    )
+                    event_type = "institutional_command"
+                else:
+                    action = await asyncio.to_thread(
+                        institutional_context.complete_mutation, pending_action
+                    )
+                    event_type = "institutional_mutation"
+                yield f'data: {json.dumps({"type": event_type, "data": action})}\n\n'
 
             # A skill the model just loaded can prescribe tools that weren't
             # RAG-selected this turn (declared via requires_toolsets in its
@@ -5135,6 +5223,9 @@ async def stream_agent_loop(
         # paths, including a verifier `continue` on the final round (the old
         # bottom-of-loop flag missed those).
         _exhausted_rounds = True
+
+    if institutional_context:
+        await asyncio.to_thread(institutional_context.verify)
 
     # If the loop hit the round cap while still working, tell the client so it
     # can show a "Continue" affordance instead of the turn just stopping.

@@ -46,6 +46,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
   let _contextHeaderSeq = 0;
   let _contextHeaderData = null;
   let _contextHeaderBound = false;
+  // Explicit user-selected MOBS action. The browser never carries a mandate,
+  // authority hashes, approval markers, or baselines.
+  let _mobsAction = null;
 
   function _fmtContextNumber(n) {
     const v = Number(n || 0);
@@ -712,6 +715,22 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       try { requestAnimationFrame(() => _wireArrowUpRecall(document.getElementById('message'))); } catch (_) {}
       setTimeout(() => _wireArrowUpRecall(document.getElementById('message')), 250);
     }
+    const mobsButton = document.getElementById('mobs-toggle-btn');
+    if (mobsButton) mobsButton.addEventListener('click', () => {
+      const workspace = (Storage.KEYS && Storage.get(Storage.KEYS.WORKSPACE, '')) || '';
+      if (!workspace) { uiModule.showToast('Select the target workspace before preparing MOBS.', 5000); return; }
+      const authorityWorkspace = window.prompt('Local MOBS authority workspace:');
+      if (!authorityWorkspace) return;
+      const category = window.prompt('MOBS Decision Tree category:', 'Código');
+      if (!category) return;
+      const profile = window.prompt('Execution profile: read_only or development', 'read_only');
+      if (!['read_only', 'development'].includes(profile)) return;
+      const projectProfile = window.prompt('Project capability profile: generic, python, or godot', 'generic');
+      if (!projectProfile) return;
+      _mobsAction = { action: 'propose', authorityWorkspace, category, profile, projectProfile,
+        session: sessionModule.getCurrentSessionId() };
+      uiModule.showToast('MOBS proposal configured. Send the task to request review.', 5000);
+    });
   }
 
   // addMessage, createMsgFooter, displayMetrics, hideWelcomeScreen, showWelcomeScreen
@@ -721,6 +740,26 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
   var displayMetrics = chatRenderer.displayMetrics;
   var hideWelcomeScreen = chatRenderer.hideWelcomeScreen;
   var showWelcomeScreen = chatRenderer.showWelcomeScreen;
+
+  function mobsActionButtons(card, proposal, reviewed) {
+    if (!card) return;
+    const presentedSession = sessionModule.getCurrentSessionId();
+    for (const action of [reviewed ? 'approve' : 'review', 'cancel']) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = action === 'review' ? 'Confirm authority snapshot review' :
+        action === 'approve' ? 'Approve this mandate for execution' : 'Cancel this proposal';
+      button.addEventListener('click', () => {
+        if (sessionModule.getCurrentSessionId() !== presentedSession) return;
+        if (!window.confirm(action === 'review' ? 'Confirm you read the displayed authorities and find this snapshot consistent?' :
+          action === 'approve' ? 'Approve exactly the displayed objective and permissions?' : 'Cancel exactly this proposal?')) return;
+        _mobsAction = { action, session: presentedSession, proposalId: proposal.proposal_id,
+          proposalDigest: proposal.proposal_digest, authoritySnapshot: proposal.authority_snapshot };
+        uiModule.showToast('Exact MOBS action staged. Press Send to submit.', 5000);
+      });
+      card.appendChild(button);
+    }
+  }
 
   /**
    * Update submit button state
@@ -1710,6 +1749,21 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       const _ws = (Storage.KEYS && Storage.get(Storage.KEYS.WORKSPACE, '')) || '';
       if (_ws) {
         fd.append('workspace', _ws);
+      }
+      if (_mobsAction) {
+        if (_mobsAction.session && _mobsAction.session !== sessionModule.getCurrentSessionId()) {
+          _mobsAction = null;
+          throw new Error('MOBS action belongs to another session. Select the proposal again.');
+        }
+        fd.append('mobs_action', _mobsAction.action);
+        if (_mobsAction.proposalId) fd.append('mobs_proposal_id', _mobsAction.proposalId);
+        if (_mobsAction.proposalDigest) fd.append('mobs_proposal_digest', _mobsAction.proposalDigest);
+        if (_mobsAction.authoritySnapshot) fd.append('mobs_authority_snapshot', _mobsAction.authoritySnapshot);
+        if (_mobsAction.authorityWorkspace) fd.append('mobs_authority_workspace', _mobsAction.authorityWorkspace);
+        if (_mobsAction.category) fd.append('mobs_category', _mobsAction.category);
+        if (_mobsAction.profile) fd.append('mobs_profile', _mobsAction.profile);
+        if (_mobsAction.projectProfile) fd.append('mobs_project_profile', _mobsAction.projectProfile);
+        _mobsAction = null;
       }
       if (presetsModule.getSelectedPreset()) {
         fd.append('preset_id', presetsModule.getSelectedPreset());
@@ -3310,6 +3364,40 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 chatRenderer.renderAskUserCard(json.data || {});
+
+              } else if (json.type === 'mobs_mandate_proposal') {
+                if (_isBg) continue;
+                const p = json.data || {};
+                const e = p.authority_evidence || {};
+                const source = e.source || {};
+                const authorities = Object.entries(e.authorities || {}).map(([path, hash]) => `${path}: ${hash}`).join('\n');
+                const documents = Object.entries(e.documents || {}).map(([path, content]) => `--- ${path} ---\n${content}`).join('\n\n');
+                const card = addMessage('assistant', 'MOBS mandate proposal — review evidence below before confirming.');
+                const evidence = document.createElement('pre');
+                evidence.style.whiteSpace = 'pre-wrap';
+                evidence.textContent = `Proposal: ${p.proposal_id}\nVersion: ${p.proposal_digest}\nSnapshot: ${p.authority_snapshot}\n\nObjective: ${p.objective || ''}\nScope: ${p.scope || ''}\nProject profile: ${p.project_profile || ''} v${p.capability_profile_version || ''}\nPaths: ${(p.allowed_paths || []).join(', ')}\nTools: ${(p.allowed_tools || []).join(', ')}\nOperations: ${(p.allowed_operations || []).join(', ')}\nCommands: ${(p.allowed_commands || []).join(', ')}\nExclusions: ${p.exclusions || ''}\nLimits: ${JSON.stringify(p.limits || {})}\nAuthority review: ${p.authority_review || 'pending'}\n\nAuthority snapshot\nSource: ${source.path || ''}\nBranch: ${source.branch || ''}\nCommit: ${source.head || ''}\nWorking tree: ${source.working_tree_status || '(clean)'}\nFingerprint: ${source.working_tree_sha256 || ''}\n\nAuthority hashes\n${authorities}\n\nAuthority contents\n${documents}`;
+                if (card) card.appendChild(evidence);
+                mobsActionButtons(card, p, false);
+
+              } else if (json.type === 'mobs_authority_reviewed') {
+                if (_isBg) continue;
+                const reviewed = json.data || {};
+                const card = addMessage('assistant', `Authority snapshot reviewed: ${reviewed.authority_snapshot}. Proposal: ${reviewed.proposal_id}; version: ${reviewed.proposal_digest}. Mandate approval is still required.`);
+                mobsActionButtons(card, reviewed, true);
+
+              } else if (json.type === 'mobs_mandate_cancelled') {
+                if (_isBg) continue;
+                addMessage('assistant', 'MOBS mandate cancelled.');
+
+              } else if (typeof json.type === 'string' && json.type.startsWith('institutional_')) {
+                if (_isBg) continue;
+                const labels = {
+                  institutional_boot: 'MOBS institutional boot verified.',
+                  institutional_mutation: 'MOBS mutation recorded.',
+                  institutional_verified: 'MOBS execution verified.',
+                  institutional_blocked: 'MOBS execution blocked.',
+                };
+                uiModule.showToast(labels[json.type] || 'MOBS execution progress.', 4000);
 
               } else if (json.type === 'plan_update') {
                 if (_isBg) continue;

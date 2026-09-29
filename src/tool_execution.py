@@ -241,11 +241,19 @@ def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
 _active_workspace: contextvars.ContextVar = contextvars.ContextVar(
     "agent_active_workspace", default=None
 )
+_active_shell_timeout: contextvars.ContextVar = contextvars.ContextVar(
+    "agent_active_shell_timeout", default=None
+)
 
 
 def get_active_workspace() -> Optional[str]:
     """The folder the agent is confined to this turn, or None."""
     return _active_workspace.get()
+
+
+def get_active_shell_timeout() -> Optional[float]:
+    """An optional per-call bash timeout set by the existing dispatcher."""
+    return _active_shell_timeout.get()
 
 
 def vet_workspace(raw: str) -> Optional[str]:
@@ -537,6 +545,7 @@ async def _direct_fallback(
             "subproc_env": _subproc_env,
             "session_id": session_id,
             "owner": owner,
+            "shell_timeout": get_active_shell_timeout(),
         }
 
         from src.agent_tools import TOOL_HANDLERS
@@ -574,6 +583,7 @@ async def execute_tool_block(
     owner: Optional[str] = None,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
     workspace: Optional[str] = None,
+    shell_timeout: Optional[float] = None,
     tool_policy: Optional[Any] = None,
 ) -> Tuple[str, Dict]:
     """Execute a single tool block. Returns (description, result_dict).
@@ -583,6 +593,7 @@ async def execute_tool_block(
     way out so the binding never leaks to the next tool call.
     """
     token = _active_workspace.set(workspace or None)
+    timeout_token = _active_shell_timeout.set(shell_timeout)
     try:
         output = await _execute_tool_block_impl(
             block,
@@ -595,6 +606,7 @@ async def execute_tool_block(
         return output
     finally:
         _active_workspace.reset(token)
+        _active_shell_timeout.reset(timeout_token)
 
 
 async def _execute_tool_block_impl(

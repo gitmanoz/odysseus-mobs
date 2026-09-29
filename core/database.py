@@ -280,6 +280,27 @@ class ChatMessage(Base):
         Index('ix_messages_session_time', 'session_id', 'timestamp'),  # Composite for efficient message retrieval
     )
 
+
+class MobsExecution(TimestampMixin, Base):
+    """The one reviewed MOBS execution state associated with a chat session."""
+    __tablename__ = "mobs_executions"
+
+    session_id = Column(String, ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True)
+    target_path = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending", index=True)
+    proposal_json = Column(Text, nullable=False)
+    ledger_json = Column(Text, nullable=False, default="[]")
+
+
+class MobsAuthorityReview(TimestampMixin, Base):
+    """A human review bound to one immutable institutional evidence snapshot."""
+    __tablename__ = "mobs_authority_reviews"
+
+    snapshot_id = Column(String, primary_key=True)
+    snapshot_json = Column(Text, nullable=False)
+    reviewer = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="consistent")
+
 class Document(TimestampMixin, Base):
     """Living document that the AI can create and edit in-place."""
     __tablename__ = "documents"
