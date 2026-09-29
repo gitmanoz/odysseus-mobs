@@ -288,6 +288,12 @@ class BashTool:
             and configured_timeout > 0
             else DEFAULT_BASH_TIMEOUT
         )
+        trusted_execution = ctx.get("trusted_execution")
+        if trusted_execution is not None:
+            # The approved command is already tokenized and compiled by the
+            # Institutional Boot. Bypass tmux and the ordinary inherited-env
+            # shell path for this governed Windows operation only.
+            return await trusted_execution.execute()
         if session_id and shutil.which("tmux"):
             stdout, stderr, rc, timed_out = await _run_tmux_bash(
                 content,

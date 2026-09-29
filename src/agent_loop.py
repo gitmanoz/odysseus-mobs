@@ -3114,7 +3114,7 @@ async def stream_agent_loop(*args, mobs_execution=_MOBS_NOT_REQUESTED, **kwargs)
             yield "data: [DONE]\n\n"
     except InstitutionalBootError as exc:
         yield f"data: {json.dumps({'delta': 'MOBS execution blocked: ' + str(exc)})}\n\n"
-        yield f"data: {json.dumps({'type': 'institutional_blocked', 'reason': str(exc)})}\n\n"
+        yield f"data: {json.dumps({'type': 'institutional_blocked', 'reason': str(exc), 'ledger': context.mutation_ledger if context else []})}\n\n"
         yield "data: [DONE]\n\n"
 
 
@@ -4732,6 +4732,12 @@ async def _stream_agent_loop(
                                 if institutional_context and block.tool_type == "bash"
                                 else None
                             ),
+                            trusted_execution=(
+                                pending_action.boundary_policy
+                                if institutional_context and block.tool_type == "bash" and pending_action
+                                else None
+                            ),
+                            governed_read=bool(institutional_context),
                         )
                     finally:
                         # Sentinel so the drainer knows to stop.

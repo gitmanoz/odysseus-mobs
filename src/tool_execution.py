@@ -244,6 +244,12 @@ _active_workspace: contextvars.ContextVar = contextvars.ContextVar(
 _active_shell_timeout: contextvars.ContextVar = contextvars.ContextVar(
     "agent_active_shell_timeout", default=None
 )
+_active_trusted_execution: contextvars.ContextVar = contextvars.ContextVar(
+    "agent_active_trusted_execution", default=None
+)
+_active_governed_read: contextvars.ContextVar = contextvars.ContextVar(
+    "agent_active_governed_read", default=False
+)
 
 
 def get_active_workspace() -> Optional[str]:
@@ -531,7 +537,8 @@ async def _direct_fallback(
     session_id: Optional[str] = None,
     owner: Optional[str] = None,
 ) -> Optional[Dict]:
-    _subproc_env = {
+    _subproc_env = {} if (_active_trusted_execution.get() is not None or
+                          _active_governed_read.get()) else {
         **os.environ,
         "TERM": "xterm-256color",
         "COLUMNS": "120",
@@ -546,6 +553,8 @@ async def _direct_fallback(
             "session_id": session_id,
             "owner": owner,
             "shell_timeout": get_active_shell_timeout(),
+            "trusted_execution": _active_trusted_execution.get(),
+            "governed_read": _active_governed_read.get(),
         }
 
         from src.agent_tools import TOOL_HANDLERS
@@ -584,6 +593,8 @@ async def execute_tool_block(
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
     workspace: Optional[str] = None,
     shell_timeout: Optional[float] = None,
+    trusted_execution: Optional[Any] = None,
+    governed_read: bool = False,
     tool_policy: Optional[Any] = None,
 ) -> Tuple[str, Dict]:
     """Execute a single tool block. Returns (description, result_dict).
@@ -594,6 +605,8 @@ async def execute_tool_block(
     """
     token = _active_workspace.set(workspace or None)
     timeout_token = _active_shell_timeout.set(shell_timeout)
+    trusted_token = _active_trusted_execution.set(trusted_execution)
+    governed_token = _active_governed_read.set(governed_read)
     try:
         output = await _execute_tool_block_impl(
             block,
@@ -607,6 +620,8 @@ async def execute_tool_block(
     finally:
         _active_workspace.reset(token)
         _active_shell_timeout.reset(timeout_token)
+        _active_trusted_execution.reset(trusted_token)
+        _active_governed_read.reset(governed_token)
 
 
 async def _execute_tool_block_impl(
@@ -754,7 +769,20 @@ async def _execute_tool_block_impl(
     # Route MCP-extracted tools through the MCP manager. Forward
     # the progress callback so long-running subprocess tools
     # (bash, python) can stream `tool_progress` events to the UI.
-    if tool in _MCP_TOOL_MAP:
+    if tool == "bash" and _active_trusted_execution.get() is not None:
+        # Governed commands must reach the existing BashTool with its bound
+        # Windows adapter, even when an MCP bash server is configured.
+        desc = f"bash: {content.split(chr(10))[0][:80]}"
+        result = await _direct_fallback(tool, content, progress_cb=progress_cb) \
+            or {"error": "bash: trusted execution failed", "exit_code": 1}
+    elif tool in {"read_file", "write_file"} and _active_governed_read.get():
+        # Governed filesystem calls use the existing in-process handlers; an
+        # independently running MCP filesystem server would sit outside this
+        # execution boundary.
+        desc = f"{tool}: {content.split(chr(10))[0][:80]}"
+        result = await _direct_fallback(tool, content, progress_cb=progress_cb) \
+            or {"error": f"{tool}: governed execution failed", "exit_code": 1}
+    elif tool in _MCP_TOOL_MAP:
         first_line = content.split(chr(10))[0][:80]
         desc = f"{tool}: {first_line}"
         result = await _call_mcp_tool(tool, content, progress_cb=progress_cb)

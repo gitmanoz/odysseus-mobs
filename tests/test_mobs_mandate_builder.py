@@ -73,7 +73,8 @@ def test_creates_conservative_proposal_from_selected_local_workspaces(projects):
     assert item["authority_review"] == "pending"
     assert set(item["allowed_paths"]) == {"src/**", "tests/**", "docs/**"}
     assert "bash" in item["allowed_tools"]
-    assert "git status" in item["allowed_commands"]
+    assert "python -m pytest" in item["allowed_commands"]
+    assert "git status" not in item["allowed_commands"]
     assert "commit" not in " ".join(item["allowed_commands"])
     assert set(proposal_summary(item)) >= {"objective", "scope", "allowed_paths", "limits"}
     assert proposal_summary(item)["authority_evidence"]["documents"]["PROJECT_INDEX.md"].startswith("# Index")
@@ -102,18 +103,17 @@ def test_generic_profile_supports_repo_without_src_tests_or_docs(projects, tmp_p
     assert item["allowed_paths"] == ["game/**"]
 
 
-def test_godot_profile_derives_real_godot_paths_and_command(projects, monkeypatch):
+def test_godot_profile_derives_real_paths_without_unsupported_commands(projects):
     source, target = projects
     (target / "project.godot").write_text("[application]\nconfig/name='Fixture'\n", encoding="utf-8")
     for name in ("addons", "scripts", "scenes", "assets", "resources", "shaders", "textures"):
         (target / name).mkdir(exist_ok=True)
-    monkeypatch.setattr("src.mobs_mandate_builder.shutil.which", lambda name: "C:/godot.exe" if name == "godot" else None)
     item = build_proposal("Validate", target_workspace=str(target), authority_workspace=str(source),
                           category="Código", project_profile="godot", profile="development")
     assert "project.godot" in item["allowed_paths"]
     assert "scripts/**" in item["allowed_paths"]
     assert "textures/**" in item["allowed_paths"]
-    assert "godot --headless --path . --editor --quit" in item["allowed_commands"]
+    assert not any(command.startswith("godot") for command in item["allowed_commands"])
 
 
 def test_godot_profile_blocks_path_outside_its_capability(projects):
@@ -141,7 +141,51 @@ def test_profile_change_requires_a_new_proposal(projects):
     with pytest.raises(MandateProposalError, match="version or permissions"):
         validate_proposal_identity(altered)
     # The approval flow loads the persisted proposal; a browser selection cannot replace it.
-    assert item["capability_profile_version"] == "1"
+    assert item["capability_profile_version"] == "2"
+
+
+def test_persisted_older_capability_profile_cannot_be_reused(projects):
+    from src import mobs_mandate_builder as builder
+
+    item = proposal(projects)
+    old = copy.deepcopy(item)
+    old["capability_profile_version"] = "1"
+    old["capabilities"]["version"] = "1"
+    old["proposal_digest"] = builder._proposal_digest(old)
+    with pytest.raises(MandateProposalError, match="Capability profile version or permissions are incompatible"):
+        validate_proposal_identity(old)
+    old["status"] = "approved"
+    with pytest.raises(MandateProposalError, match="Capability profile version or permissions are incompatible"):
+        approved_execution(old, {"status": "consistent"})
+
+
+def test_saved_proposal_of_older_profile_requires_new_review(projects):
+    import json
+    from core.database import MobsExecution, Session, SessionLocal
+    from src import mobs_mandate_builder as builder
+
+    item = proposal(projects)
+    db = SessionLocal()
+    try:
+        db.add(Session(id="old-profile-session", name="Test", model="fixture",
+                       endpoint_url="http://localhost/api/chat"))
+        db.commit()
+    finally:
+        db.close()
+    builder.save_proposal("old-profile-session", item)
+    old = copy.deepcopy(item)
+    old["capability_profile_version"] = "1"
+    old["capabilities"]["version"] = "1"
+    old["proposal_digest"] = builder._proposal_digest(old)
+    db = SessionLocal()
+    try:
+        row = db.query(MobsExecution).filter(MobsExecution.session_id == "old-profile-session").one()
+        row.proposal_json = json.dumps(old)
+        db.commit()
+    finally:
+        db.close()
+    with pytest.raises(MandateProposalError, match="Capability profile version or permissions are incompatible"):
+        builder.load_proposal("old-profile-session")
 
 
 def test_rejects_missing_target_project(projects, tmp_path):

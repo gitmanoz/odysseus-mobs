@@ -18,6 +18,10 @@ _CODENAV_MAX_HITS = 200
 _CODENAV_MAX_LINE = 400
 
 
+def _is_link_or_junction(path: str) -> bool:
+    return os.path.islink(path) or bool(getattr(os.path, "isjunction", lambda _: False)(path))
+
+
 def _glob_to_regex(pat: str) -> "re.Pattern":
     """Translate a forward-slash glob (**, *, ?) into a compiled regex.
     `**/` matches zero or more complete directories.
@@ -507,7 +511,7 @@ class GlobTool:
                 # .ssh/id_rsa, …) falls through to the walk, which skips it —
                 # otherwise glob would surface secret paths that read_file /
                 # grep already refuse to touch.
-                if inside and os.path.exists(cand) and not _is_sensitive_path(cand):
+                if inside and os.path.exists(cand) and not _is_sensitive_path(cand) and not (ctx.get("governed_read") and _is_link_or_junction(cand)):
                     return [cand], None
                 # Literal not at exact path — fall through to walk so
                 # e.g. "foo.py" still matches at any depth (like rglob).
@@ -524,9 +528,12 @@ class GlobTool:
                     dns[:] = [
                         d for d in dns
                         if d not in _CODENAV_SKIP_DIRS and d not in _SENSITIVE_BASENAMES
+                        and not (ctx.get("governed_read") and _is_link_or_junction(os.path.join(dp, d)))
                     ]
                     for name in fns + dns:
                         full = os.path.join(dp, name)
+                        if ctx.get("governed_read") and _is_link_or_junction(full):
+                            continue
                         rel = os.path.relpath(full, base).replace(os.sep, "/")
                         if regex.fullmatch(rel) or regex.fullmatch(name):
                             # Skip deny-listed sensitive files (.env, id_rsa,
@@ -591,7 +598,7 @@ class GrepTool:
         def _grep():
             import re as _re
             import shutil
-            rg = shutil.which("rg")
+            rg = None if ctx.get("governed_read") else shutil.which("rg")
             if rg:
                 cmd = [rg, "--line-number", "--no-heading", "--color=never",
                        "--max-count", str(max_hits)]
@@ -627,7 +634,8 @@ class GrepTool:
             else:
                 file_iter = []
                 for dp, dns, fns in os.walk(root):
-                    dns[:] = [d for d in dns if d not in _CODENAV_SKIP_DIRS]
+                    dns[:] = [d for d in dns if d not in _CODENAV_SKIP_DIRS and
+                              not (ctx.get("governed_read") and _is_link_or_junction(os.path.join(dp, d)))]
                     for fn in fns:
                         if glob_pat and not fnmatch.fnmatch(fn, glob_pat):
                             continue
@@ -635,6 +643,9 @@ class GrepTool:
             for fp in file_iter:
                 if len(hits) >= max_hits:
                     break
+                if ctx.get("governed_read") and (_is_link_or_junction(fp) or
+                        os.path.commonpath((os.path.realpath(fp), os.path.realpath(root))) != os.path.realpath(root)):
+                    continue
                 if _is_sensitive_path(os.path.realpath(fp)):
                     continue
                 try:

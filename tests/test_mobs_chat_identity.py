@@ -198,6 +198,23 @@ def test_persisted_proposal_tampering_is_rejected_by_route(chat, field):
     assert chat.post("review", p).status_code == 400
 
 
+def test_route_rejects_persisted_older_capability_profile_even_with_matching_reference(chat):
+    from core.database import MobsExecution
+    from src import mobs_mandate_builder as builder
+
+    propose(chat)
+    with chat.factory() as db:
+        row = db.get(MobsExecution, "s")
+        old = json.loads(row.proposal_json)
+        old["capability_profile_version"] = "1"
+        old["capabilities"]["version"] = "1"
+        old["proposal_digest"] = builder._proposal_digest(old)
+        row.proposal_json = json.dumps(old)
+        db.commit()
+    assert chat.post("review", old).status_code == 400
+    assert chat.post("approve", old).status_code == 400
+
+
 def test_exact_snapshot_review_can_be_reused_but_never_mandate_approval(chat):
     p = propose(chat)
     event(chat.post("review", p), "mobs_authority_reviewed")

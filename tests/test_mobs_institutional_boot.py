@@ -73,7 +73,7 @@ def writable_mandate(mandate, tmp_path):
         exclusions='No deletion, publication, deployment, credentials, or Git operations',
         allowed_paths=['allowed/**'],
         allowed_tools=['write_file', 'edit_file', 'apply_patch', 'read_file'],
-        allowed_operations=['read', 'write'],
+        allowed_operations=['read', 'write', 'create'],
         approval_required_operations=[], approvals={},
         limits={'max_steps': 8, 'time_limit_seconds': 60, 'command_timeout_seconds': None},
         allowed_commands=[],
@@ -230,11 +230,18 @@ def shell_mandate(mandate, tmp_path, commands, timeout=2):
     mandate.update(
         exclusions='No shell composition, Git writes, installation, deployment, publication, or credentials',
         allowed_tools=['bash', 'write_file', 'edit_file', 'apply_patch', 'read_file'],
-        allowed_operations=['read', 'write', 'test', 'lint', 'typecheck', 'build', 'git_read'],
+        allowed_operations=['read', 'write', 'create', 'test', 'lint', 'typecheck', 'build', 'git_read'],
         allowed_commands=commands,
         limits={'max_steps': 8, 'time_limit_seconds': 60, 'command_timeout_seconds': timeout},
     )
     return mandate
+
+
+def contained_result(**fields):
+    """A mocked dispatcher result must carry trusted boundary evidence."""
+    return {"output": "", "exit_code": 0,
+            "trusted_execution": {"adapter": "windows_appcontainer_job_v1", "effects": []},
+            **fields}
 
 
 def test_real_loop_sends_reviewed_context_and_preserves_single_done(mandate, monkeypatch):
@@ -438,6 +445,35 @@ def test_write_outside_allowed_scope_is_blocked_before_dispatch(mandate, tmp_pat
     assert any('Path is outside mandate' in chunk for chunk in chunks)
 
 
+def test_read_scope_and_create_scope_are_distinct(mandate, tmp_path):
+    mandate = writable_mandate(mandate, tmp_path)
+    mandate['allowed_read_paths'] = ['allowed/existing.txt']
+    mandate['allowed_write_paths'] = ['allowed/existing.txt']
+    mandate['allowed_create_paths'] = []
+    mandate['allowed_tools'].append('grep')
+    ctx = boot(mandate)
+    assert ctx.authorize_tool('read_file', 'allowed/existing.txt') is None
+    with pytest.raises(InstitutionalBootError, match='outside mandate'):
+        ctx.authorize_tool('read_file', 'allowed/missing.txt')
+    with pytest.raises(InstitutionalBootError, match='Read search root'):
+        ctx.authorize_tool('grep', '{"pattern":"x","path":"allowed"}')
+    with pytest.raises(InstitutionalBootError, match='outside mandate'):
+        ctx.authorize_tool('write_file', 'allowed/new.txt\ncontent')
+    assert ctx.authorize_tool('write_file', 'allowed/existing.txt\ncontent').operations == ('write',)
+    mandate['allowed_read_paths'] = []
+    blind = boot(mandate)
+    with pytest.raises(InstitutionalBootError, match='outside mandate'):
+        blind.authorize_tool('edit_file', '{"path":"allowed/existing.txt","old_string":"before","new_string":"after"}')
+
+
+@pytest.mark.parametrize('path', ['allowed/NUL', 'allowed/CON.txt', 'allowed/file.txt:stream', 'allowed/file.'])
+def test_windows_device_and_stream_paths_are_not_authorizable(mandate, tmp_path, path):
+    mandate = writable_mandate(mandate, tmp_path)
+    ctx = boot(mandate)
+    with pytest.raises(InstitutionalBootError, match='Invalid'):
+        ctx.authorize_tool('read_file', path)
+
+
 def test_unapproved_tool_is_blocked_before_dispatch(mandate, tmp_path, monkeypatch):
     mandate = writable_mandate(mandate, tmp_path)
     loop = loop_setup(monkeypatch)
@@ -527,7 +563,7 @@ def test_authorized_shell_command_uses_existing_dispatcher_and_records_ledger(ma
         yield 'data: [DONE]\n\n'
     async def execute(block, **kwargs):
         calls.append((block.tool_type, kwargs['workspace'], kwargs['shell_timeout']))
-        return ('bash', {'output': '', 'exit_code': 0})
+        return ('bash', contained_result())
     monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
     monkeypatch.setattr(loop, 'execute_tool_block', execute)
     chunks = run_governed(loop, mandate)
@@ -589,7 +625,7 @@ def test_shell_timeout_is_propagated_to_existing_bash_tool(mandate, tmp_path, mo
         yield 'data: [DONE]\n\n'
     async def execute(block, **kwargs):
         received.append(kwargs['shell_timeout'])
-        return ('bash', {'error': 'bash: timed out after 1s — process killed', 'exit_code': 124})
+        return ('bash', contained_result(error='bash: timed out after 1s — process killed', exit_code=124))
     monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
     monkeypatch.setattr(loop, 'execute_tool_block', execute)
     chunks = run_governed(loop, mandate)
@@ -627,8 +663,8 @@ def test_failed_test_can_be_observed_and_retried_in_next_loop_round(mandate, tmp
     loop = loop_setup(monkeypatch)
     model_calls = 0
     results = [
-        {'output': '1 failed', 'exit_code': 1},
-        {'output': '1 passed', 'exit_code': 0},
+        contained_result(output='1 failed', exit_code=1),
+        contained_result(output='1 passed', exit_code=0),
     ]
     async def stream(candidates, messages, **kwargs):
         nonlocal model_calls
@@ -653,9 +689,9 @@ def test_external_drift_during_command_is_detected(mandate, tmp_path, monkeypatc
         yield 'data: [DONE]\n\n'
     async def drift(block, **kwargs):
         (Path(kwargs['workspace']) / 'intruder.txt').write_text('external drift', encoding='utf-8')
-        return ('bash', {'output': '', 'exit_code': 0})
+        return ('bash', contained_result())
     monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
     monkeypatch.setattr(loop, 'execute_tool_block', drift)
     chunks = run_governed(loop, mandate)
-    assert any('Unexpected drift during command' in chunk for chunk in chunks)
+    assert any('Target workspace drift during private command' in chunk for chunk in chunks)
     assert not any('institutional_verified' in chunk for chunk in chunks)

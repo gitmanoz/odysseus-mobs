@@ -7,7 +7,6 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
-from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +31,7 @@ _SHELL_METACHARACTERS = re.compile(r"[\r\n;&|><`$%^!]")
 
 
 def _command_tokens(value: Any, label: str) -> tuple[str, ...]:
-    if (not isinstance(value, str) or not value.strip() or "\\" in value
+    if (not isinstance(value, str) or not value.strip() or "\\" in value or ":" in value
             or _SHELL_METACHARACTERS.search(value)):
         raise InstitutionalBootError(f"Invalid {label}")
     try:
@@ -81,18 +80,55 @@ def _command_allowed(tokens: tuple[str, ...], allowed: tuple[tuple[str, ...], ..
 
 
 def _portable_path(value: Any, label: str) -> str:
-    if not isinstance(value, str) or not value or "\\" in value or "\0" in value:
+    if not isinstance(value, str) or not value or "\\" in value or "\0" in value or ":" in value:
         raise InstitutionalBootError(f"Invalid {label}")
     if value.startswith("/") or re.match(r"^[A-Za-z]:", value):
         raise InstitutionalBootError(f"{label} must be relative to the authorized project")
     parts = value.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise InstitutionalBootError(f"Invalid {label}")
+    if any(part.endswith((".", " ")) or re.fullmatch(
+            r"(?i)(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?", part)
+            for part in parts):
+        raise InstitutionalBootError(f"Invalid Windows {label}")
     return value
 
 
 def _path_is_allowed(path: str, patterns: tuple[str, ...]) -> bool:
-    return any(fnmatchcase(path, pattern) for pattern in patterns)
+    from src.agent_tools.filesystem_tools import _glob_to_regex
+    return any(_glob_to_regex(pattern).fullmatch(path) for pattern in patterns)
+
+
+def _search_root_allowed(path: str, patterns: tuple[str, ...]) -> bool:
+    """A search may only descend into a wholly approved subtree."""
+    if not path:
+        return "**" in patterns
+    return "**" in patterns or any(
+        pattern.endswith("/**") and
+        (path == pattern[:-3] or path.startswith(pattern[:-3] + "/"))
+        for pattern in patterns
+    )
+
+
+def _read_tool_path(content: str, tool: str) -> str:
+    if tool == "get_workspace":
+        return ""
+    value = (content or "").strip()
+    if value.startswith("{"):
+        try:
+            args = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise InstitutionalBootError("Invalid read tool input") from exc
+        if not isinstance(args, dict):
+            raise InstitutionalBootError("Invalid read tool input")
+        raw = args.get("path", "")
+    elif tool in {"grep", "glob"}:
+        raw = ""
+    else:
+        raw = value.split("\n", 1)[0]
+    if raw in {"", "."} and tool != "read_file":
+        return ""
+    return _portable_path(raw, "read path")
 
 
 def _tool_path(content: str, tool: str) -> str:
@@ -173,6 +209,8 @@ class PendingCommand:
     command: str
     operation: str
     before_entries: dict[str, str]
+    before_inventory: dict[str, str] | None = None
+    boundary_policy: Any = None
 
 
 @dataclass(frozen=True)
@@ -180,6 +218,9 @@ class ExecutionMandate:
     objective: str
     scope: str
     allowed_paths: tuple[str, ...]
+    allowed_read_paths: tuple[str, ...]
+    allowed_write_paths: tuple[str, ...]
+    allowed_create_paths: tuple[str, ...]
     allowed_tools: frozenset[str]
     allowed_operations: frozenset[str]
     approval_required_operations: frozenset[str]
@@ -206,6 +247,19 @@ class ExecutionMandate:
         if not isinstance(paths, list) or not paths:
             raise InstitutionalBootError("Mandate needs nonempty allowed_paths")
         allowed_paths = tuple(_portable_path(path, "allowed path") for path in paths)
+        def permission_paths(key: str, fallback: list[str]) -> tuple[str, ...]:
+            selected = request.get(key, fallback)
+            if not isinstance(selected, list):
+                raise InstitutionalBootError(f"Invalid {key}")
+            resolved = tuple(_portable_path(path, key) for path in selected)
+            if any(not any(parent == "**" or path == parent or
+                           parent.endswith("/**") and path.startswith(parent[:-3] + "/")
+                           for parent in allowed_paths) for path in resolved):
+                raise InstitutionalBootError(f"{key} exceeds allowed_paths")
+            return resolved
+        read_paths = permission_paths("allowed_read_paths", paths)
+        write_paths = permission_paths("allowed_write_paths", paths)
+        create_paths = permission_paths("allowed_create_paths", paths)
         tools = request["allowed_tools"]
         if not isinstance(tools, list) or not tools or not all(isinstance(tool, str) for tool in tools):
             raise InstitutionalBootError("Mandate needs nonempty allowed_tools")
@@ -246,6 +300,8 @@ class ExecutionMandate:
         return cls(
             objective=request["objective"].strip(), scope=request["scope"].strip(),
             allowed_paths=allowed_paths, allowed_tools=allowed_tools,
+            allowed_read_paths=read_paths, allowed_write_paths=write_paths,
+            allowed_create_paths=create_paths,
             allowed_operations=frozenset(operations),
             approval_required_operations=frozenset(approval_required),
             approvals={key: value.strip() for key, value in approvals.items()},
@@ -424,9 +480,22 @@ class InstitutionalContext:
         if requires_approval and not self.execution.approvals.get(operation):
             raise InstitutionalBootError(f'Explicit approval required for operation: {operation}')
 
-    def _authorize_path(self, path: str) -> None:
-        if not _path_is_allowed(path, self.execution.allowed_paths):
+    def _authorize_path(self, path: str, operation: str) -> None:
+        patterns = {
+            "read": self.execution.allowed_read_paths,
+            "write": self.execution.allowed_write_paths,
+            "create": self.execution.allowed_create_paths,
+        }[operation]
+        if not _path_is_allowed(path, patterns):
             raise InstitutionalBootError(f'Path is outside mandate: {path}')
+        root = Path(self.target['path']).resolve(strict=True)
+        resolved = (root / path).resolve()
+        try:
+            actual = resolved.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise InstitutionalBootError(f'Path escapes target workspace: {path}') from exc
+        if not _path_is_allowed(actual, patterns):
+            raise InstitutionalBootError(f'Resolved path is outside mandate: {path}')
 
     def authorize_tool(self, tool: str, content: str) -> PendingMutation | PendingCommand | None:
         """Check a parsed existing tool invocation before its dispatcher runs."""
@@ -437,6 +506,18 @@ class InstitutionalContext:
         self._steps += 1
         if tool in _READ_ONLY_TOOLS:
             self._require_operation('read')
+            if tool != 'get_workspace':
+                path = _read_tool_path(content, tool)
+                if tool == 'read_file':
+                    self._authorize_path(path, 'read')
+                else:
+                    root = Path(self.target['path']).resolve(strict=True)
+                    try:
+                        actual = (root / path).resolve().relative_to(root).as_posix() if path else ''
+                    except ValueError as exc:
+                        raise InstitutionalBootError('Read search root escapes target workspace') from exc
+                    if not _search_root_allowed(path, self.execution.allowed_read_paths) or not _search_root_allowed(actual, self.execution.allowed_read_paths):
+                        raise InstitutionalBootError(f'Read search root is outside mandate: {path or "."}')
             return None
         if tool == 'bash':
             tokens = _command_tokens(content, 'shell command')
@@ -444,11 +525,26 @@ class InstitutionalContext:
             if not _command_allowed(tokens, self.execution.allowed_commands):
                 raise InstitutionalBootError('Shell command is outside mandate')
             self._require_operation(operation)
-            return PendingCommand(content.strip(), operation, _working_tree_entries(Path(self.target['path'])))
+            from src.windows_native_execution import WindowsExecutionPolicy, inventory
+            return PendingCommand(content.strip(), operation,
+                                  _working_tree_entries(Path(self.target['path'])),
+                                  inventory(Path(self.target['path']), include_git=True),
+                                  WindowsExecutionPolicy(
+                                      self.target['path'], tokens,
+                                      self.execution.allowed_read_paths,
+                                      self.execution.allowed_write_paths,
+                                      self.execution.allowed_create_paths,
+                                      self.execution.command_timeout_seconds,
+                                  ))
         if tool in {'write_file', 'edit_file'}:
             path = _tool_path(content, tool)
-            self._authorize_path(path)
-            operations = ['write']
+            is_create = tool == 'write_file' and not (Path(self.target['path']) / path).exists()
+            operation = 'create' if is_create else 'write'
+            self._authorize_path(path, operation)
+            if not is_create:
+                self._authorize_path(path, 'read')
+                self._require_operation('read')
+            operations = [operation]
             if _SECRET_PATH.search(path):
                 operations.append('credentials')
             for operation in operations:
@@ -459,8 +555,11 @@ class InstitutionalContext:
             paths = []
             operations = []
             for kind, path in patch_operations:
-                self._authorize_path(path)
-                operation = 'delete' if kind == 'delete' else 'write'
+                operation = 'delete' if kind == 'delete' else 'create' if kind == 'add' else 'write'
+                self._authorize_path(path, 'write' if operation == 'delete' else operation)
+                if operation != 'create':
+                    self._authorize_path(path, 'read')
+                    self._require_operation('read')
                 paths.append(path)
                 operations.append(operation)
                 if _SECRET_PATH.search(path):
@@ -515,14 +614,36 @@ class InstitutionalContext:
         """Keep command evidence and accept only command-local workspace changes."""
         if self.execution.time_limit_seconds is not None and time.monotonic() - self._started_at > self.execution.time_limit_seconds:
             raise InstitutionalBootError('Mandate time limit exceeded during command')
-        changed_paths, next_target = self._complete_workspace_action(
-            pending.before_entries, self.execution.allowed_paths, 'command'
-        )
+        from src.windows_native_execution import TrustedExecutionUnavailable, inventory
+        boundary = result.get('trusted_execution') if isinstance(result, dict) else None
+        if not isinstance(boundary, dict) or boundary.get('adapter') != 'windows_appcontainer_job_v1':
+            self.mutation_ledger.append({
+                'tool': 'bash', 'command': pending.command, 'operation': pending.operation,
+                'status': 'blocked', 'exit_code': result.get('exit_code') if isinstance(result, dict) else None,
+                'reason': result.get('error') if isinstance(result, dict) else 'Missing execution result',
+            })
+            raise InstitutionalBootError('Required Windows execution boundary was not applied')
+        try:
+            if inventory(Path(self.target['path']), include_git=True) != pending.before_inventory:
+                raise InstitutionalBootError('Target workspace drift during private command')
+            if capture_repository(self.target['path']) != self.expected_target:
+                raise InstitutionalBootError('Repository baseline drift during private command')
+            if capture_repository(self.source['path']) != self.expected_source:
+                raise InstitutionalBootError('Institutional repository drift during private command')
+        except (InstitutionalBootError, TrustedExecutionUnavailable) as exc:
+            self.mutation_ledger.append({
+                'tool': 'bash', 'command': pending.command, 'operation': pending.operation,
+                'status': 'blocked', 'exit_code': result.get('exit_code'),
+                'reason': str(exc), 'boundary': boundary,
+            })
+            raise InstitutionalBootError(str(exc)) from exc
+        changed_paths, next_target = [], self.expected_target
         raw_output = str(result.get('output') or result.get('stdout') or result.get('error') or '')
         event = {
             'tool': 'bash', 'command': pending.command, 'operation': pending.operation,
             'exit_code': result.get('exit_code'), 'output_sha256': hashlib.sha256(raw_output.encode('utf-8')).hexdigest(),
             'output_chars': len(raw_output), 'changed_paths': changed_paths,
+            'private_effects': boundary['effects'], 'boundary': boundary,
             'before': self.mutation_ledger[-1]['after'] if self.mutation_ledger else self.target,
             'after': next_target,
         }
@@ -539,6 +660,9 @@ class InstitutionalContext:
                         mandate=self.mandate, exclusions=self.exclusions,
                         execution=dict(objective=self.execution.objective, scope=self.execution.scope,
                                        allowed_paths=self.execution.allowed_paths,
+                                       allowed_read_paths=self.execution.allowed_read_paths,
+                                       allowed_write_paths=self.execution.allowed_write_paths,
+                                       allowed_create_paths=self.execution.allowed_create_paths,
                                        allowed_tools=sorted(self.execution.allowed_tools),
                                        allowed_operations=sorted(self.execution.allowed_operations),
                                        approval_required_operations=sorted(self.execution.approval_required_operations),

@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import hashlib
-import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,12 +20,8 @@ from src.mobs_reviewer_authorization import (
 
 _READ_TOOLS = ["read_file", "ls", "grep", "glob", "get_workspace"]
 _DEV_TOOLS = _READ_TOOLS + ["write_file", "edit_file", "apply_patch", "bash"]
-_DEV_COMMANDS = [
-    "pytest", "python -m pytest", "ruff check", "ruff format", "mypy", "pyright",
-    "npm test", "npm run lint", "npm run typecheck", "npm run build",
-    "git status", "git diff", "git log", "git show", "git branch",
-]
-CAPABILITY_PROFILE_VERSION = "1"
+_DEV_COMMANDS = ["pytest", "python -m pytest"]
+CAPABILITY_PROFILE_VERSION = "2"
 _GODOT_DIRECTORIES = (
     "addons", "scripts", "scenes", "assets", "resources", "shaders", "tests", "docs",
     "art", "audio", "fonts", "materials", "models", "textures", "ui",
@@ -81,9 +76,6 @@ def derive_capabilities(target: Path, project_profile: str) -> dict[str, Any]:
         raise MandateProposalError("Godot profile requires project.godot")
     paths = ["project.godot"] + [f"{name}/**" for name in _GODOT_DIRECTORIES if (target / name).is_dir()]
     commands = list(_DEV_COMMANDS)
-    executable = next((name for name in ("godot4", "godot") if shutil.which(name)), None)
-    if executable:
-        commands.append(f"{executable} --headless --path . --editor --quit")
     return {"project_profile": "godot", "version": CAPABILITY_PROFILE_VERSION,
             "allowed_paths": paths, "creation_paths": [p for p in paths if p.endswith("/**")],
             "allowed_commands": commands}
@@ -118,6 +110,12 @@ def _proposal_digest(proposal: dict[str, Any]) -> str:
 
 
 def validate_proposal_identity(proposal: dict[str, Any]) -> None:
+    version = proposal.get("capability_profile_version")
+    capabilities = proposal.get("capabilities")
+    if (version != CAPABILITY_PROFILE_VERSION or not isinstance(capabilities, dict)
+            or capabilities.get("version") != version
+            or capabilities.get("project_profile") != proposal.get("project_profile")):
+        raise MandateProposalError("Capability profile version or permissions are incompatible; request a new proposal, review and approval")
     if not proposal.get("proposal_id") or proposal.get("proposal_digest") != _proposal_digest(proposal):
         raise MandateProposalError("Proposal version or permissions are invalid; request a new proposal")
 
@@ -159,6 +157,8 @@ def build_proposal(
     if profile == "read_only":
         execution = dict(
             allowed_paths=capabilities["allowed_paths"], allowed_tools=list(_READ_TOOLS),
+            allowed_read_paths=capabilities["allowed_paths"],
+            allowed_write_paths=[], allowed_create_paths=[],
             allowed_operations=["read"], allowed_commands=[],
             limits={"max_steps": 12, "time_limit_seconds": 600, "command_timeout_seconds": None},
             exclusions="No writes, shell commands, Git writes, deployment, publication, secrets, or mandate expansion.",
@@ -166,13 +166,19 @@ def build_proposal(
     else:
         execution = dict(
             allowed_paths=capabilities["allowed_paths"], allowed_tools=list(_DEV_TOOLS),
-            allowed_operations=["read", "write", "test", "lint", "typecheck", "build", "git_read"],
+            allowed_read_paths=capabilities["allowed_paths"],
+            allowed_write_paths=capabilities["allowed_paths"],
+            allowed_create_paths=capabilities["creation_paths"],
+            allowed_operations=["read", "write", "create", "test", "lint", "typecheck", "build", "git_read"],
             allowed_commands=capabilities["allowed_commands"],
             limits={"max_steps": 24, "time_limit_seconds": 1800, "command_timeout_seconds": 300},
             exclusions="No deletion, Git writes, installation, deployment, publication, secrets, paths outside the target, or mandate expansion.",
         )
     capabilities = {**capabilities, "allowed_commands": execution["allowed_commands"],
                     "allowed_tools": execution["allowed_tools"], "allowed_operations": execution["allowed_operations"],
+                    "allowed_read_paths": execution["allowed_read_paths"],
+                    "allowed_write_paths": execution["allowed_write_paths"],
+                    "allowed_create_paths": execution["allowed_create_paths"],
                     "creation_paths": capabilities["creation_paths"] if profile == "development" else []}
     proposal = dict(
         proposal_id=uuid.uuid4().hex,
@@ -192,7 +198,8 @@ def build_proposal(
 
 def proposal_summary(proposal: dict[str, Any]) -> dict[str, Any]:
     summary = {key: proposal[key] for key in (
-        "objective", "scope", "category", "allowed_paths", "allowed_tools",
+        "objective", "scope", "category", "allowed_paths", "allowed_read_paths",
+        "allowed_write_paths", "allowed_create_paths", "allowed_tools",
         "allowed_operations", "allowed_commands", "exclusions", "limits",
         "approval_required_operations", "profile", "project_profile", "capability_profile_version",
         "capabilities", "status", "authority_review", "authority_snapshot", "proposal_id", "proposal_digest",
