@@ -83,6 +83,8 @@ class WindowsExecutionPolicy:
     write_paths: tuple[str, ...]
     create_paths: tuple[str, ...]
     timeout_seconds: int
+    promotion_binding: dict | None = None
+    private_write: dict | None = None
 
     async def execute(self) -> dict:
         if os.name != "nt":
@@ -142,7 +144,14 @@ class WindowsExecutionPolicy:
             (private / ".odysseus-runtime").mkdir()
             before_private = inventory(private, include_git=True)
             environment = _clean_environment(private, Path(executable))
-            if pytest_command:
+            if self.private_write is not None:
+                path = self.private_write.get('path') if isinstance(self.private_write, dict) else None
+                content = self.private_write.get('content') if isinstance(self.private_write, dict) else None
+                if not isinstance(path, str) or not isinstance(content, str) or len(content.encode('utf-8')) > 65536:
+                    raise TrustedExecutionUnavailable('Private write payload is invalid or exceeds the adapter limit')
+                encoded = __import__('base64').b64encode(content.encode('utf-8')).decode('ascii')
+                arguments = ('-B', '-c', "from pathlib import Path; import base64; Path(%r).write_bytes(base64.b64decode(%r))" % (path, encoded))
+            elif pytest_command:
                 arguments = ("-B", "-m", "pytest", "-s", "-p", "no:cacheprovider", *self.command[1:],
                              "-o", "log_file=.odysseus-runtime/pytest.log")
             elif self.command[1:3] == ("-m", "pytest"):
@@ -154,6 +163,10 @@ class WindowsExecutionPolicy:
                 executable, arguments, private, environment,
                 self.timeout_seconds, stop, self.write_paths, self.create_paths,
             )
+            if self.promotion_binding is not None and native["timed_out"]:
+                # A timed-out process can leave an incomplete private state;
+                # it must never become a promotable artifact.
+                raise TrustedExecutionUnavailable("Timed-out private execution cannot be promoted")
             after_private = inventory(private, include_git=True)
             output_files = {".odysseus-stdout", ".odysseus-stderr"}
             all_effects = changed_entries(before_private, after_private)
@@ -175,6 +188,24 @@ class WindowsExecutionPolicy:
                     "Private command produced effects outside the mandate: "
                     + ", ".join(item["path"] for item in forbidden[:10])
                 )
+            promotion_artifact = None
+            if self.promotion_binding is not None:
+                if len(effects) > 1 or any(item['effect'] not in {'create', 'write'} for item in effects):
+                    raise TrustedExecutionUnavailable('Promotion-eligible command produced multiple or forbidden effects')
+                if len(effects) == 1:
+                    from src.mobs_controlled_promotion import PromotionError, seal_private_effect
+                    try:
+                        promotion_artifact = seal_private_effect(
+                            private, effects[0], binding={**self.promotion_binding,
+                                                           'private_before': before_private,
+                                                           'target_inventory_sha256': _inventory_digest(before_target)},
+                        )
+                    except PromotionError as exc:
+                        raise TrustedExecutionUnavailable(str(exc)) from exc
+                    if inventory(root, include_git=True) != before_target:
+                        raise TrustedExecutionUnavailable(
+                            "Target workspace drift during promotion artifact sealing"
+                        )
             return {
                 "output": native["stdout"] or "(no output)",
                 "stderr": native["stderr"],
@@ -197,6 +228,7 @@ class WindowsExecutionPolicy:
                     "private_before_sha256": _inventory_digest(before_private),
                     "private_after_sha256": _inventory_digest(after_private),
                     "timed_out": native["timed_out"],
+                    **({"promotion_artifact": promotion_artifact} if promotion_artifact else {}),
                 },
             }
         finally:

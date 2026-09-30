@@ -1009,7 +1009,7 @@ def setup_chat_routes(
 
         mobs_execution = None
         if mobs_action:
-            if mobs_action not in {"propose", "review", "approve", "cancel"}:
+            if mobs_action not in {"propose", "review", "approve", "cancel", "promote"}:
                 raise HTTPException(400, "Invalid MOBS action")
             from src.tool_security import owner_is_admin_or_single_user
             if not owner_is_admin_or_single_user(effective_user(request)):
@@ -1018,6 +1018,8 @@ def setup_chat_routes(
             allowed_fields = {"mobs_action"}
             if mobs_action == "propose":
                 allowed_fields |= {"mobs_authority_workspace", "mobs_category", "mobs_profile", "mobs_project_profile"}
+            elif mobs_action == "promote":
+                allowed_fields |= {"mobs_promotion_id", "mobs_promotion_digest"}
             else:
                 allowed_fields |= {"mobs_proposal_id", "mobs_proposal_digest", "mobs_authority_snapshot"}
             trusted_fields = {"source", "target", "authorities", "authority_documents", "authority_review",
@@ -1047,6 +1049,20 @@ def setup_chat_routes(
                     _mobs_reply("mobs_mandate_proposal", proposal_summary(proposal)),
                     media_type="text/event-stream",
                 )
+            if mobs_action == "promote":
+                try:
+                    from src.mobs_reviewer_authorization import human_reviewer, ReviewerAuthorizationError
+                    from src.mobs_controlled_promotion import approve_and_apply, PromotionError
+                    actor = human_reviewer(request)
+                    if actor.username != effective_user(request):
+                        raise HTTPException(400, "MOBS requester identity does not match the human session")
+                    result = approve_and_apply(str(session), {
+                        "promotion_id": str(payload.get("mobs_promotion_id") or ""),
+                        "promotion_digest": str(payload.get("mobs_promotion_digest") or ""),
+                    }, actor)
+                except (ReviewerAuthorizationError, PromotionError) as exc:
+                    raise HTTPException(400, f"MOBS promotion blocked: {exc}") from exc
+                return StreamingResponse(_mobs_reply("mobs_promotion_applied", result), media_type="text/event-stream")
             reference = {key: str(payload.get("mobs_" + key) or "") for key in
                          ("proposal_id", "proposal_digest", "authority_snapshot")}
             if mobs_action == "approve" and _is_image_generation_session(sess, owner=effective_user(request)):
@@ -1068,6 +1084,7 @@ def setup_chat_routes(
                     media_type="text/event-stream",
                 )
             mobs_execution = result
+            mobs_execution["_promotion_session_id"] = str(session)
             message = str(result["request"])
             workspace = result["target"]["path"]
             chat_mode = "agent"

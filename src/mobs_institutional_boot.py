@@ -146,6 +146,17 @@ def _tool_path(content: str, tool: str) -> str:
     return _portable_path((content or "").split("\n", 1)[0].strip(), "tool path")
 
 
+def _write_tool_payload(content: str) -> tuple[str, str]:
+    """Parse write_file without accepting model-controlled extra semantics."""
+    try:
+        value = json.loads((content or '').strip())
+    except json.JSONDecodeError as exc:
+        raise InstitutionalBootError('Promotion-private write_file requires JSON') from exc
+    if not isinstance(value, dict) or set(value) != {'path', 'content'} or not isinstance(value['content'], str):
+        raise InstitutionalBootError('Invalid promotion-private write_file payload')
+    return _portable_path(value['path'], 'tool path'), value['content']
+
+
 def _patch_paths(content: str) -> list[tuple[str, str]]:
     """Use the existing patch grammar so the authorizer and executor agree."""
     from src.agent_tools.filesystem_tools import _parse_agent_patch
@@ -230,6 +241,7 @@ class ExecutionMandate:
     time_limit_seconds: int | None
     command_timeout_seconds: int | None
     allowed_commands: tuple[tuple[str, ...], ...]
+    promotion_eligible: bool
 
     @classmethod
     def from_request(cls, request: dict) -> "ExecutionMandate":
@@ -297,6 +309,9 @@ class ExecutionMandate:
             raise InstitutionalBootError("Shell mandates need allowed_commands and command_timeout_seconds")
         if "bash" not in allowed_tools and allowed_commands:
             raise InstitutionalBootError("allowed_commands requires bash in allowed_tools")
+        promotion_eligible = request.get('promotion_eligible', False)
+        if not isinstance(promotion_eligible, bool):
+            raise InstitutionalBootError('Invalid promotion eligibility')
         return cls(
             objective=request["objective"].strip(), scope=request["scope"].strip(),
             allowed_paths=allowed_paths, allowed_tools=allowed_tools,
@@ -307,7 +322,7 @@ class ExecutionMandate:
             approvals={key: value.strip() for key, value in approvals.items()},
             exclusions=request["exclusions"].strip(), max_steps=max_steps,
             time_limit_seconds=time_limit, command_timeout_seconds=command_timeout,
-            allowed_commands=allowed_commands,
+            allowed_commands=allowed_commands, promotion_eligible=promotion_eligible,
         )
 
 
@@ -526,6 +541,20 @@ class InstitutionalContext:
                 raise InstitutionalBootError('Shell command is outside mandate')
             self._require_operation(operation)
             from src.windows_native_execution import WindowsExecutionPolicy, inventory
+            promotion_binding = None
+            if self.execution.promotion_eligible:
+                required = ('proposal_id', 'proposal_digest', 'authority_snapshot', '_promotion_session_id')
+                if any(not self.proposal_reference.get(key) for key in required):
+                    raise InstitutionalBootError('Promotion-eligible execution lacks trusted identity')
+                promotion_binding = {
+                    'session_id': self.proposal_reference['_promotion_session_id'],
+                    'proposal_id': self.proposal_reference['proposal_id'],
+                    'proposal_digest': self.proposal_reference['proposal_digest'],
+                    'authority_snapshot': self.proposal_reference['authority_snapshot'],
+                    'source_baseline': self.expected_source,
+                    'target_baseline': self.expected_target,
+                    'review_authorization': self.review_record.get('authorization', {}),
+                }
             return PendingCommand(content.strip(), operation,
                                   _working_tree_entries(Path(self.target['path'])),
                                   inventory(Path(self.target['path']), include_git=True),
@@ -535,8 +564,41 @@ class InstitutionalContext:
                                       self.execution.allowed_write_paths,
                                       self.execution.allowed_create_paths,
                                       self.execution.command_timeout_seconds,
+                                      promotion_binding=promotion_binding,
                                   ))
         if tool in {'write_file', 'edit_file'}:
+            if self.execution.promotion_eligible:
+                if tool != 'write_file':
+                    raise InstitutionalBootError('Direct writes are blocked for promotion-eligible executions')
+                if self.execution.command_timeout_seconds is None:
+                    raise InstitutionalBootError('Promotion-private write requires a command timeout')
+                path, payload = _write_tool_payload(content)
+                is_create = not (Path(self.target['path']) / path).exists()
+                operation = 'create' if is_create else 'write'
+                self._authorize_path(path, operation)
+                if not is_create:
+                    self._authorize_path(path, 'read'); self._require_operation('read')
+                self._require_operation(operation)
+                from src.windows_native_execution import WindowsExecutionPolicy, inventory
+                required = ('proposal_id', 'proposal_digest', 'authority_snapshot', '_promotion_session_id')
+                if any(not self.proposal_reference.get(key) for key in required):
+                    raise InstitutionalBootError('Promotion-eligible execution lacks trusted identity')
+                binding = {'session_id': self.proposal_reference['_promotion_session_id'],
+                           'proposal_id': self.proposal_reference['proposal_id'],
+                           'proposal_digest': self.proposal_reference['proposal_digest'],
+                           'authority_snapshot': self.proposal_reference['authority_snapshot'],
+                           'source_baseline': self.expected_source, 'target_baseline': self.expected_target,
+                           'review_authorization': self.review_record.get('authorization', {})}
+                return PendingCommand('private write_file ' + path, operation,
+                                      _working_tree_entries(Path(self.target['path'])),
+                                      inventory(Path(self.target['path']), include_git=True),
+                                      WindowsExecutionPolicy(self.target['path'], ('python', '-I', '-c', ''),
+                                                             self.execution.allowed_read_paths,
+                                                             self.execution.allowed_write_paths,
+                                                             self.execution.allowed_create_paths,
+                                                             self.execution.command_timeout_seconds,
+                                                             promotion_binding=binding,
+                                                             private_write={'path': path, 'content': payload}))
             path = _tool_path(content, tool)
             is_create = tool == 'write_file' and not (Path(self.target['path']) / path).exists()
             operation = 'create' if is_create else 'write'
@@ -551,6 +613,8 @@ class InstitutionalContext:
                 self._require_operation(operation)
             return PendingMutation(tool, (path,), tuple(operations), _working_tree_entries(Path(self.target['path'])))
         if tool == 'apply_patch':
+            if self.execution.promotion_eligible:
+                raise InstitutionalBootError('Direct writes are blocked for promotion-eligible executions')
             patch_operations = _patch_paths(content)
             paths = []
             operations = []
@@ -615,10 +679,11 @@ class InstitutionalContext:
         if self.execution.time_limit_seconds is not None and time.monotonic() - self._started_at > self.execution.time_limit_seconds:
             raise InstitutionalBootError('Mandate time limit exceeded during command')
         from src.windows_native_execution import TrustedExecutionUnavailable, inventory
+        tool_name = 'write_file_private' if pending.command.startswith('private write_file ') else 'bash'
         boundary = result.get('trusted_execution') if isinstance(result, dict) else None
         if not isinstance(boundary, dict) or boundary.get('adapter') != 'windows_appcontainer_job_v1':
             self.mutation_ledger.append({
-                'tool': 'bash', 'command': pending.command, 'operation': pending.operation,
+                'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
                 'status': 'blocked', 'exit_code': result.get('exit_code') if isinstance(result, dict) else None,
                 'reason': result.get('error') if isinstance(result, dict) else 'Missing execution result',
             })
@@ -632,7 +697,7 @@ class InstitutionalContext:
                 raise InstitutionalBootError('Institutional repository drift during private command')
         except (InstitutionalBootError, TrustedExecutionUnavailable) as exc:
             self.mutation_ledger.append({
-                'tool': 'bash', 'command': pending.command, 'operation': pending.operation,
+                'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
                 'status': 'blocked', 'exit_code': result.get('exit_code'),
                 'reason': str(exc), 'boundary': boundary,
             })
@@ -640,13 +705,25 @@ class InstitutionalContext:
         changed_paths, next_target = [], self.expected_target
         raw_output = str(result.get('output') or result.get('stdout') or result.get('error') or '')
         event = {
-            'tool': 'bash', 'command': pending.command, 'operation': pending.operation,
+            'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
             'exit_code': result.get('exit_code'), 'output_sha256': hashlib.sha256(raw_output.encode('utf-8')).hexdigest(),
             'output_chars': len(raw_output), 'changed_paths': changed_paths,
             'private_effects': boundary['effects'], 'boundary': boundary,
             'before': self.mutation_ledger[-1]['after'] if self.mutation_ledger else self.target,
             'after': next_target,
         }
+        if self.execution.promotion_eligible:
+            artifact = boundary.get('promotion_artifact')
+            if artifact is None and not boundary.get('effects'):
+                event['promotion'] = {'status': 'no_promotable_effect'}
+            elif not isinstance(artifact, dict):
+                raise InstitutionalBootError('Promotion-eligible private effect was not sealed')
+            else:
+                from src.mobs_controlled_promotion import PromotionError, record_pending
+                try:
+                    event['promotion'] = record_pending(self.proposal_reference['_promotion_session_id'], artifact)
+                except PromotionError as exc:
+                    raise InstitutionalBootError(str(exc)) from exc
         self.mutation_ledger.append(event)
         return event
 
@@ -733,7 +810,7 @@ def institutional_boot(request: dict, workspace: str) -> InstitutionalContext:
             expected_source=dict(source),
             expected_target=dict(target),
             proposal_reference={key: request[key] for key in
-                                ('proposal_id', 'proposal_digest', 'authority_snapshot') if key in request},
+                                ('proposal_id', 'proposal_digest', 'authority_snapshot', '_promotion_session_id') if key in request},
             review_record=request.get('review_record', {}),
         )
         if len(context.message()['content']) > 128_000:

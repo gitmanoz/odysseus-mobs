@@ -289,6 +289,77 @@ def test_write_grant_changes_only_approved_private_file(synthetic):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Native adapter")
+def test_promotion_artifact_is_sealed_before_private_workspace_cleanup(synthetic, tmp_path, monkeypatch):
+    from tests.mobs_reviewer_support import install_junior_operational_profile
+    install_junior_operational_profile(monkeypatch, tmp_path)
+    target, _ = synthetic
+    script = "from pathlib import Path; Path('allowed/input.txt').write_text('SEALED')"
+    result = run(WindowsExecutionPolicy(
+        str(target), (sys.executable, "-I", "-c", script),
+        ("allowed/**",), ("allowed/input.txt",), (), 10,
+        promotion_binding={"session_id": "s", "proposal_id": "p", "proposal_digest": "d",
+                           "authority_snapshot": "a", "source_baseline": {}, "target_baseline": {"path": str(target)},
+                           "review_authorization": {}},
+    ))
+    artifact = result["trusted_execution"]["promotion_artifact"]
+    sealed = tmp_path / "promotion-store" / artifact["id"] / "content.bin"
+    assert sealed.read_bytes() == b"SEALED"
+    assert (target / "allowed" / "input.txt").read_bytes() == b"ALLOW\n"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Native adapter")
+def test_private_write_uses_existing_adapter_without_touching_target(synthetic, tmp_path, monkeypatch):
+    from tests.mobs_reviewer_support import install_junior_operational_profile
+    install_junior_operational_profile(monkeypatch, tmp_path)
+    target, _ = synthetic
+    result = run(WindowsExecutionPolicy(
+        str(target), ("python", "-I", "-c", ""), ("allowed/**",), ("allowed/input.txt",), (), 10,
+        promotion_binding={"session_id": "s", "proposal_id": "p", "proposal_digest": "d",
+                           "authority_snapshot": "a", "source_baseline": {}, "target_baseline": {"path": str(target)},
+                           "review_authorization": {}},
+        private_write={"path": "allowed/input.txt", "content": "PRIVATE ADAPTER WRITE"},
+    ))
+    assert result['trusted_execution']['effects'] == [{'path': 'allowed/input.txt', 'effect': 'write'}]
+    assert result['trusted_execution']['promotion_artifact']['content_sha256']
+    assert (target / 'allowed' / 'input.txt').read_bytes() == b'ALLOW\n'
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Native adapter")
+def test_promotion_eligible_private_command_allows_zero_effects(synthetic, tmp_path, monkeypatch):
+    from tests.mobs_reviewer_support import install_junior_operational_profile
+    install_junior_operational_profile(monkeypatch, tmp_path)
+    target, _ = synthetic
+    result = run(WindowsExecutionPolicy(
+        str(target), (sys.executable, '-I', '-c', "print('no delta')"),
+        ('allowed/**',), ('allowed/**',), ('allowed/**',), 10,
+        promotion_binding={'session_id': 's', 'proposal_id': 'p', 'proposal_digest': 'd',
+                           'authority_snapshot': 'a', 'source_baseline': {}, 'target_baseline': {},
+                           'review_authorization': {}},
+    ))
+    assert result['exit_code'] == 0
+    assert result['trusted_execution']['effects'] == []
+    assert 'promotion_artifact' not in result['trusted_execution']
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Native adapter")
+def test_promotion_eligible_private_command_blocks_multiple_effects(synthetic, tmp_path, monkeypatch):
+    from tests.mobs_reviewer_support import install_junior_operational_profile
+    install_junior_operational_profile(monkeypatch, tmp_path)
+    target, _ = synthetic
+    script = ("from pathlib import Path; "
+              "Path('allowed/input.txt').write_text('one'); "
+              "Path('allowed/probe.py').write_text('two')")
+    with pytest.raises(TrustedExecutionUnavailable, match='multiple or forbidden'):
+        run(WindowsExecutionPolicy(
+            str(target), (sys.executable, '-I', '-c', script),
+            ('allowed/**',), ('allowed/**',), ('allowed/**',), 10,
+            promotion_binding={'session_id': 's', 'proposal_id': 'p', 'proposal_digest': 'd',
+                               'authority_snapshot': 'a', 'source_baseline': {}, 'target_baseline': {},
+                               'review_authorization': {}},
+        ))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Native adapter")
 def test_unenforceable_single_file_create_fails_closed(synthetic):
     target, _ = synthetic
     with pytest.raises(TrustedExecutionUnavailable, match="Create path cannot be enforced"):

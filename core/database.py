@@ -301,6 +301,21 @@ class MobsAuthorityReview(TimestampMixin, Base):
     reviewer = Column(String, nullable=False)
     status = Column(String, nullable=False, default="consistent")
 
+
+class MobsPromotion(TimestampMixin, Base):
+    """One sealed, single-file candidate produced by a private MOBS run."""
+    __tablename__ = "mobs_promotions"
+
+    id = Column(String, primary_key=True)
+    session_id = Column(String, ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    proposal_id = Column(String, nullable=False, index=True)
+    proposal_digest = Column(String, nullable=False)
+    artifact_digest = Column(String, nullable=False, unique=True)
+    status = Column(String, nullable=False, default="human_approval_required", index=True)
+    artifact_json = Column(Text, nullable=False)
+    approval_json = Column(Text, nullable=True)
+    outcome_json = Column(Text, nullable=True)
+
 class Document(TimestampMixin, Base):
     """Living document that the AI can create and edit in-place."""
     __tablename__ = "documents"

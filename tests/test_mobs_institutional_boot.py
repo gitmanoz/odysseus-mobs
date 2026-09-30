@@ -227,6 +227,7 @@ def run_governed(loop, mandate, **kwargs):
 
 def shell_mandate(mandate, tmp_path, commands, timeout=2):
     mandate = writable_mandate(mandate, tmp_path)
+    mandate['limits']['command_timeout_seconds'] = 30
     mandate.update(
         exclusions='No shell composition, Git writes, installation, deployment, publication, or credentials',
         allowed_tools=['bash', 'write_file', 'edit_file', 'apply_patch', 'read_file'],
@@ -429,6 +430,34 @@ def test_authorized_write_uses_existing_dispatcher_and_records_provenance(mandat
     verified = next(json.loads(chunk[6:]) for chunk in chunks if 'institutional_verified' in chunk)
     assert verified['data']['mutations'][0]['paths'] == ['allowed/result.txt']
     assert verified['data']['final_target']['working_tree_sha256'] != mandate['target']['working_tree_sha256']
+
+
+@pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows Native adapter')
+def test_real_agent_loop_private_write_reaches_sealed_artifact_without_target_write(mandate, tmp_path, monkeypatch):
+    from tests.mobs_reviewer_support import install_junior_operational_profile
+    from src.mobs_mandate_builder import _proposal_digest
+    install_junior_operational_profile(monkeypatch, tmp_path)
+    mandate = writable_mandate(mandate, tmp_path)
+    mandate['limits']['command_timeout_seconds'] = 30
+    mandate.update(promotion_eligible=True, proposal_id='promotion-loop-fixture',
+                   authority_snapshot=mandate['review_record']['snapshot_id'], _promotion_session_id='fixture')
+    mandate['project_profile'] = 'generic'
+    mandate['capability_profile_version'] = '2'
+    mandate['capabilities'] = {'version': '2', 'project_profile': 'generic'}
+    from src.mobs_controlled_promotion import operational_profile_identity
+    mandate['operational_authority_profile'] = operational_profile_identity()
+    mandate['proposal_digest'] = _proposal_digest(mandate)
+    loop = loop_setup(monkeypatch)
+    async def stream(candidates, messages, **kwargs):
+        yield 'data: ' + json.dumps({'delta': '```write_file\n{"path":"allowed/existing.txt","content":"private only"}\n```'}) + '\n\n'
+        yield 'data: [DONE]\n\n'
+    monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
+    recorded = []
+    monkeypatch.setattr('src.mobs_controlled_promotion.record_pending', lambda session, artifact: recorded.append(artifact) or {'id': artifact['id'], 'status': 'human_approval_required'})
+    chunks = run_governed(loop, mandate)
+    assert recorded and recorded[0]['effect'] == 'write'
+    assert (Path(mandate['target']['path']) / 'allowed' / 'existing.txt').read_text() == 'before\n'
+    assert any('institutional_command' in chunk for chunk in chunks)
 
 
 def test_write_outside_allowed_scope_is_blocked_before_dispatch(mandate, tmp_path, monkeypatch):
@@ -695,3 +724,17 @@ def test_external_drift_during_command_is_detected(mandate, tmp_path, monkeypatc
     chunks = run_governed(loop, mandate)
     assert any('Target workspace drift during private command' in chunk for chunk in chunks)
     assert not any('institutional_verified' in chunk for chunk in chunks)
+
+
+@pytest.mark.parametrize('tool,content', [
+    ('edit_file', '{"path":"allowed/existing.txt","old_string":"old","new_string":"new"}'),
+    ('apply_patch', '*** Begin Patch\n*** Update File: allowed/existing.txt\n@@\n-old\n+new\n*** End Patch'),
+])
+def test_promotion_eligible_execution_blocks_direct_write_tools(mandate, tmp_path, tool, content):
+    mandate = writable_mandate(mandate, tmp_path)
+    mandate['promotion_eligible'] = True
+    mandate['_promotion_session_id'] = 'fixture'
+    from src.mobs_mandate_builder import _proposal_digest
+    mandate['proposal_digest'] = _proposal_digest(mandate)
+    with pytest.raises(InstitutionalBootError, match='Direct writes'):
+        boot(mandate).authorize_tool(tool, content)

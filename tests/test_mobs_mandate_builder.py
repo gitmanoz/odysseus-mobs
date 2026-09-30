@@ -40,9 +40,10 @@ def projects(tmp_path, monkeypatch):
     for root in (source, target):
         git(root, "add", ".")
         git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture")
-    from tests.mobs_reviewer_support import install_trust, authenticated_actor
+    from tests.mobs_reviewer_support import install_trust, install_junior_operational_profile, authenticated_actor
     import sys
     trust = install_trust(monkeypatch, tmp_path, source)
+    install_junior_operational_profile(monkeypatch, tmp_path)
     monkeypatch.setattr(sys.modules[__name__], "_TEST_REVIEWER", authenticated_actor(trust))
     return source, target
 

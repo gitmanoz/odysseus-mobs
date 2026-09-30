@@ -761,6 +761,22 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     }
   }
 
+  function mobsPromotionButton(promotion) {
+    if (!promotion || !promotion.id || !promotion.artifact_digest) return;
+    const card = addMessage('assistant', `Private change pending promotion: ${promotion.effect} ${promotion.path}. Human approval is required.`);
+    const button = document.createElement('button');
+    button.textContent = 'Approve exact promotion';
+    const presentedSession = sessionModule.getCurrentSessionId();
+    button.addEventListener('click', () => {
+      if (sessionModule.getCurrentSessionId() !== presentedSession) return;
+      if (!window.confirm(`Apply exactly the sealed ${promotion.effect} to ${promotion.path}?`)) return;
+      _mobsAction = { action: 'promote', session: presentedSession, promotionId: promotion.id,
+        promotionDigest: promotion.artifact_digest };
+      uiModule.showToast('Exact promotion approval staged. Press Send to submit.', 5000);
+    });
+    card.appendChild(button);
+  }
+
   /**
    * Update submit button state
    */
@@ -1759,6 +1775,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
         if (_mobsAction.proposalId) fd.append('mobs_proposal_id', _mobsAction.proposalId);
         if (_mobsAction.proposalDigest) fd.append('mobs_proposal_digest', _mobsAction.proposalDigest);
         if (_mobsAction.authoritySnapshot) fd.append('mobs_authority_snapshot', _mobsAction.authoritySnapshot);
+        if (_mobsAction.promotionId) fd.append('mobs_promotion_id', _mobsAction.promotionId);
+        if (_mobsAction.promotionDigest) fd.append('mobs_promotion_digest', _mobsAction.promotionDigest);
         if (_mobsAction.authorityWorkspace) fd.append('mobs_authority_workspace', _mobsAction.authorityWorkspace);
         if (_mobsAction.category) fd.append('mobs_category', _mobsAction.category);
         if (_mobsAction.profile) fd.append('mobs_profile', _mobsAction.profile);
@@ -3389,8 +3407,15 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                 if (_isBg) continue;
                 addMessage('assistant', 'MOBS mandate cancelled.');
 
+              } else if (json.type === 'mobs_promotion_applied') {
+                if (_isBg) continue;
+                addMessage('assistant', `MOBS promotion verified: ${(json.data || {}).path || ''}`);
+
               } else if (typeof json.type === 'string' && json.type.startsWith('institutional_')) {
                 if (_isBg) continue;
+                if (json.type === 'institutional_command' && json.data && json.data.promotion) {
+                  mobsPromotionButton(json.data.promotion);
+                }
                 const labels = {
                   institutional_boot: 'MOBS institutional boot verified.',
                   institutional_mutation: 'MOBS mutation recorded.',

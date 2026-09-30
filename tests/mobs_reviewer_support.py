@@ -56,6 +56,21 @@ def authenticated_actor(state):
     return authorization.human_reviewer(request)
 
 
+def install_junior_operational_profile(monkeypatch, tmp_path):
+    """Pin the only provisioned promotion policy used by governance tests."""
+    policy = {"format_version": 1, "installation_id": INSTALLATION, "id": "fixture-junior",
+              "version": 1, "state": "active", "mode": "junior",
+              "promotion_result": "human_approval_required"}
+    path = tmp_path / "fixture-junior-policy.json"
+    raw = (json.dumps(policy, sort_keys=True) + "\n").encode()
+    path.write_bytes(raw)
+    monkeypatch.setenv("MOBS_PROMOTION_STORE", str(tmp_path / "promotion-store"))
+    monkeypatch.setenv("MOBS_OPERATIONAL_AUTHORITY_FILE", str(path))
+    monkeypatch.setenv("MOBS_OPERATIONAL_AUTHORITY_SHA256", hashlib.sha256(raw).hexdigest())
+    monkeypatch.setenv("ODYSSEUS_INSTALLATION_ID", INSTALLATION)
+    return policy
+
+
 def attach_review(request, state):
     """Boot unit tests start from an explicitly persisted human decision."""
     from src.mobs_mandate_builder import _snapshot_id, save_authority_review

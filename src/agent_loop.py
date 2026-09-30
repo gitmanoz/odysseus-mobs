@@ -4732,11 +4732,9 @@ async def _stream_agent_loop(
                                 if institutional_context and block.tool_type == "bash"
                                 else None
                             ),
-                            trusted_execution=(
-                                pending_action.boundary_policy
-                                if institutional_context and block.tool_type == "bash" and pending_action
-                                else None
-                            ),
+                            trusted_execution=(getattr(pending_action, "boundary_policy", None)
+                                               if institutional_context and pending_action
+                                               else None),
                             governed_read=bool(institutional_context),
                         )
                     finally:
@@ -4771,7 +4769,7 @@ async def _stream_agent_loop(
                             pass
 
             if institutional_context and pending_action:
-                if block.tool_type == "bash":
+                if getattr(pending_action, "boundary_policy", None):
                     action = await asyncio.to_thread(
                         institutional_context.complete_command, pending_action, result
                     )

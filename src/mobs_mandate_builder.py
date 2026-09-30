@@ -104,7 +104,8 @@ def _proposal_digest(proposal: dict[str, Any]) -> str:
     # Lifecycle state is kept separately. All presented mandate, selection,
     # baseline, permissions and evidence belong to the immutable version.
     content = {key: value for key, value in proposal.items()
-               if key not in {"proposal_digest", "status", "authority_review", "review_record"}}
+               if key not in {"proposal_digest", "status", "authority_review", "review_record"}
+               and not key.startswith("_")}
     return hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=False).encode("utf-8")).hexdigest()
 
@@ -118,6 +119,15 @@ def validate_proposal_identity(proposal: dict[str, Any]) -> None:
         raise MandateProposalError("Capability profile version or permissions are incompatible; request a new proposal, review and approval")
     if not proposal.get("proposal_id") or proposal.get("proposal_digest") != _proposal_digest(proposal):
         raise MandateProposalError("Proposal version or permissions are invalid; request a new proposal")
+    if proposal.get("promotion_eligible"):
+        try:
+            from src.mobs_controlled_promotion import operational_profile_identity
+            if proposal.get("operational_authority_profile") != operational_profile_identity():
+                raise MandateProposalError("Operational Authority Profile changed; request a new proposal and approval")
+        except MandateProposalError:
+            raise
+        except Exception as exc:
+            raise MandateProposalError("Operational Authority Profile is unavailable; promotion execution is blocked") from exc
 
 
 def proposal_reference(proposal: dict[str, Any]) -> dict[str, str]:
@@ -180,6 +190,13 @@ def build_proposal(
                     "allowed_write_paths": execution["allowed_write_paths"],
                     "allowed_create_paths": execution["allowed_create_paths"],
                     "creation_paths": capabilities["creation_paths"] if profile == "development" else []}
+    operational_profile = None
+    if profile == "development":
+        try:
+            from src.mobs_controlled_promotion import operational_profile_identity
+            operational_profile = operational_profile_identity()
+        except Exception as exc:
+            raise MandateProposalError("Operational Authority Profile is unavailable; cannot propose promotion-eligible execution") from exc
     proposal = dict(
         proposal_id=uuid.uuid4().hex,
         request=user_request.strip(), source=source_baseline, target=target_baseline,
@@ -190,6 +207,10 @@ def build_proposal(
         authority_review="pending", approval_required_operations=[], approvals={},
         status="pending", profile=profile, project_profile=project_profile,
         capability_profile_version=CAPABILITY_PROFILE_VERSION,
+        # Development is deliberately private-first. Its file mutations must
+        # return through the sealed promotion path, never the direct tools.
+        promotion_eligible=profile == "development",
+        operational_authority_profile=operational_profile,
         capabilities=capabilities, **execution,
     )
     proposal["proposal_digest"] = _proposal_digest(proposal)
@@ -202,6 +223,8 @@ def proposal_summary(proposal: dict[str, Any]) -> dict[str, Any]:
         "allowed_write_paths", "allowed_create_paths", "allowed_tools",
         "allowed_operations", "allowed_commands", "exclusions", "limits",
         "approval_required_operations", "profile", "project_profile", "capability_profile_version",
+        "promotion_eligible",
+        "operational_authority_profile",
         "capabilities", "status", "authority_review", "authority_snapshot", "proposal_id", "proposal_digest",
     )}
     summary["authority_evidence"] = {
