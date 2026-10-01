@@ -292,6 +292,7 @@ function _initModelPickerDropdown() {
   }
 
   let _localProbe = {};
+  let _discoveredLocal = [];
   let _localProbeFetchedAt = 0;
   const _LOCAL_PROBE_TTL_MS = 5000;
   let _pickerLoading = false;
@@ -306,6 +307,46 @@ function _initModelPickerDropdown() {
       const r = await fetch('/api/model-endpoints/probe-local', { credentials: 'same-origin' });
       if (r.ok) _localProbe = (await r.json()) || {};
     } catch (_) {}
+  }
+
+  async function _discoverLocalModels() {
+    try {
+      const r = await fetch('/api/discover', { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const data = await r.json();
+      _discoveredLocal = (data.items || []).filter(item => item && item.provider === 'ollama'
+        && Array.isArray(item.models) && item.models.length > 0);
+    } catch (_) {
+      _discoveredLocal = [];
+    }
+  }
+
+  async function _connectDiscoveredOllama(button) {
+    const found = _discoveredLocal[0];
+    if (!found) return;
+    button.disabled = true;
+    button.textContent = 'Connecting…';
+    try {
+      const base = String(found.url || '').replace('/chat/completions', '').replace(/\/$/, '');
+      const host = base.replace(/^https?:\/\//, '').split('/')[0];
+      const form = new FormData();
+      form.append('name', `Ollama (${host})`);
+      form.append('base_url', base);
+      form.append('endpoint_kind', 'local');
+      form.append('model_refresh_mode', 'auto');
+      form.append('skip_probe', 'false');
+      const response = await fetch('/api/model-endpoints', { method: 'POST', body: form, credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Ollama could not be connected');
+      await window.modelsModule.refreshModels(true);
+      _discoveredLocal = [];
+      _populate('');
+      updateModelPicker();
+      uiModule.showToast('Ollama models are ready');
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = 'Use Ollama models';
+      uiModule.showError(error.message || 'Ollama could not be connected');
+    }
   }
 
   function _getAllModels() {
@@ -387,6 +428,7 @@ function _initModelPickerDropdown() {
     try {
       await window.modelsModule.refreshModels(force);
       await _refreshLocalProbe();
+      if (!_hasModelCache()) await _discoverLocalModels();
     } finally {
       if (seq === _pickerLoadSeq) {
         _pickerLoading = false;
@@ -417,7 +459,33 @@ function _initModelPickerDropdown() {
     menu.classList.toggle('no-models', !hasAnyModel);
     if (search) search.placeholder = hasAnyModel ? 'Search models…' : 'No models connected';
     if (searchRow) searchRow.classList.toggle('searching', !!q);
-    if (!hasAnyModel) return;
+    if (!hasAnyModel) {
+      const empty = document.createElement('div');
+      empty.className = 'model-picker-onboarding';
+      empty.innerHTML = '<strong>No model is connected</strong>'
+        + '<span>Add a local or cloud provider to start chatting. Your configuration is saved for this installation.</span>';
+      const ollama = _discoveredLocal[0] || null;
+      if (ollama) {
+        const names = (ollama.models || []).slice(0, 4).join(', ');
+        empty.querySelector('strong').textContent = 'Ollama models found';
+        empty.querySelector('span').textContent = names
+          ? `Use the models already installed on this computer: ${names}`
+          : 'Use the Ollama models already installed on this computer.';
+      }
+      const configure = document.createElement('button');
+      configure.type = 'button';
+      configure.className = 'model-picker-onboarding-btn';
+      configure.textContent = ollama ? 'Use Ollama models' : 'Configure models';
+      configure.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (ollama) await _connectDiscoveredOllama(configure);
+        else _openPickerShortcut('models');
+      });
+      empty.appendChild(configure);
+      listEl.appendChild(empty);
+      updateModelPicker();
+      return;
+    }
     const byId = new Map();
     const byKey = new Map();
     all.forEach(m => { const key = _pickerModelKey(m); if (key && !byKey.has(key)) byKey.set(key, m); if (!byId.has(m.mid)) byId.set(m.mid, m); });
@@ -583,7 +651,12 @@ export function updateModelPicker() {
   const latestPending = _deps.getPendingChat && _deps.getPendingChat();
   if (!currentSessionId && !_autoSelectingDefault && window.modelsModule && window.modelsModule.getCachedItems && (!modelId || (latestPending && latestPending.source === 'fallback'))) _ensureDefaultPendingChat();
   _syncMobsAutoPresentation(modelId === MOBS_AUTO_MODEL_ID);
-  const displayName = _displayModelName(modelId);
+  const cachedItems = window.modelsModule && window.modelsModule.getCachedItems
+    ? (window.modelsModule.getCachedItems() || []) : [];
+  const hasConfiguredModel = cachedItems.some(item => !item.offline
+    && ((item.models || []).length || (item.models_extra || []).length));
+  const displayName = modelId ? _displayModelName(modelId)
+    : (hasConfiguredModel ? 'Select model' : 'Set up model');
   label.title = modelId === MOBS_AUTO_MODEL_ID ? MOBS_AUTO_DISPLAY : (modelId || '');
   const logo = modelId && modelId !== MOBS_AUTO_MODEL_ID ? providerLogo(modelId) : null;
   if (logo) label.innerHTML = '<span class="model-picker-logo">' + logo + '</span> ' + displayName;

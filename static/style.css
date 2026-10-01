@@ -3377,8 +3377,37 @@ body.bg-pattern-sparkles {
       overflow: hidden;
     }
     .model-picker-list.is-empty {
-      max-height: 0;
-      overflow: hidden;
+      max-height: min(220px, 42dvh);
+      overflow: auto;
+    }
+    .model-picker-onboarding {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 18px 16px;
+      color: var(--fg);
+      text-align: center;
+      font-size: 0.82em;
+    }
+    .model-picker-onboarding span {
+      max-width: 280px;
+      color: color-mix(in srgb, var(--fg) 58%, transparent);
+      line-height: 1.4;
+    }
+    .model-picker-onboarding-btn {
+      border: 1px solid color-mix(in srgb, var(--accent, var(--red)) 45%, transparent);
+      border-radius: 6px;
+      padding: 7px 12px;
+      background: color-mix(in srgb, var(--accent, var(--red)) 12%, transparent);
+      color: var(--fg);
+      cursor: pointer;
+      font: inherit;
+    }
+    .model-picker-onboarding-btn:hover,
+    .model-picker-onboarding-btn:focus-visible {
+      background: color-mix(in srgb, var(--accent, var(--red)) 20%, transparent);
+      outline: none;
     }
     .model-picker-list .model-picker-loading-row {
       justify-content: center;

@@ -18,6 +18,31 @@ Use that for the first login, then change it in **Settings**.
 Contributing? See [CONTRIBUTING.md](../CONTRIBUTING.md) for setup, testing, and
 pull request guidelines.
 
+### Windows portable desktop
+
+The desktop MVP is an `onedir` package with the existing FastAPI runtime, web
+UI, Python runtime, pywebview, and a pinned WebView2 Fixed Version runtime. It
+does not require Python, pip, Docker, PowerShell, or an external browser on the
+computer that runs the built package.
+
+Build it from a Windows development checkout:
+
+```powershell
+.\build-windows-portable.ps1
+```
+
+The executable is written to `dist\Odysseus\Odysseus.exe`. Keep the entire
+`Odysseus` directory together when copying the application. Runtime data stays
+outside that directory under `%LOCALAPPDATA%\Odysseus`, separated into data,
+logs, runtime state, the persistent WebView profile, promotion artifacts, and
+trusted configuration. Replacing the application directory therefore does not
+replace user data.
+
+The host binds the existing backend to a dynamically selected loopback port,
+waits for readiness, then opens it in a native WebView2 window. Only one host
+instance may use a given persistent root. The browser surface has no privileged
+native bridge.
+
 ### Docker (recommended)
 ```bash
 git clone https://github.com/odysseus-dev/odysseus.git
