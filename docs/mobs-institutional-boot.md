@@ -92,9 +92,16 @@ their own review, and review remains separate from mandate approval.
 The existing `/api/chat_stream` route can create and run a reviewed proposal
 without a client constructing `mobs_execution`. It accepts the explicit actions
 `mobs_action=propose`, `review`, `approve`, or `cancel`, along with the already selected
-target `workspace`, the local `mobs_authority_workspace` (or configured
-`MOBS_WORKSPACE`), an explicit Decision Tree `mobs_category`, and a
-`mobs_profile` of `read_only` or `development`.
+target `workspace`. In the normal workspace-first flow the runtime resolves the
+institutional root from trusted `MOBS_INSTITUTIONAL_ROOT`,
+`MOBS_WORKSPACE_PATH`, or legacy `MOBS_WORKSPACE` configuration, reads
+`PROJECT_INDEX.md` first, and conservatively derives the Decision Tree category
+and execution profile. An ambiguous request is blocked for clarification.
+Shift-clicking the MOBS control retains category and profile choices as an
+Advanced/Debug fallback. The institutional root is never accepted from the
+browser; advanced choices are validated against the trusted Index and capability
+profiles. The resulting proposal still contains a `profile` of `read_only` or
+`development`.
 
 The default execution profile is `read_only`. The integration authority's path
 is discovered from the official Index rather than pinned in this consumer.
@@ -128,7 +135,7 @@ project, baselines, status and eventual ledger. `approve` authorizes the
 objective and permissions only after the matching authority review exists. It
 then revalidates saved evidence with Institutional Boot and invokes the existing
 Agent Loop with the resulting explicit mandate. `cancel` cannot execute it.
-The browser sends actions, version references and selected workspaces; it cannot submit a
+The browser sends actions, version references and the target workspace; it cannot submit a
 mandate, authority hashes, baselines, review state, or approvals.
 
 The review view includes the source repository, branch, commit, working-tree

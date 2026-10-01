@@ -46,7 +46,7 @@ from src.action_intents import ToolIntent, classify_tool_intent as _classify_too
 from src.image_model_ids import looks_like_image_generation_model
 from src.mobs_auto_router import is_mobs_auto, resolve_mobs_auto_route
 from src.mobs_mandate_builder import (
-    MandateProposalError, apply_proposal_action, build_proposal, proposal_summary,
+    MandateProposalError, apply_proposal_action, build_workspace_proposal, proposal_summary,
     save_proposal, set_status,
 )
 from src.tool_policy import (
@@ -786,10 +786,9 @@ def setup_chat_routes(
         # MOBS is an explicit chat action. It is never inferred from a message
         # or model choice, and the Agent Loop still validates its contract.
         mobs_action = str(form_data.get("mobs_action") or (body or {}).get("mobs_action") or "").strip().lower()
-        mobs_authority_workspace = str(form_data.get("mobs_authority_workspace") or (body or {}).get("mobs_authority_workspace") or "").strip()
         mobs_category = str(form_data.get("mobs_category") or (body or {}).get("mobs_category") or "").strip()
-        mobs_profile = str(form_data.get("mobs_profile") or (body or {}).get("mobs_profile") or "read_only").strip()
-        mobs_project_profile = str(form_data.get("mobs_project_profile") or (body or {}).get("mobs_project_profile") or "generic").strip()
+        mobs_profile = str(form_data.get("mobs_profile") or (body or {}).get("mobs_profile") or "").strip()
+        mobs_project_profile = str(form_data.get("mobs_project_profile") or (body or {}).get("mobs_project_profile") or "").strip()
         # Plan mode is a modifier on agent mode — it only makes sense with tools.
         if plan_mode:
             chat_mode = "agent"
@@ -1017,7 +1016,7 @@ def setup_chat_routes(
             payload = {**(body or {}), **dict(form_data)}
             allowed_fields = {"mobs_action"}
             if mobs_action == "propose":
-                allowed_fields |= {"mobs_authority_workspace", "mobs_category", "mobs_profile", "mobs_project_profile"}
+                allowed_fields |= {"mobs_category", "mobs_profile", "mobs_project_profile"}
             elif mobs_action == "promote":
                 allowed_fields |= {"mobs_promotion_id", "mobs_promotion_digest"}
             else:
@@ -1036,14 +1035,20 @@ def setup_chat_routes(
                 raise HTTPException(400, "Client cannot replace trusted MOBS proposal state")
             if mobs_action == "propose":
                 try:
-                    proposal = build_proposal(
-                        message, target_workspace=workspace,
-                        authority_workspace=mobs_authority_workspace or None,
-                        category=mobs_category, profile=mobs_profile,
-                        project_profile=mobs_project_profile,
+                    proposal = build_workspace_proposal(
+                        message,
+                        target_workspace=workspace,
+                        category=mobs_category or None,
+                        profile=mobs_profile or None,
+                        project_profile=mobs_project_profile or None,
                     )
                     save_proposal(session, proposal)
                 except MandateProposalError as exc:
+                    if str(exc).startswith("Task classification needs clarification"):
+                        return StreamingResponse(
+                            _mobs_reply("mobs_clarification_required", {"message": str(exc)}),
+                            media_type="text/event-stream",
+                        )
                     raise HTTPException(400, f"MOBS proposal blocked: {exc}") from exc
                 return StreamingResponse(
                     _mobs_reply("mobs_mandate_proposal", proposal_summary(proposal)),

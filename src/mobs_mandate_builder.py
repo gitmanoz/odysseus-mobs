@@ -217,6 +217,29 @@ def build_proposal(
     return proposal
 
 
+def build_workspace_proposal(
+    user_request: str,
+    *,
+    target_workspace: str,
+    category: str | None = None,
+    profile: str | None = None,
+    project_profile: str | None = None,
+) -> dict[str, Any]:
+    """Build through the existing mandate path from trusted workspace-first inputs."""
+    from src.mobs_workspace_boot import WorkspaceBootError, workspace_boot_inputs
+    try:
+        inputs = workspace_boot_inputs(
+            user_request,
+            target_workspace,
+            category=category,
+            profile=profile,
+            project_profile=project_profile,
+        )
+    except WorkspaceBootError as exc:
+        raise MandateProposalError(str(exc)) from exc
+    return build_proposal(user_request, target_workspace=target_workspace, **inputs)
+
+
 def proposal_summary(proposal: dict[str, Any]) -> dict[str, Any]:
     summary = {key: proposal[key] for key in (
         "objective", "scope", "category", "allowed_paths", "allowed_read_paths",

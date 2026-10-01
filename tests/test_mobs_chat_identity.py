@@ -5,6 +5,7 @@ repository evidence, database transitions, HTTP parsing and the loop are real.
 """
 import json
 import os
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -35,6 +36,7 @@ def chat(projects, tmp_path, monkeypatch):
     from routes import chat_routes as routes
     import src.agent_loop as loop
     source, target = projects
+    monkeypatch.setenv("MOBS_INSTITUTIONAL_ROOT", str(source))
     from tests.mobs_reviewer_support import install_trust
     trust = install_trust(monkeypatch, tmp_path, source, username="founder", database=False)
     engine = create_engine(f"sqlite:///{tmp_path / 'chat.sqlite'}", connect_args={"check_same_thread": False})
@@ -88,12 +90,12 @@ def chat(projects, tmp_path, monkeypatch):
     app.include_router(routes.setup_chat_routes(manager, MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock()))
     client = TestClient(app)
     client.cookies.set("odysseus_session", trust.token)
-    def post(action=None, proposal=None, **extras):
+    def post(action=None, proposal=None, workspace_first=False, **extras):
         payload = {"message": "Inspect the code.", "session": "s", "workspace": str(target)}
         if action:
             payload["mobs_action"] = action
-        if action == "propose":
-            payload.update(mobs_authority_workspace=str(source), mobs_category="Código", mobs_profile="read_only")
+        if action == "propose" and not workspace_first:
+            payload.update(mobs_category="Código", mobs_profile="read_only")
         if proposal:
             payload.update({"mobs_" + key: value for key, value in proposal_reference(proposal).items()})
         payload.update(extras)
@@ -106,6 +108,47 @@ def chat(projects, tmp_path, monkeypatch):
 
 def propose(chat):
     return event(chat.post("propose"), "mobs_mandate_proposal")
+
+
+def test_workspace_first_proposal_reaches_route_without_client_category_or_authority_root(chat):
+    proposal = event(chat.post("propose", workspace_first=True), "mobs_mandate_proposal")
+    stored = load_proposal("s")
+    assert proposal["category"] == "Código"
+    assert proposal["profile"] == "read_only"
+    assert stored["source"]["path"] == str(chat.source.resolve())
+    assert stored["category"] == "Código"
+
+
+def test_browser_cannot_replace_institutional_root_with_another_valid_workspace(chat, tmp_path):
+    alternate = tmp_path / "alternate-mobs"
+    shutil.copytree(chat.source, alternate)
+    response = chat.post(
+        "propose",
+        workspace_first=True,
+        mobs_authority_workspace=str(alternate),
+        mobs_category="Código",
+    )
+    assert response.status_code == 400
+    assert "cannot replace trusted MOBS proposal state" in response.text
+    assert load_proposal("s") is None
+
+
+def test_workspace_first_ambiguous_request_returns_clarification_without_proposal(chat):
+    response = chat.post("propose", workspace_first=True, message="Ayla, faça isso.")
+    clarification = event(response, "mobs_clarification_required")
+    assert "needs clarification" in clarification["message"]
+
+
+def test_workspace_first_bug_fix_derives_governed_development_proposal(chat, monkeypatch, tmp_path):
+    from tests.mobs_reviewer_support import install_junior_operational_profile
+    install_junior_operational_profile(monkeypatch, tmp_path)
+    proposal = event(
+        chat.post("propose", workspace_first=True, message="Ayla, corrija este bug no código."),
+        "mobs_mandate_proposal",
+    )
+    assert proposal["category"] == "Código"
+    assert proposal["profile"] == "development"
+    assert proposal["promotion_eligible"] is True
 
 
 def test_propose_review_approve_executes_real_loop_and_records_events(chat):
@@ -274,11 +317,12 @@ def test_current_canonical_mop_produces_minimal_read_only_proposal(projects):
                                      "project/automation/future/AGENT_RUNTIME_INTEGRATION.md"}
 
 
-def test_canonical_mop_discovery_reaches_loop_through_real_chat_route(chat):
+def test_canonical_mop_discovery_reaches_loop_through_real_chat_route(chat, monkeypatch):
     canonical = Path(os.environ.get("MOBS_CANONICAL_REPOSITORY", Path(__file__).resolve().parents[2] / "missao-mobs"))
     if not (canonical / "PROJECT_INDEX.md").exists():
         pytest.skip("Canonical local M.O.P checkout is not configured")
-    p = event(chat.post("propose", mobs_authority_workspace=str(canonical)), "mobs_mandate_proposal")
+    monkeypatch.setenv("MOBS_INSTITUTIONAL_ROOT", str(canonical))
+    p = event(chat.post("propose"), "mobs_mandate_proposal")
     assert "project/automation/future/AGENT_RUNTIME_INTEGRATION.md" in p["authority_evidence"]["authorities"]
     chat.trust.binding["authorization"]["scope"] = {
         "institutional_root": str(canonical.resolve()), "categories": ["Código"],

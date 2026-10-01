@@ -716,20 +716,23 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       setTimeout(() => _wireArrowUpRecall(document.getElementById('message')), 250);
     }
     const mobsButton = document.getElementById('mobs-toggle-btn');
-    if (mobsButton) mobsButton.addEventListener('click', () => {
+    if (mobsButton) mobsButton.addEventListener('click', (event) => {
       const workspace = (Storage.KEYS && Storage.get(Storage.KEYS.WORKSPACE, '')) || '';
       if (!workspace) { uiModule.showToast('Select the target workspace before preparing MOBS.', 5000); return; }
-      const authorityWorkspace = window.prompt('Local MOBS authority workspace:');
-      if (!authorityWorkspace) return;
+      if (!event.shiftKey) {
+        _mobsAction = { action: 'propose', session: sessionModule.getCurrentSessionId() };
+        uiModule.showToast('MOBS workspace-first mode ready. Send the task to build a governed proposal.', 5000);
+        return;
+      }
       const category = window.prompt('MOBS Decision Tree category:', 'Código');
       if (!category) return;
       const profile = window.prompt('Execution profile: read_only or development', 'read_only');
       if (!['read_only', 'development'].includes(profile)) return;
       const projectProfile = window.prompt('Project capability profile: generic, python, or godot', 'generic');
       if (!projectProfile) return;
-      _mobsAction = { action: 'propose', authorityWorkspace, category, profile, projectProfile,
+      _mobsAction = { action: 'propose', category, profile, projectProfile,
         session: sessionModule.getCurrentSessionId() };
-      uiModule.showToast('MOBS proposal configured. Send the task to request review.', 5000);
+      uiModule.showToast('Advanced MOBS proposal configured. Send the task to request review.', 5000);
     });
   }
 
@@ -1777,7 +1780,6 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
         if (_mobsAction.authoritySnapshot) fd.append('mobs_authority_snapshot', _mobsAction.authoritySnapshot);
         if (_mobsAction.promotionId) fd.append('mobs_promotion_id', _mobsAction.promotionId);
         if (_mobsAction.promotionDigest) fd.append('mobs_promotion_digest', _mobsAction.promotionDigest);
-        if (_mobsAction.authorityWorkspace) fd.append('mobs_authority_workspace', _mobsAction.authorityWorkspace);
         if (_mobsAction.category) fd.append('mobs_category', _mobsAction.category);
         if (_mobsAction.profile) fd.append('mobs_profile', _mobsAction.profile);
         if (_mobsAction.projectProfile) fd.append('mobs_project_profile', _mobsAction.projectProfile);
@@ -3396,6 +3398,11 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                 evidence.textContent = `Proposal: ${p.proposal_id}\nVersion: ${p.proposal_digest}\nSnapshot: ${p.authority_snapshot}\n\nObjective: ${p.objective || ''}\nScope: ${p.scope || ''}\nProject profile: ${p.project_profile || ''} v${p.capability_profile_version || ''}\nPaths: ${(p.allowed_paths || []).join(', ')}\nReadable: ${(p.allowed_read_paths || []).join(', ')}\nWritable: ${(p.allowed_write_paths || []).join(', ')}\nCreatable: ${(p.allowed_create_paths || []).join(', ')}\nTools: ${(p.allowed_tools || []).join(', ')}\nOperations: ${(p.allowed_operations || []).join(', ')}\nCommands: ${(p.allowed_commands || []).join(', ')}\nExclusions: ${p.exclusions || ''}\nLimits: ${JSON.stringify(p.limits || {})}\nAuthority review: ${p.authority_review || 'pending'}\n\nAuthority snapshot\nSource: ${source.path || ''}\nBranch: ${source.branch || ''}\nCommit: ${source.head || ''}\nWorking tree: ${source.working_tree_status || '(clean)'}\nFingerprint: ${source.working_tree_sha256 || ''}\n\nAuthority hashes\n${authorities}\n\nAuthority contents\n${documents}`;
                 if (card) card.appendChild(evidence);
                 mobsActionButtons(card, p, false);
+
+              } else if (json.type === 'mobs_clarification_required') {
+                if (_isBg) continue;
+                const detail = (json.data && json.data.message) || 'The task could not be classified safely.';
+                addMessage('assistant', `MOBS needs clarification before it can build a mandate. ${detail}`);
 
               } else if (json.type === 'mobs_authority_reviewed') {
                 if (_isBg) continue;
