@@ -83,6 +83,8 @@ def test_trusted_desktop_config_is_stable_and_junior_only(tmp_path, monkeypatch)
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
     assert policy["mode"] == "junior"
     assert policy["promotion_result"] == "human_approval_required"
+    assert policy["self_development_promotion_result"] == "preauthorized"
+    assert policy["version"] == 2
     assert policy["state"] == "active"
     assert Path(first["MOBS_PROMOTION_STORE"]).is_relative_to(paths.root)
     assert not Path(first["MOBS_PROMOTION_STORE"]).is_relative_to(tmp_path / "project")

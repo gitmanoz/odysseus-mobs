@@ -85,6 +85,7 @@ class WindowsExecutionPolicy:
     timeout_seconds: int
     promotion_binding: dict | None = None
     private_write: dict | None = None
+    validation_artifact: dict | None = None
 
     async def execute(self) -> dict:
         if os.name != "nt":
@@ -141,6 +142,30 @@ class WindowsExecutionPolicy:
                 raise TrustedExecutionUnavailable("This first Windows adapter supports only Python commands")
             if inventory(root, include_git=True) != before_target:
                 raise TrustedExecutionUnavailable("Target drift while preparing private workspace")
+            validated_candidate = None
+            if self.validation_artifact is not None:
+                from src.mobs_controlled_promotion import _verified_artifact_content
+                artifact = self.validation_artifact
+                if (artifact.get("target_inventory_sha256") != _inventory_digest(before_target)
+                        or artifact.get("target_baseline", {}).get("path") != str(root.resolve())):
+                    raise TrustedExecutionUnavailable("Validation artifact baseline differs from target")
+                from src.mobs_institutional_boot import _portable_path
+                relative = _portable_path(artifact["path"], "validation artifact path")
+                if not _path_is_allowed(relative, self.read_paths):
+                    raise TrustedExecutionUnavailable("Validation artifact is outside approved read paths")
+                destination = private / relative
+                if (not destination.resolve().is_relative_to(private.resolve())
+                        or not destination.parent.is_dir() or destination.is_symlink()):
+                    raise TrustedExecutionUnavailable("Validation artifact path is not confined")
+                if artifact["effect"] == "write" and before_target.get(relative) != artifact["preimage_sha256"]:
+                    raise TrustedExecutionUnavailable("Validation preimage differs from target")
+                if artifact["effect"] == "create" and relative in before_target:
+                    raise TrustedExecutionUnavailable("Validation create destination exists")
+                content = _verified_artifact_content(artifact, root)
+                shutil.copyfile(content, destination)
+                if _file_sha256(destination) != artifact["content_sha256"]:
+                    raise TrustedExecutionUnavailable("Private validation candidate differs from sealed artifact")
+                validated_candidate = destination
             (private / ".odysseus-runtime").mkdir()
             before_private = inventory(private, include_git=True)
             environment = _clean_environment(private, Path(executable))
@@ -168,6 +193,8 @@ class WindowsExecutionPolicy:
                 # it must never become a promotable artifact.
                 raise TrustedExecutionUnavailable("Timed-out private execution cannot be promoted")
             after_private = inventory(private, include_git=True)
+            if validated_candidate is not None and _file_sha256(validated_candidate) != self.validation_artifact["content_sha256"]:
+                raise TrustedExecutionUnavailable("Validation command modified the sealed candidate")
             output_files = {".odysseus-stdout", ".odysseus-stderr"}
             all_effects = changed_entries(before_private, after_private)
             adapter_effects = [item for item in all_effects if item["path"] in output_files
@@ -228,6 +255,8 @@ class WindowsExecutionPolicy:
                     "private_before_sha256": _inventory_digest(before_private),
                     "private_after_sha256": _inventory_digest(after_private),
                     "timed_out": native["timed_out"],
+                    **({"validated_artifact_digest": self.validation_artifact["artifact_digest"]}
+                       if self.validation_artifact is not None else {}),
                     **({"promotion_artifact": promotion_artifact} if promotion_artifact else {}),
                 },
             }
@@ -242,6 +271,14 @@ def _inventory_digest(entries: dict[str, str]) -> str:
         digest.update(b"\0")
         digest.update(value.encode("ascii"))
         digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
     return digest.hexdigest()
 
 

@@ -56,11 +56,14 @@ def authenticated_actor(state):
     return authorization.human_reviewer(request)
 
 
-def install_junior_operational_profile(monkeypatch, tmp_path):
+def install_junior_operational_profile(monkeypatch, tmp_path, *, self_development_preauthorized=False):
     """Pin the only provisioned promotion policy used by governance tests."""
     policy = {"format_version": 1, "installation_id": INSTALLATION, "id": "fixture-junior",
-              "version": 1, "state": "active", "mode": "junior",
+              "version": 2 if self_development_preauthorized else 1,
+              "state": "active", "mode": "junior",
               "promotion_result": "human_approval_required"}
+    if self_development_preauthorized:
+        policy["self_development_promotion_result"] = "preauthorized"
     path = tmp_path / "fixture-junior-policy.json"
     raw = (json.dumps(policy, sort_keys=True) + "\n").encode()
     path.write_bytes(raw)

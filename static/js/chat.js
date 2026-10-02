@@ -766,10 +766,33 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
   function mobsPromotionButton(promotion) {
     if (!promotion || !promotion.id || !promotion.artifact_digest) return;
-    const card = addMessage('assistant', `Private change pending promotion: ${promotion.effect} ${promotion.path}. Human approval is required.`);
-    const button = document.createElement('button');
-    button.textContent = 'Approve exact promotion';
+    const selfDevelopmentPreauthorized = promotion.self_development &&
+      promotion.operational_policy?.self_development_result === 'preauthorized';
+    const card = addMessage('assistant', `Private change pending promotion: ${promotion.effect} ${promotion.path}. ${
+      selfDevelopmentPreauthorized ? 'Approved operational policy permits promotion after exact private validation.'
+        : 'Human approval is required.'}`);
     const presentedSession = sessionModule.getCurrentSessionId();
+    if (promotion.self_development) {
+      const validate = document.createElement('button');
+      validate.type = 'button';
+      validate.textContent = selfDevelopmentPreauthorized ? 'Validate and promote sealed change' : 'Validate sealed change';
+      validate.addEventListener('click', () => {
+        if (sessionModule.getCurrentSessionId() !== presentedSession) return;
+        _mobsAction = { action: 'validate_promotion', session: presentedSession,
+          promotionId: promotion.id, promotionDigest: promotion.artifact_digest };
+        uiModule.showToast(selfDevelopmentPreauthorized
+          ? 'Enter an approved test command, then press Send. A successful validation applies the exact sealed change.'
+          : 'Enter an approved test command, then press Send. Validation does not approve promotion.', 7000);
+      });
+      card.appendChild(validate);
+    }
+    if (selfDevelopmentPreauthorized) return;
+    const button = document.createElement('button');
+    button.textContent = promotion.self_development ? 'Validate before approval' : 'Approve exact promotion';
+    if (promotion.self_development) {
+      button.disabled = true;
+      button.dataset.mobsPromotionDigest = promotion.artifact_digest;
+    }
     button.addEventListener('click', () => {
       if (sessionModule.getCurrentSessionId() !== presentedSession) return;
       if (!window.confirm(`Apply exactly the sealed ${promotion.effect} to ${promotion.path}?`)) return;
@@ -3417,6 +3440,17 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
               } else if (json.type === 'mobs_promotion_applied') {
                 if (_isBg) continue;
                 addMessage('assistant', `MOBS promotion verified: ${(json.data || {}).path || ''}`);
+
+              } else if (json.type === 'mobs_promotion_validated') {
+                if (_isBg) continue;
+                const validation = (json.data || {}).validation || {};
+                document.querySelectorAll('button[data-mobs-promotion-digest]').forEach((button) => {
+                  if (button.dataset.mobsPromotionDigest === validation.artifact_digest) {
+                    button.disabled = false;
+                    button.textContent = 'Approve exact promotion';
+                  }
+                });
+                addMessage('assistant', `Sealed change validated privately with exit code ${validation.exit_code}. Human promotion approval is still required.`);
 
               } else if (typeof json.type === 'string' && json.type.startsWith('institutional_')) {
                 if (_isBg) continue;

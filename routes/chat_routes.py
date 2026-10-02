@@ -1008,7 +1008,7 @@ def setup_chat_routes(
 
         mobs_execution = None
         if mobs_action:
-            if mobs_action not in {"propose", "review", "approve", "cancel", "promote"}:
+            if mobs_action not in {"propose", "review", "approve", "cancel", "promote", "validate_promotion"}:
                 raise HTTPException(400, "Invalid MOBS action")
             from src.tool_security import owner_is_admin_or_single_user
             if not owner_is_admin_or_single_user(effective_user(request)):
@@ -1017,7 +1017,7 @@ def setup_chat_routes(
             allowed_fields = {"mobs_action"}
             if mobs_action == "propose":
                 allowed_fields |= {"mobs_category", "mobs_profile", "mobs_project_profile"}
-            elif mobs_action == "promote":
+            elif mobs_action in {"promote", "validate_promotion"}:
                 allowed_fields |= {"mobs_promotion_id", "mobs_promotion_digest"}
             else:
                 allowed_fields |= {"mobs_proposal_id", "mobs_proposal_digest", "mobs_authority_snapshot"}
@@ -1025,7 +1025,12 @@ def setup_chat_routes(
                               "authority_snapshot", "baseline", "approvals", "mobs_execution", "proposal",
                               "proposal_id", "proposal_digest", "capabilities", "project_profile",
                               "capability_profile_version", "allowed_paths", "allowed_tools", "allowed_commands",
-                              "allowed_operations", "limits", "approval_required_operations", "exclusions", "scope"}
+                              "allowed_operations", "limits", "approval_required_operations", "exclusions", "scope",
+                              "validation_artifact", "promotion_artifact", "artifact_digest",
+                              "content_sha256", "preimage_sha256", "target_inventory_sha256",
+                              "operational_policy", "promotion_result", "self_development",
+                              "self_development_root", "target_identity",
+                              "self_development_promotion_result"}
             trusted_fields |= {"authorization", "review_record", "reviewer", "reviewer_binding", "installation_id",
                                "account", "account_digest", "approval", "approval_reference", "binding_sha256",
                                "reviewer_authorization", "founder_approval", "authorization_id", "authorization_version",
@@ -1054,20 +1059,35 @@ def setup_chat_routes(
                     _mobs_reply("mobs_mandate_proposal", proposal_summary(proposal)),
                     media_type="text/event-stream",
                 )
-            if mobs_action == "promote":
+            if mobs_action in {"promote", "validate_promotion"}:
                 try:
                     from src.mobs_reviewer_authorization import human_reviewer, ReviewerAuthorizationError
-                    from src.mobs_controlled_promotion import approve_and_apply, PromotionError
-                    actor = human_reviewer(request)
-                    if actor.username != effective_user(request):
-                        raise HTTPException(400, "MOBS requester identity does not match the human session")
-                    result = approve_and_apply(str(session), {
+                    from src.mobs_controlled_promotion import (approve_and_apply, validate_private_artifact,
+                                                                promotion_requires_human, PromotionError)
+                    from src.mobs_institutional_boot import InstitutionalBootError
+                    from src.windows_native_execution import TrustedExecutionUnavailable
+                    promotion_reference = {
                         "promotion_id": str(payload.get("mobs_promotion_id") or ""),
                         "promotion_digest": str(payload.get("mobs_promotion_digest") or ""),
-                    }, actor)
-                except (ReviewerAuthorizationError, PromotionError) as exc:
+                    }
+                    human_required = promotion_requires_human(str(session), promotion_reference)
+                    actor = human_reviewer(request) if human_required else None
+                    if actor is not None and actor.username != effective_user(request):
+                        raise HTTPException(400, "MOBS requester identity does not match the human session")
+                    if mobs_action == "validate_promotion":
+                        result = await validate_private_artifact(str(session), promotion_reference, message, actor)
+                        if not human_required:
+                            result = approve_and_apply(str(session), promotion_reference, None)
+                    else:
+                        if not human_required:
+                            raise PromotionError("Preauthorized self-development requires exact private validation first")
+                        result = approve_and_apply(str(session), promotion_reference, actor)
+                except (ReviewerAuthorizationError, PromotionError, InstitutionalBootError,
+                        TrustedExecutionUnavailable) as exc:
                     raise HTTPException(400, f"MOBS promotion blocked: {exc}") from exc
-                return StreamingResponse(_mobs_reply("mobs_promotion_applied", result), media_type="text/event-stream")
+                kind = ("mobs_promotion_validated" if mobs_action == "validate_promotion" and human_required
+                        else "mobs_promotion_applied")
+                return StreamingResponse(_mobs_reply(kind, result), media_type="text/event-stream")
             reference = {key: str(payload.get("mobs_" + key) or "") for key in
                          ("proposal_id", "proposal_digest", "authority_snapshot")}
             if mobs_action == "approve" and _is_image_generation_session(sess, owner=effective_user(request)):

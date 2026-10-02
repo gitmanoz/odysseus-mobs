@@ -712,7 +712,13 @@ class InstitutionalContext:
             'before': self.mutation_ledger[-1]['after'] if self.mutation_ledger else self.target,
             'after': next_target,
         }
-        if self.execution.promotion_eligible:
+        if getattr(pending.boundary_policy, 'validation_artifact', None) is not None:
+            expected_digest = pending.boundary_policy.validation_artifact['artifact_digest']
+            if boundary.get('validated_artifact_digest') != expected_digest:
+                raise InstitutionalBootError('Validation evidence does not match the sealed artifact')
+            event['promotion_validation'] = {'artifact_digest': expected_digest,
+                                             'exit_code': result.get('exit_code')}
+        elif self.execution.promotion_eligible:
             artifact = boundary.get('promotion_artifact')
             if artifact is None and not boundary.get('effects'):
                 event['promotion'] = {'status': 'no_promotable_effect'}
