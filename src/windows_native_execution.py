@@ -75,6 +75,60 @@ def changed_entries(before: dict[str, str], after: dict[str, str]) -> list[dict[
     ]
 
 
+def _apply_private_patch(private: Path, payload: str, read_paths: tuple[str, ...],
+                         write_paths: tuple[str, ...], create_paths: tuple[str, ...]) -> None:
+    """Apply the existing two-file patch grammar only to the disposable copy."""
+    from src.agent_tools.filesystem_tools import _parse_agent_patch, _apply_patch_hunks
+    from src.mobs_institutional_boot import _portable_path, _path_is_allowed
+
+    if not isinstance(payload, str) or len(payload.encode("utf-8")) > 131072:
+        raise TrustedExecutionUnavailable("Private patch payload is invalid or too large")
+    text = payload
+    if text.strip().startswith("{"):
+        import json
+        try:
+            args = json.loads(text)
+        except (TypeError, ValueError) as exc:
+            raise TrustedExecutionUnavailable("Invalid private patch JSON") from exc
+        if not isinstance(args, dict):
+            raise TrustedExecutionUnavailable("Invalid private patch JSON")
+        text = str(args.get("patch_text") or args.get("patchText") or args.get("patch") or "")
+    try:
+        operations = _parse_agent_patch(text)
+    except ValueError as exc:
+        raise TrustedExecutionUnavailable(f"Invalid private patch: {exc}") from exc
+    if len(operations) != 2:
+        raise TrustedExecutionUnavailable("Private patch requires exactly two files")
+    paths = [_portable_path(op["path"], "patch path") for op in operations]
+    if len({path.casefold() for path in paths}) != 2:
+        raise TrustedExecutionUnavailable("Duplicate private patch paths")
+    prepared = []
+    for op, relative in zip(operations, paths):
+        kind = op["kind"]
+        if kind not in {"add", "update"}:
+            raise TrustedExecutionUnavailable("Private patch permits only create or write")
+        path = private / relative
+        if not path.resolve().is_relative_to(private.resolve()) or path.is_symlink():
+            raise TrustedExecutionUnavailable("Private patch path escapes workspace")
+        if kind == "add":
+            if path.exists() or not _path_is_allowed(relative, create_paths):
+                raise TrustedExecutionUnavailable("Private patch create is not authorized")
+            content = op["content"]
+        else:
+            if (not path.is_file() or not _path_is_allowed(relative, read_paths)
+                    or not _path_is_allowed(relative, write_paths)):
+                raise TrustedExecutionUnavailable("Private patch write is not authorized")
+            try:
+                original = path.read_text(encoding="utf-8")
+                content = _apply_patch_hunks(original, op["hunks"], relative)
+            except (UnicodeError, ValueError) as exc:
+                raise TrustedExecutionUnavailable(f"Private patch cannot apply: {exc}") from exc
+        prepared.append((path, content))
+    for path, content in prepared:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
 @dataclass(frozen=True)
 class WindowsExecutionPolicy:
     target: str
@@ -85,6 +139,7 @@ class WindowsExecutionPolicy:
     timeout_seconds: int
     promotion_binding: dict | None = None
     private_write: dict | None = None
+    private_patch: str | None = None
     validation_artifact: dict | None = None
 
     async def execute(self) -> dict:
@@ -135,37 +190,49 @@ class WindowsExecutionPolicy:
                 destination = private / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, destination)
-            if Path(executable).name.lower() in {"python.exe", "python3.exe"}:
+            if self.private_patch is not None:
+                if self.promotion_binding is None or self.private_write is not None or self.validation_artifact is not None:
+                    raise TrustedExecutionUnavailable("Private patch requires one promotion execution")
+            elif Path(executable).name.lower() in {"python.exe", "python3.exe"}:
                 executable = str(_stage_python_toolchain(Path(executable), private,
                                                          pytest_command or self.command[1:3] == ("-m", "pytest")))
             else:
                 raise TrustedExecutionUnavailable("This first Windows adapter supports only Python commands")
             if inventory(root, include_git=True) != before_target:
                 raise TrustedExecutionUnavailable("Target drift while preparing private workspace")
-            validated_candidate = None
+            validated_candidates = []
             if self.validation_artifact is not None:
-                from src.mobs_controlled_promotion import _verified_artifact_content
+                from src.mobs_controlled_promotion import _verified_artifact_content, _verified_artifact_contents
                 artifact = self.validation_artifact
                 if (artifact.get("target_inventory_sha256") != _inventory_digest(before_target)
                         or artifact.get("target_baseline", {}).get("path") != str(root.resolve())):
                     raise TrustedExecutionUnavailable("Validation artifact baseline differs from target")
                 from src.mobs_institutional_boot import _portable_path
-                relative = _portable_path(artifact["path"], "validation artifact path")
-                if not _path_is_allowed(relative, self.read_paths):
-                    raise TrustedExecutionUnavailable("Validation artifact is outside approved read paths")
-                destination = private / relative
-                if (not destination.resolve().is_relative_to(private.resolve())
-                        or not destination.parent.is_dir() or destination.is_symlink()):
-                    raise TrustedExecutionUnavailable("Validation artifact path is not confined")
-                if artifact["effect"] == "write" and before_target.get(relative) != artifact["preimage_sha256"]:
-                    raise TrustedExecutionUnavailable("Validation preimage differs from target")
-                if artifact["effect"] == "create" and relative in before_target:
-                    raise TrustedExecutionUnavailable("Validation create destination exists")
-                content = _verified_artifact_content(artifact, root)
-                shutil.copyfile(content, destination)
-                if _file_sha256(destination) != artifact["content_sha256"]:
-                    raise TrustedExecutionUnavailable("Private validation candidate differs from sealed artifact")
-                validated_candidate = destination
+                multi = artifact.get("format_version") == 2
+                effects = artifact["effects"] if multi else [artifact]
+                contents = (_verified_artifact_contents(artifact, root) if multi else
+                            [_verified_artifact_content(artifact, root)])
+                expected_candidate = inventory(private, include_git=True)
+                for effect, content in zip(effects, contents):
+                    relative = _portable_path(effect["path"], "validation artifact path")
+                    if not _path_is_allowed(relative, self.read_paths):
+                        raise TrustedExecutionUnavailable("Validation artifact is outside approved read paths")
+                    destination = private / relative
+                    if (not destination.resolve().is_relative_to(private.resolve())
+                            or not destination.parent.is_dir() or destination.is_symlink()):
+                        raise TrustedExecutionUnavailable("Validation artifact path is not confined")
+                    if effect["effect"] == "write" and before_target.get(relative) != effect["preimage_sha256"]:
+                        raise TrustedExecutionUnavailable("Validation preimage differs from target")
+                    if effect["effect"] == "create" and relative in before_target:
+                        raise TrustedExecutionUnavailable("Validation create destination exists")
+                    shutil.copyfile(content, destination)
+                    if _file_sha256(destination) != effect["content_sha256"]:
+                        raise TrustedExecutionUnavailable("Private validation candidate differs from sealed artifact")
+                    expected_candidate[relative] = effect["content_sha256"]
+                    validated_candidates.append((destination, effect["content_sha256"]))
+                if multi:
+                    if inventory(private, include_git=True) != expected_candidate:
+                        raise TrustedExecutionUnavailable("Validation candidate has unexpected content")
             (private / ".odysseus-runtime").mkdir()
             before_private = inventory(private, include_git=True)
             environment = _clean_environment(private, Path(executable))
@@ -184,16 +251,26 @@ class WindowsExecutionPolicy:
                              "-o", "log_file=.odysseus-runtime/pytest.log")
             else:
                 arguments = ("-B", *self.command[1:])
-            native = _run_appcontainer(
-                executable, arguments, private, environment,
-                self.timeout_seconds, stop, self.write_paths, self.create_paths,
-            )
+            if self.private_patch is not None:
+                patch_started = time.monotonic()
+                _apply_private_patch(private, self.private_patch, self.read_paths,
+                                     self.write_paths, self.create_paths)
+                if stop.is_set() or time.monotonic() - patch_started > self.timeout_seconds:
+                    raise TrustedExecutionUnavailable("Private patch exceeded its cancellation or time limit")
+                native = {"stdout": "Private patch prepared", "stderr": "", "exit_code": 0,
+                          "timed_out": False, "profile_effects": [],
+                          "native_configuration": {"operation": "trusted_private_patch"}}
+            else:
+                native = _run_appcontainer(
+                    executable, arguments, private, environment,
+                    self.timeout_seconds, stop, self.write_paths, self.create_paths,
+                )
             if self.promotion_binding is not None and native["timed_out"]:
                 # A timed-out process can leave an incomplete private state;
                 # it must never become a promotable artifact.
                 raise TrustedExecutionUnavailable("Timed-out private execution cannot be promoted")
             after_private = inventory(private, include_git=True)
-            if validated_candidate is not None and _file_sha256(validated_candidate) != self.validation_artifact["content_sha256"]:
+            if any(_file_sha256(path) != digest for path, digest in validated_candidates):
                 raise TrustedExecutionUnavailable("Validation command modified the sealed candidate")
             output_files = {".odysseus-stdout", ".odysseus-stderr"}
             all_effects = changed_entries(before_private, after_private)
@@ -215,18 +292,24 @@ class WindowsExecutionPolicy:
                     "Private command produced effects outside the mandate: "
                     + ", ".join(item["path"] for item in forbidden[:10])
                 )
+            if (self.validation_artifact is not None
+                    and self.validation_artifact.get("format_version") == 2 and effects):
+                raise TrustedExecutionUnavailable("Validation changed the sealed two-file candidate workspace")
             promotion_artifact = None
             if self.promotion_binding is not None:
-                if len(effects) > 1 or any(item['effect'] not in {'create', 'write'} for item in effects):
+                limit = 2 if self.private_patch is not None else 1
+                if len(effects) > limit or any(item['effect'] not in {'create', 'write'} for item in effects):
                     raise TrustedExecutionUnavailable('Promotion-eligible command produced multiple or forbidden effects')
-                if len(effects) == 1:
-                    from src.mobs_controlled_promotion import PromotionError, seal_private_effect
+                if self.private_patch is not None and len(effects) != 2:
+                    raise TrustedExecutionUnavailable('Private patch did not produce exactly two effects')
+                if effects:
+                    from src.mobs_controlled_promotion import PromotionError, seal_private_effect, seal_private_effects
                     try:
-                        promotion_artifact = seal_private_effect(
-                            private, effects[0], binding={**self.promotion_binding,
-                                                           'private_before': before_private,
-                                                           'target_inventory_sha256': _inventory_digest(before_target)},
-                        )
+                        binding = {**self.promotion_binding, 'private_before': before_private,
+                                   'target_inventory_sha256': _inventory_digest(before_target)}
+                        promotion_artifact = (seal_private_effects(private, effects, binding=binding)
+                                              if self.private_patch is not None else
+                                              seal_private_effect(private, effects[0], binding=binding))
                     except PromotionError as exc:
                         raise TrustedExecutionUnavailable(str(exc)) from exc
                     if inventory(root, include_git=True) != before_target:
@@ -239,9 +322,13 @@ class WindowsExecutionPolicy:
                 "exit_code": native["exit_code"],
                 "timed_out": native["timed_out"],
                 "trusted_execution": {
-                    "adapter": "windows_appcontainer_job_v1",
-                    "guarantees": ["private_project_copy", "appcontainer_no_network_capability",
-                                   "job_tree_termination", "explicit_environment", "private_file_inventory"],
+                    "adapter": ("windows_private_patch_v1" if self.private_patch is not None
+                                else "windows_appcontainer_job_v1"),
+                    "guarantees": (["private_project_copy", "private_file_inventory",
+                                    "trusted_in_process_patch", "no_child_process"]
+                                   if self.private_patch is not None else
+                                   ["private_project_copy", "appcontainer_no_network_capability",
+                                    "job_tree_termination", "explicit_environment", "private_file_inventory"]),
                     "limitations": ["toolchain_access_is_host_dependent", "git_unavailable_in_private_copy",
                                     "concurrent_same_user_actor_not_cryptographically_attributable"],
                     "uncertainties": ["OS-brokered effects outside the private workspace and AppContainer profile cannot be attributed"],

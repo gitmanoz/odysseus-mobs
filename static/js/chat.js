@@ -766,13 +766,17 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
   function mobsPromotionButton(promotion) {
     if (!promotion || !promotion.id || !promotion.artifact_digest) return;
-    const selfDevelopmentPreauthorized = promotion.self_development &&
+    const effects = Array.isArray(promotion.effects) ? promotion.effects : null;
+    const needsExactValidation = !!(promotion.self_development || effects);
+    const description = effects ? effects.map(item => `${item.effect} ${item.path}`).join(', ')
+      : `${promotion.effect} ${promotion.path}`;
+    const selfDevelopmentPreauthorized = !effects && promotion.self_development &&
       promotion.operational_policy?.self_development_result === 'preauthorized';
-    const card = addMessage('assistant', `Private change pending promotion: ${promotion.effect} ${promotion.path}. ${
+    const card = addMessage('assistant', `Private change pending promotion: ${description}. ${
       selfDevelopmentPreauthorized ? 'Approved operational policy permits promotion after exact private validation.'
         : 'Human approval is required.'}`);
     const presentedSession = sessionModule.getCurrentSessionId();
-    if (promotion.self_development) {
+    if (needsExactValidation) {
       const validate = document.createElement('button');
       validate.type = 'button';
       validate.textContent = selfDevelopmentPreauthorized ? 'Validate and promote sealed change' : 'Validate sealed change';
@@ -788,14 +792,14 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     }
     if (selfDevelopmentPreauthorized) return;
     const button = document.createElement('button');
-    button.textContent = promotion.self_development ? 'Validate before approval' : 'Approve exact promotion';
-    if (promotion.self_development) {
+    button.textContent = needsExactValidation ? 'Validate before approval' : 'Approve exact promotion';
+    if (needsExactValidation) {
       button.disabled = true;
       button.dataset.mobsPromotionDigest = promotion.artifact_digest;
     }
     button.addEventListener('click', () => {
       if (sessionModule.getCurrentSessionId() !== presentedSession) return;
-      if (!window.confirm(`Apply exactly the sealed ${promotion.effect} to ${promotion.path}?`)) return;
+      if (!window.confirm(`Apply exactly the sealed changes: ${description}?`)) return;
       _mobsAction = { action: 'promote', session: presentedSession, promotionId: promotion.id,
         promotionDigest: promotion.artifact_digest };
       uiModule.showToast('Exact promotion approval staged. Press Send to submit.', 5000);
@@ -3439,7 +3443,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.type === 'mobs_promotion_applied') {
                 if (_isBg) continue;
-                addMessage('assistant', `MOBS promotion verified: ${(json.data || {}).path || ''}`);
+                const applied = json.data || {};
+                addMessage('assistant', `MOBS promotion verified: ${Array.isArray(applied.effects)
+                  ? applied.effects.map(item => item.path).join(', ') : applied.path || ''}`);
 
               } else if (json.type === 'mobs_promotion_validated') {
                 if (_isBg) continue;

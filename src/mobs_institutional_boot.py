@@ -614,7 +614,45 @@ class InstitutionalContext:
             return PendingMutation(tool, (path,), tuple(operations), _working_tree_entries(Path(self.target['path'])))
         if tool == 'apply_patch':
             if self.execution.promotion_eligible:
-                raise InstitutionalBootError('Direct writes are blocked for promotion-eligible executions')
+                patch_operations = _patch_paths(content)
+                if len(patch_operations) != 2:
+                    raise InstitutionalBootError('Direct writes are blocked; private promotion patch requires exactly two effects')
+                paths = [path for _, path in patch_operations]
+                if len({path.casefold() for path in paths}) != 2:
+                    raise InstitutionalBootError('Private promotion patch has duplicate paths')
+                for kind, path in patch_operations:
+                    if kind not in {'add', 'update'}:
+                        raise InstitutionalBootError('Private promotion patch permits only create or write')
+                    operation = 'create' if kind == 'add' else 'write'
+                    self._authorize_path(path, operation)
+                    if operation == 'write':
+                        self._authorize_path(path, 'read')
+                        self._require_operation('read')
+                    self._require_operation(operation)
+                    if _SECRET_PATH.search(path):
+                        self._require_operation('credentials')
+                if self.execution.command_timeout_seconds is None:
+                    raise InstitutionalBootError('Private promotion patch requires a timeout')
+                required = ('proposal_id', 'proposal_digest', 'authority_snapshot', '_promotion_session_id')
+                if any(not self.proposal_reference.get(key) for key in required):
+                    raise InstitutionalBootError('Promotion-eligible execution lacks trusted identity')
+                from src.windows_native_execution import WindowsExecutionPolicy, inventory
+                binding = {'session_id': self.proposal_reference['_promotion_session_id'],
+                           'proposal_id': self.proposal_reference['proposal_id'],
+                           'proposal_digest': self.proposal_reference['proposal_digest'],
+                           'authority_snapshot': self.proposal_reference['authority_snapshot'],
+                           'source_baseline': self.expected_source, 'target_baseline': self.expected_target,
+                           'review_authorization': self.review_record.get('authorization', {})}
+                return PendingCommand('private apply_patch ' + ', '.join(paths), 'write',
+                                      _working_tree_entries(Path(self.target['path'])),
+                                      inventory(Path(self.target['path']), include_git=True),
+                                      WindowsExecutionPolicy(self.target['path'], ('python', '-I', '-c', ''),
+                                                             self.execution.allowed_read_paths,
+                                                             self.execution.allowed_write_paths,
+                                                             self.execution.allowed_create_paths,
+                                                             self.execution.command_timeout_seconds,
+                                                             promotion_binding=binding,
+                                                             private_patch=content))
             patch_operations = _patch_paths(content)
             paths = []
             operations = []
@@ -679,9 +717,12 @@ class InstitutionalContext:
         if self.execution.time_limit_seconds is not None and time.monotonic() - self._started_at > self.execution.time_limit_seconds:
             raise InstitutionalBootError('Mandate time limit exceeded during command')
         from src.windows_native_execution import TrustedExecutionUnavailable, inventory
-        tool_name = 'write_file_private' if pending.command.startswith('private write_file ') else 'bash'
+        tool_name = ('apply_patch_private' if pending.command.startswith('private apply_patch ') else
+                     'write_file_private' if pending.command.startswith('private write_file ') else 'bash')
         boundary = result.get('trusted_execution') if isinstance(result, dict) else None
-        if not isinstance(boundary, dict) or boundary.get('adapter') != 'windows_appcontainer_job_v1':
+        if (not isinstance(boundary, dict) or boundary.get('adapter') not in
+                {'windows_appcontainer_job_v1', 'windows_private_patch_v1'} or
+                (tool_name == 'apply_patch_private' and boundary.get('adapter') != 'windows_private_patch_v1')):
             self.mutation_ledger.append({
                 'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
                 'status': 'blocked', 'exit_code': result.get('exit_code') if isinstance(result, dict) else None,

@@ -21,7 +21,7 @@ from src.mobs_reviewer_authorization import (
 _READ_TOOLS = ["read_file", "ls", "grep", "glob", "get_workspace"]
 _DEV_TOOLS = _READ_TOOLS + ["write_file", "edit_file", "apply_patch", "bash"]
 _DEV_COMMANDS = ["pytest", "python -m pytest"]
-CAPABILITY_PROFILE_VERSION = "2"
+CAPABILITY_PROFILE_VERSION = "3"
 _GODOT_DIRECTORIES = (
     "addons", "scripts", "scenes", "assets", "resources", "shaders", "tests", "docs",
     "art", "audio", "fonts", "materials", "models", "textures", "ui",

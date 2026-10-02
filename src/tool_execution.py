@@ -769,7 +769,7 @@ async def _execute_tool_block_impl(
     # Route MCP-extracted tools through the MCP manager. Forward
     # the progress callback so long-running subprocess tools
     # (bash, python) can stream `tool_progress` events to the UI.
-    if tool in {"bash", "write_file"} and _active_trusted_execution.get() is not None:
+    if tool in {"bash", "write_file", "apply_patch"} and _active_trusted_execution.get() is not None:
         # The existing dispatcher selects the bound Windows adapter before
         # any MCP/filesystem handler can reach the real workspace.
         desc = f"{tool}: {content.split(chr(10))[0][:80]}"

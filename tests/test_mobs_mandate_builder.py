@@ -142,7 +142,7 @@ def test_profile_change_requires_a_new_proposal(projects):
     with pytest.raises(MandateProposalError, match="version or permissions"):
         validate_proposal_identity(altered)
     # The approval flow loads the persisted proposal; a browser selection cannot replace it.
-    assert item["capability_profile_version"] == "2"
+    assert item["capability_profile_version"] == "3"
 
 
 def test_persisted_older_capability_profile_cannot_be_reused(projects):

@@ -442,8 +442,9 @@ def test_real_agent_loop_private_write_reaches_sealed_artifact_without_target_wr
     mandate.update(promotion_eligible=True, proposal_id='promotion-loop-fixture',
                    authority_snapshot=mandate['review_record']['snapshot_id'], _promotion_session_id='fixture')
     mandate['project_profile'] = 'generic'
-    mandate['capability_profile_version'] = '2'
-    mandate['capabilities'] = {'version': '2', 'project_profile': 'generic'}
+    from src.mobs_mandate_builder import CAPABILITY_PROFILE_VERSION
+    mandate['capability_profile_version'] = CAPABILITY_PROFILE_VERSION
+    mandate['capabilities'] = {'version': CAPABILITY_PROFILE_VERSION, 'project_profile': 'generic'}
     from src.mobs_controlled_promotion import operational_profile_identity
     mandate['operational_authority_profile'] = operational_profile_identity()
     mandate['proposal_digest'] = _proposal_digest(mandate)

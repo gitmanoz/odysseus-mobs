@@ -167,6 +167,15 @@ def _verify_target_inventory(target: Path, expected_digest: str) -> None:
         raise PromotionError("Target workspace drift blocks promotion artifact sealing")
 
 
+def _lock_promotion_transition(db) -> None:
+    """Serialize target-state checks with promotion registration/application."""
+    from sqlalchemy import text
+
+    if db.bind.dialect.name != "sqlite":
+        raise PromotionError("Atomic promotion transition is unavailable for this database")
+    db.execute(text("BEGIN IMMEDIATE"))
+
+
 def seal_private_effect(private_root: Path, effect: dict[str, str], *, binding: dict[str, Any]) -> dict[str, Any]:
     """Copy one eligible regular-file effect to backend storage before cleanup."""
     if effect.get("effect") not in {"create", "write"} or not isinstance(effect.get("path"), str):
@@ -225,10 +234,86 @@ def seal_private_effect(private_root: Path, effect: dict[str, str], *, binding: 
     return artifact
 
 
+def seal_private_effects(private_root: Path, effects: list[dict[str, str]], *, binding: dict[str, Any]) -> dict[str, Any]:
+    """Seal exactly two effects as one indivisible approval and validation unit."""
+    from src.mobs_institutional_boot import _portable_path
+
+    if len(effects) != 2 or any(effect.get("effect") not in {"create", "write"} for effect in effects):
+        raise PromotionError("Multi-file artifact requires exactly two create/write effects")
+    ordered = sorted(effects, key=lambda effect: effect["path"].casefold())
+    paths = [_portable_path(effect["path"], "promotion path") for effect in ordered]
+    if len({path.casefold() for path in paths}) != 2:
+        raise PromotionError("Multi-file artifact has duplicate paths")
+    target = _target_from_binding(binding)
+    _require_separate_runtime(target)
+    expected_inventory = binding.get("target_inventory_sha256")
+    if not isinstance(expected_inventory, str):
+        raise PromotionError("Promotion target inventory binding is invalid")
+    _verify_target_inventory(target, expected_inventory)
+    policy = _policy()
+    root = _store_root_for_target(target)
+    artifact_id = uuid.uuid4().hex
+    directory = root / artifact_id
+    directory.mkdir(mode=0o700)
+    manifest_effects = []
+    before = binding.get("private_before") or {}
+    for index, (effect, relative) in enumerate(zip(ordered, paths)):
+        source = (private_root / relative).resolve()
+        if not source.is_relative_to(private_root.resolve()) or source.is_symlink() or not source.is_file():
+            raise PromotionError("Multi-file effect is not a confined regular file")
+        preimage = before.get(relative)
+        if effect["effect"] == "create" and (preimage is not None or (target / relative).exists()):
+            raise PromotionError("Create effect has a preimage")
+        if effect["effect"] == "write" and (not isinstance(preimage, str)
+                                             or not (target / relative).is_file()
+                                             or _file_digest(target / relative) != preimage):
+            raise PromotionError("Write preimage differs from target")
+        content_path = directory / f"content-{index}.bin"
+        with source.open("rb") as input_stream, content_path.open("xb") as output_stream:
+            for block in iter(lambda: input_stream.read(1024 * 1024), b""):
+                output_stream.write(block)
+            output_stream.flush(); os.fsync(output_stream.fileno())
+        entry = {"effect": effect["effect"], "path": relative,
+                 "content_sha256": _file_digest(content_path),
+                 "content_bytes": content_path.stat().st_size,
+                 "preimage_sha256": preimage}
+        if effect["effect"] == "write":
+            backup = directory / f"preimage-{index}.bin"
+            with (target / relative).open("rb") as input_stream, backup.open("xb") as output_stream:
+                for block in iter(lambda: input_stream.read(1024 * 1024), b""):
+                    output_stream.write(block)
+                output_stream.flush(); os.fsync(output_stream.fileno())
+            if _file_digest(backup) != preimage:
+                raise PromotionError("Write preimage could not be preserved")
+        manifest_effects.append(entry)
+    artifact = {"format_version": 2, "id": artifact_id, "effects": manifest_effects,
+                "self_development": _self_development_target(target),
+                "target_inventory_sha256": expected_inventory,
+                "source_baseline": binding["source_baseline"],
+                "target_baseline": binding["target_baseline"],
+                "proposal_id": binding["proposal_id"],
+                "proposal_digest": binding["proposal_digest"],
+                "authority_snapshot": binding["authority_snapshot"],
+                "review_authorization": binding["review_authorization"],
+                "operational_policy": policy}
+    artifact["artifact_digest"] = _digest(artifact)
+    with (directory / "artifact.json").open("x", encoding="utf-8") as stream:
+        json.dump(artifact, stream, sort_keys=True, separators=(",", ":"))
+        stream.flush(); os.fsync(stream.fileno())
+    _verify_target_inventory(target, expected_inventory)
+    return artifact
+
+
 def record_pending(session_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
     from core.database import MobsPromotion, SessionLocal
     db = SessionLocal()
     try:
+        if artifact.get("format_version") == 2:
+            if artifact.get("artifact_digest") != _digest({k: v for k, v in artifact.items()
+                                                           if k != "artifact_digest"}):
+                raise PromotionError("Multi-file artifact digest is invalid")
+            _verified_artifact_contents(artifact, _target_from_binding(artifact))
+        _lock_promotion_transition(db)
         if db.query(MobsPromotion).filter(MobsPromotion.artifact_digest == artifact["artifact_digest"]).first():
             raise PromotionError("Promotion artifact already recorded")
         policy = _policy()
@@ -236,7 +321,29 @@ def record_pending(session_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
             raise PromotionError("Operational Authority Profile changed before artifact recording")
         if artifact.get("self_development") and not _self_development_target(_target_from_binding(artifact)):
             raise PromotionError("Self-development target identity changed")
-        status = ("promotion_preauthorized" if artifact.get("self_development")
+        target = _target_from_binding(artifact)
+        _assert_target_not_quarantined(db, target)
+        if artifact.get("format_version") == 2:
+            # Supersession and insertion share one commit: a failed registration
+            # must not discard the previous candidate or its validation record.
+            previous = (db.query(MobsPromotion)
+                        .filter(MobsPromotion.session_id == session_id,
+                                MobsPromotion.proposal_id == artifact["proposal_id"],
+                                MobsPromotion.proposal_digest == artifact["proposal_digest"],
+                                MobsPromotion.status == "human_approval_required").all())
+            for candidate in previous:
+                sealed = _load_artifact(candidate)
+                if sealed.get("format_version") != 2:
+                    continue
+                if _target_from_binding(sealed) != target:
+                    raise PromotionError("Pending proposal has a conflicting target")
+                candidate.status = "promotion_blocked"
+                candidate.outcome_json = json.dumps({
+                    "status": "promotion_blocked", "reason": "superseded_by_new_candidate",
+                    "superseded_by": artifact["id"],
+                    "previous_outcome": json.loads(candidate.outcome_json or "{}"),
+                }, sort_keys=True)
+        status = ("promotion_preauthorized" if not artifact.get("effects") and artifact.get("self_development")
                   and policy.get("self_development_result") == "preauthorized"
                   else "human_approval_required")
         row = MobsPromotion(id=artifact["id"], session_id=session_id, proposal_id=artifact["proposal_id"],
@@ -249,6 +356,10 @@ def record_pending(session_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
 
 
 def promotion_summary(artifact: dict[str, Any], status: str) -> dict[str, Any]:
+    if artifact.get("format_version") == 2:
+        return {key: artifact[key] for key in ("id", "effects", "artifact_digest", "proposal_id",
+                                                "proposal_digest", "authority_snapshot", "operational_policy",
+                                                "self_development")} | {"status": status}
     return {key: artifact[key] for key in ("id", "effect", "path", "content_sha256", "content_bytes", "artifact_digest", "proposal_id", "proposal_digest", "authority_snapshot", "operational_policy", "self_development")} | {"status": status}
 
 
@@ -265,6 +376,28 @@ def _load_artifact(row) -> dict[str, Any]:
     return artifact
 
 
+def _assert_target_not_quarantined(db, target: Path, *, exclude_id: str | None = None) -> None:
+    """An unresolved real application quarantines its physical target."""
+    from core.database import MobsPromotion
+
+    target = target.resolve(strict=True)
+    rows = (db.query(MobsPromotion)
+            .filter(MobsPromotion.status.in_(("promotion_applying",
+                                              "promotion_interrupted_or_uncertain"))).all())
+    for row in rows:
+        if row.id == exclude_id:
+            continue
+        try:
+            baseline = json.loads(row.artifact_json)["target_baseline"]["path"]
+            if not isinstance(baseline, str) or not Path(baseline).is_absolute():
+                raise ValueError("invalid target path")
+            quarantined = Path(baseline).resolve(strict=False)
+        except (KeyError, TypeError, ValueError, OSError) as exc:
+            raise PromotionError("Unresolved promotion has an unverifiable target") from exc
+        if quarantined == target:
+            raise PromotionError("Target is quarantined by an unresolved promotion")
+
+
 def promotion_requires_human(session_id: str, reference: dict[str, str]) -> bool:
     """Resolve the gate from persisted, sealed state; client input selects no policy."""
     from core.database import MobsPromotion, SessionLocal
@@ -275,6 +408,14 @@ def promotion_requires_human(session_id: str, reference: dict[str, str]) -> bool
                 or row.artifact_digest != reference.get("promotion_digest")):
             raise PromotionError("Stale or unknown promotion")
         artifact = _load_artifact(row)
+        if row.status == "promotion_applying":
+            _record_outcome(db, row, "promotion_interrupted_or_uncertain", "application_interrupted")
+            raise PromotionError("Promotion application was interrupted and cannot be retried")
+        _assert_target_not_quarantined(db, _target_from_binding(artifact), exclude_id=row.id)
+        if artifact.get("format_version") == 2:
+            if row.status != "human_approval_required":
+                raise PromotionError("Multi-file promotion requires human approval")
+            return True
         if row.status == "promotion_preauthorized":
             if (not artifact.get("self_development")
                     or artifact["operational_policy"].get("self_development_result") != "preauthorized"
@@ -304,6 +445,27 @@ def _verified_artifact_content(artifact: dict[str, Any], target: Path) -> Path:
     return _load_content(artifact, target)
 
 
+def _verified_artifact_contents(artifact: dict[str, Any], target: Path) -> list[Path]:
+    """Verify every sealed byte stream before an exact two-file validation."""
+    if artifact.get("format_version") != 2 or len(artifact.get("effects", [])) != 2:
+        raise PromotionError("Invalid multi-file artifact")
+    if _self_development_target(target) != artifact.get("self_development", False):
+        raise PromotionError("Self-development target identity changed")
+    _require_separate_runtime(target)
+    directory = _store_root_for_target(target) / artifact["id"]
+    contents = []
+    for index, effect in enumerate(artifact["effects"]):
+        content = directory / f"content-{index}.bin"
+        if content.is_symlink() or not content.is_file() or _file_digest(content) != effect["content_sha256"]:
+            raise PromotionError("Sealed multi-file content is missing or altered")
+        if effect["effect"] == "write":
+            backup = directory / f"preimage-{index}.bin"
+            if backup.is_symlink() or not backup.is_file() or _file_digest(backup) != effect["preimage_sha256"]:
+                raise PromotionError("Sealed multi-file preimage is missing or altered")
+        contents.append(content)
+    return contents
+
+
 async def validate_private_artifact(session_id: str, reference: dict[str, str], command: str,
                                     reviewer) -> dict[str, Any]:
     """Run an approved command against the exact sealed candidate, never the target."""
@@ -322,10 +484,15 @@ async def validate_private_artifact(session_id: str, reference: dict[str, str], 
             raise PromotionError("Stale or unknown promotion")
         if row.artifact_digest != reference.get("promotion_digest"):
             raise PromotionError("Stale or unknown promotion")
+        if row.status == "promotion_applying":
+            _record_outcome(db, row, "promotion_interrupted_or_uncertain", "application_interrupted")
+            raise PromotionError("Promotion application was interrupted and cannot be retried")
         if row.status not in {"human_approval_required", "promotion_preauthorized"}:
             raise PromotionError("Promotion is no longer pending")
         artifact = _load_artifact(row)
-        if not artifact.get("self_development"):
+        _assert_target_not_quarantined(db, _target_from_binding(artifact), exclude_id=row.id)
+        multi = artifact.get("format_version") == 2
+        if not artifact.get("self_development") and not multi:
             raise PromotionError("Private artifact validation is reserved for self-development")
         try:
             proposal = load_proposal(session_id)
@@ -358,7 +525,10 @@ async def validate_private_artifact(session_id: str, reference: dict[str, str], 
         if (capture_repository(str(target)) != artifact["target_baseline"]
                 or _inventory_digest_proxy(inventory(target, include_git=True)) != artifact["target_inventory_sha256"]):
             raise PromotionError("Target baseline drift blocks artifact validation")
-        _verified_artifact_content(artifact, target)
+        if multi:
+            _verified_artifact_contents(artifact, target)
+        else:
+            _verified_artifact_content(artifact, target)
         pending = context.authorize_tool("bash", command)
         if pending is None or pending.boundary_policy is None:
             raise PromotionError("Validation command lacks a governed execution policy")
@@ -375,6 +545,12 @@ async def validate_private_artifact(session_id: str, reference: dict[str, str], 
             raise PromotionError("Private validation evidence does not identify the sealed artifact")
         if _inventory_digest_proxy(inventory(target, include_git=True)) != artifact["target_inventory_sha256"]:
             raise PromotionError("Target drift during private validation")
+        db.rollback()
+        _lock_promotion_transition(db)
+        row = db.get(MobsPromotion, artifact["id"])
+        if row.status != ("promotion_preauthorized" if preauthorized else "human_approval_required"):
+            raise PromotionError("Promotion is no longer pending")
+        _assert_target_not_quarantined(db, target, exclude_id=row.id)
         receipt = {"artifact_digest": artifact["artifact_digest"],
                    "proposal_digest": artifact["proposal_digest"],
                    "authority_snapshot": artifact["authority_snapshot"],
@@ -412,9 +588,13 @@ def approve_and_apply(session_id: str, reference: dict[str, str], reviewer) -> d
         if row.artifact_digest != reference.get("promotion_digest"):
             _record_outcome(db, row, "promotion_blocked", "stale_promotion_reference")
             raise PromotionError("Stale or unknown promotion")
+        if row.status == "promotion_applying":
+            _record_outcome(db, row, "promotion_interrupted_or_uncertain", "application_interrupted")
+            raise PromotionError("Promotion application was interrupted and cannot be retried")
         if row.status not in {"human_approval_required", "promotion_preauthorized"}:
             raise PromotionError("Promotion is no longer pending")
         artifact = _load_artifact(row)
+        _assert_target_not_quarantined(db, _target_from_binding(artifact), exclude_id=row.id)
         preauthorized = row.status == "promotion_preauthorized"
         if preauthorized and (not artifact.get("self_development")
                               or artifact["operational_policy"].get("self_development_result") != "preauthorized"):
@@ -450,7 +630,11 @@ def approve_and_apply(session_id: str, reference: dict[str, str], reviewer) -> d
         except InstitutionalBootError as exc:
             raise PromotionError("Authority or baseline drift blocks promotion") from exc
         target = Path(context.target["path"]).resolve(strict=True)
-        content = _verified_artifact_content(artifact, target)
+        multi = artifact.get("format_version") == 2
+        if multi:
+            _verified_artifact_contents(artifact, target)
+        else:
+            content = _verified_artifact_content(artifact, target)
         if capture_repository(str(target)) != artifact["target_baseline"]:
             _record_outcome(db, row, "promotion_blocked", "target_baseline_drift")
             raise PromotionError("Target repository baseline drift blocks promotion")
@@ -460,6 +644,9 @@ def approve_and_apply(session_id: str, reference: dict[str, str], reviewer) -> d
             _record_outcome(db, row, "promotion_blocked", "target_inventory_drift")
             raise PromotionError("Target workspace drift blocks promotion")
         validation = (json.loads(row.outcome_json or "{}") or {}).get("validation")
+        if multi:
+            return _apply_multi_file(db, row, artifact, context, target, initial_inventory,
+                                     validation, reviewer, current_auth)
         if artifact.get("self_development"):
             if (not isinstance(validation, dict)
                     or validation.get("artifact_digest") != artifact["artifact_digest"]
@@ -500,6 +687,14 @@ def approve_and_apply(session_id: str, reference: dict[str, str], reviewer) -> d
         pre_apply_inventory = inventory(target, include_git=True)
         if pre_apply_inventory != initial_inventory:
             _record_outcome(db, row, "promotion_blocked", "pre_apply_concurrent_drift")
+            raise PromotionError("Target drift immediately before promotion")
+        db.rollback()
+        _lock_promotion_transition(db)
+        row = db.get(MobsPromotion, artifact["id"])
+        if row.status not in {"human_approval_required", "promotion_preauthorized"}:
+            raise PromotionError("Promotion is no longer pending")
+        _assert_target_not_quarantined(db, target, exclude_id=row.id)
+        if inventory(target, include_git=True) != pre_apply_inventory:
             raise PromotionError("Target drift immediately before promotion")
         expected = dict(pre_apply_inventory)
         expected[relative] = artifact["content_sha256"]
@@ -564,9 +759,9 @@ def approve_and_apply(session_id: str, reference: dict[str, str], reviewer) -> d
         raise
     except Exception as exc:
         db.rollback()
-        if row is not None:
+        if row is not None and row.status not in {"promotion_blocked", "promotion_interrupted_or_uncertain"}:
             try:
-                status = "promotion_interrupted_or_uncertain" if application_started else "promotion_blocked"
+                status = "promotion_interrupted_or_uncertain" if application_started or row.status == "promotion_applying" else "promotion_blocked"
                 reason = "application_exception" if application_started else "pre_apply_exception"
                 _record_outcome(db, row, status, reason, error=type(exc).__name__)
             except Exception:
@@ -574,6 +769,180 @@ def approve_and_apply(session_id: str, reference: dict[str, str], reviewer) -> d
         raise
     finally:
         db.close()
+
+
+def _apply_multi_file(db, row, artifact: dict[str, Any], context, target: Path,
+                      initial_inventory: dict[str, str], validation: dict | None,
+                      reviewer, current_auth: dict) -> dict[str, Any]:
+    """Apply the sealed pair sequentially; verify or conservatively recover."""
+    from core.database import MobsPromotion
+    from src.mobs_institutional_boot import _path_is_allowed, _portable_path
+    from src.windows_native_execution import inventory, _reparse
+
+    effects = artifact.get("effects")
+    if (artifact.get("format_version") != 2 or not isinstance(effects, list) or len(effects) != 2
+            or effects != sorted(effects, key=lambda item: item["path"].casefold())):
+        raise PromotionError("Invalid two-file artifact manifest")
+    paths = [_portable_path(effect["path"], "promotion path") for effect in effects]
+    if len({path.casefold() for path in paths}) != 2:
+        raise PromotionError("Duplicate promotion paths")
+    if (not isinstance(validation, dict) or validation.get("artifact_digest") != artifact["artifact_digest"]
+            or validation.get("proposal_digest") != artifact["proposal_digest"]
+            or validation.get("authority_snapshot") != artifact["authority_snapshot"]
+            or validation.get("target_baseline") != artifact["target_baseline"]
+            or validation.get("target_inventory_sha256") != artifact["target_inventory_sha256"]
+            or validation.get("exit_code") != 0
+            or validation.get("boundary", {}).get("validated_artifact_digest") != artifact["artifact_digest"]
+            or validation.get("boundary", {}).get("target_before_sha256") != artifact["target_inventory_sha256"]
+            or validation.get("boundary", {}).get("target_after_sha256") != artifact["target_inventory_sha256"]):
+        raise PromotionError("Exact two-file artifact has no valid private validation")
+    contents = _verified_artifact_contents(artifact, target)
+    prepared = []
+    for effect, relative, content in zip(effects, paths, contents):
+        if effect["effect"] not in {"create", "write"}:
+            raise PromotionError("Multi-file promotion permits only create or write")
+        allowed = (context.execution.allowed_create_paths if effect["effect"] == "create"
+                   else context.execution.allowed_write_paths)
+        if not _path_is_allowed(relative, allowed):
+            raise PromotionError("Multi-file path is outside mandate")
+        destination = target / relative
+        parent = destination.parent.resolve(strict=True)
+        if not parent.is_relative_to(target) or _reparse(parent) or destination.is_symlink():
+            raise PromotionError("Multi-file path cannot be physically confined")
+        if effect["effect"] == "create":
+            if destination.exists() or relative in initial_inventory or effect.get("preimage_sha256") is not None:
+                raise PromotionError("Create destination or preimage is incompatible")
+        elif (not destination.is_file() or _reparse(destination)
+              or initial_inventory.get(relative) != effect.get("preimage_sha256")
+              or _file_digest(destination) != effect["preimage_sha256"]):
+            raise PromotionError("Write preimage drift blocks multi-file promotion")
+        prepared.append((effect, relative, destination, parent, content))
+    pre_apply = inventory(target, include_git=True)
+    if pre_apply != initial_inventory:
+        raise PromotionError("Target drift immediately before multi-file promotion")
+    db.rollback()
+    _lock_promotion_transition(db)
+    row = db.get(MobsPromotion, artifact["id"])
+    if row.status != "human_approval_required":
+        raise PromotionError("Promotion is no longer pending")
+    _assert_target_not_quarantined(db, target, exclude_id=row.id)
+    if inventory(target, include_git=True) != pre_apply:
+        raise PromotionError("Target drift immediately before multi-file promotion")
+    expected_final = dict(pre_apply)
+    for effect, relative, *_ in prepared:
+        expected_final[relative] = effect["content_sha256"]
+    # Claim the exact pending row before the first target-local staging file.
+    claimed = (db.query(MobsPromotion)
+               .filter(MobsPromotion.id == row.id, MobsPromotion.status == "human_approval_required")
+               .update({MobsPromotion.status: "promotion_applying",
+                        MobsPromotion.outcome_json: json.dumps({
+                            "status": "promotion_applying", "reason": "real_mutation_started",
+                            "pre_apply_inventory_sha256": _inventory_digest_proxy(pre_apply),
+                            "published": []}, sort_keys=True)}, synchronize_session=False))
+    db.commit()
+    if claimed != 1:
+        raise PromotionError("Promotion is no longer pending")
+    db.refresh(row)
+    staged: dict[str, str] = {}
+    published: list[str] = []
+    published_identity: dict[str, tuple[int, int]] = {}
+    try:
+        for effect, relative, _destination, parent, content in prepared:
+            fd, name = tempfile.mkstemp(prefix=".odysseus-promote-", dir=parent)
+            staged[relative] = name
+            with os.fdopen(fd, "wb") as output, content.open("rb") as input_stream:
+                for block in iter(lambda: input_stream.read(1024 * 1024), b""):
+                    output.write(block)
+                output.flush(); os.fsync(output.fileno())
+            if _file_digest(Path(name)) != effect["content_sha256"]:
+                raise PromotionError("Prepared multi-file content failed verification")
+        expected_step = dict(pre_apply)
+        for effect, relative, destination, _parent, _content in prepared:
+            if destination.parent.resolve(strict=True) != _parent or destination.is_symlink():
+                raise PromotionError("Promotion path changed during application")
+            observed = inventory(target, include_git=True)
+            stage_relatives = {Path(name).resolve().relative_to(target).as_posix()
+                               for name in staged.values() if os.path.exists(name)}
+            actual_step = {path: digest for path, digest in observed.items() if path not in stage_relatives}
+            if (actual_step != expected_step or
+                    any(observed.get(Path(name).resolve().relative_to(target).as_posix()) != item["content_sha256"]
+                        for item, name in ((entry, staged[entry["path"]]) for entry in effects)
+                        if os.path.exists(name))):
+                raise PromotionError("Target drift during multi-file application")
+            stage_stat = Path(staged[relative]).stat()
+            if effect["effect"] == "create":
+                os.link(staged[relative], destination)
+            else:
+                os.replace(staged[relative], destination)
+            published.append(relative)
+            published_identity[relative] = (stage_stat.st_dev, stage_stat.st_ino)
+            expected_step[relative] = effect["content_sha256"]
+            _record_outcome(db, row, "promotion_applying", "effect_published",
+                            pre_apply_inventory_sha256=_inventory_digest_proxy(pre_apply),
+                            published=list(published))
+        for name in staged.values():
+            if os.path.exists(name):
+                os.unlink(name)
+        staged.clear()
+        post = inventory(target, include_git=True)
+        if post != expected_final:
+            raise PromotionError("Multi-file post-apply inventory differs from exact artifact")
+        row.approval_json = json.dumps({"type": "human_approval", "reviewer": reviewer.username,
+                                        "authorization": current_auth,
+                                        "artifact_digest": artifact["artifact_digest"]}, sort_keys=True)
+        _record_outcome(db, row, "promotion_applied_verified", "exact_two_file_inventory_verified",
+                        validation=validation,
+                        post_apply_inventory_sha256=_inventory_digest_proxy(post),
+                        published=list(published))
+        return promotion_summary(artifact, row.status)
+    except Exception:
+        # A hash mismatch means another actor may own the path. Never overwrite it.
+        recovery_safe = True
+        for name in staged.values():
+            if os.path.exists(name):
+                try:
+                    os.unlink(name)
+                except OSError:
+                    recovery_safe = False
+        for effect, relative, destination, parent, _content in reversed(prepared):
+            if relative not in published:
+                continue
+            try:
+                current_stat = destination.stat() if destination.is_file() else None
+                if (current_stat is None or _reparse(destination)
+                        or (current_stat.st_dev, current_stat.st_ino) != published_identity.get(relative)
+                        or _file_digest(destination) != effect["content_sha256"]):
+                    recovery_safe = False
+                    continue
+                if effect["effect"] == "create":
+                    os.unlink(destination)
+                else:
+                    backup = _store_root_for_target(target) / artifact["id"] / f"preimage-{paths.index(relative)}.bin"
+                    if backup.is_symlink() or _file_digest(backup) != effect["preimage_sha256"]:
+                        recovery_safe = False
+                        continue
+                    fd, restore = tempfile.mkstemp(prefix=".odysseus-promote-", dir=parent)
+                    try:
+                        with os.fdopen(fd, "wb") as output, backup.open("rb") as input_stream:
+                            for block in iter(lambda: input_stream.read(1024 * 1024), b""):
+                                output.write(block)
+                            output.flush(); os.fsync(output.fileno())
+                        if _file_digest(Path(restore)) != effect["preimage_sha256"]:
+                            raise PromotionError("Preimage restoration failed verification")
+                        os.replace(restore, destination)
+                    finally:
+                        if os.path.exists(restore): os.unlink(restore)
+            except (OSError, PromotionError):
+                recovery_safe = False
+        try:
+            recovered = recovery_safe and inventory(target, include_git=True) == pre_apply
+        except Exception:
+            recovered = False
+        _record_outcome(db, row, "promotion_blocked" if recovered else "promotion_interrupted_or_uncertain",
+                        "application_failed_rolled_back" if recovered else "application_partial_or_drift",
+                        published=list(published),
+                        pre_apply_inventory_sha256=_inventory_digest_proxy(pre_apply))
+        raise
 
 
 def _inventory_digest_proxy(entries: dict[str, str]) -> str:
