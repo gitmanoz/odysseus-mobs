@@ -164,13 +164,20 @@ class WindowsExecutionPolicy:
             # credentials and mutable repository state. Do not fake Git output.
             raise TrustedExecutionUnavailable("Git is not available in the private Windows workspace")
         pytest_command = self.command[0] == "pytest"
+        try:
+            recipe = validate_diagnostic_command(self.command, Path(self.target), self.read_paths)
+        except ValueError as exc:
+            raise TrustedExecutionUnavailable(str(exc)) from exc
         if pytest_command or self.command[1:3] == ("-m", "pytest"):
             _validate_pytest_arguments(self.command[1:] if pytest_command else self.command[3:],
                                        Path(self.target), self.read_paths)
         executable = (sys.executable if self.command[0] in {"python", "python3", "pytest"}
                       else shutil.which(self.command[0]))
         if not executable or not Path(executable).is_file():
-            raise TrustedExecutionUnavailable("Approved executable is unavailable")
+            capability = {"recipe": recipe, "permitted": True,
+                          "executable_available": False, "boundary_executable": False}
+            return {"error": f"Approved executable is unavailable: {self.command[0]}",
+                    "exit_code": 127, "command_capability": capability}
         root = Path(self.target)
         before_target = inventory(root, include_git=True)
         if any(path.startswith(".odysseus-") for path in before_target):
@@ -196,6 +203,8 @@ class WindowsExecutionPolicy:
             elif Path(executable).name.lower() in {"python.exe", "python3.exe"}:
                 executable = str(_stage_python_toolchain(Path(executable), private,
                                                          pytest_command or self.command[1:3] == ("-m", "pytest")))
+            elif recipe == "ruff_check":
+                executable = str(_stage_ruff_toolchain(Path(executable), private))
             else:
                 raise TrustedExecutionUnavailable("This first Windows adapter supports only Python commands")
             if inventory(root, include_git=True) != before_target:
@@ -236,6 +245,10 @@ class WindowsExecutionPolicy:
             (private / ".odysseus-runtime").mkdir()
             before_private = inventory(private, include_git=True)
             environment = _clean_environment(private, Path(executable))
+            if recipe == "python_py_compile":
+                environment["PYTHONPYCACHEPREFIX"] = str(private / ".odysseus-runtime" / "pycache")
+            elif recipe == "ruff_check":
+                environment["RUFF_CACHE_DIR"] = str(private / ".odysseus-runtime" / "ruff-cache")
             if self.private_write is not None:
                 path = self.private_write.get('path') if isinstance(self.private_write, dict) else None
                 content = self.private_write.get('content') if isinstance(self.private_write, dict) else None
@@ -249,6 +262,8 @@ class WindowsExecutionPolicy:
             elif self.command[1:3] == ("-m", "pytest"):
                 arguments = ("-B", "-m", "pytest", "-s", "-p", "no:cacheprovider", *self.command[3:],
                              "-o", "log_file=.odysseus-runtime/pytest.log")
+            elif recipe == "ruff_check":
+                arguments = ("check", "--no-fix", "--isolated", *self.command[3:])
             else:
                 arguments = ("-B", *self.command[1:])
             if self.private_patch is not None:
@@ -331,6 +346,9 @@ class WindowsExecutionPolicy:
                                     "job_tree_termination", "explicit_environment", "private_file_inventory"]),
                     "limitations": ["toolchain_access_is_host_dependent", "git_unavailable_in_private_copy",
                                     "concurrent_same_user_actor_not_cryptographically_attributable"],
+                    "command_capability": {"recipe": recipe, "permitted": True,
+                                           "executable_available": True,
+                                           "boundary_executable": True},
                     "uncertainties": ["OS-brokered effects outside the private workspace and AppContainer profile cannot be attributed"],
                     "effects": effects,
                     "adapter_effects": adapter_effects,
@@ -398,6 +416,66 @@ def _validate_pytest_arguments(arguments: tuple[str, ...], root: Path,
             allowed = _path_is_allowed(path, read_paths) and _path_is_allowed(actual, read_paths)
         if not allowed:
             raise TrustedExecutionUnavailable("Pytest selection is outside approved read paths")
+
+
+def validate_diagnostic_command(command: tuple[str, ...], root: Path,
+                                read_paths: tuple[str, ...]) -> str:
+    """Validate the two v4 Python recipes before authorization and again before launch."""
+    from src.mobs_institutional_boot import _path_is_allowed, _portable_path, _search_root_allowed
+    from src.tool_execution import _is_sensitive_path
+
+    if command[:3] == ("python", "-m", "py_compile"):
+        recipe, selections = "python_py_compile", command[3:]
+    elif command[:3] == ("ruff", "check", "--no-fix"):
+        recipe, selections = "ruff_check", command[3:]
+    elif command and command[0] == "ruff":
+        raise ValueError("Ruff permits only check --no-fix with approved paths")
+    else:
+        return "pytest" if command and (command[0] == "pytest" or command[:3] == ("python", "-m", "pytest")) else "legacy"
+    if not selections or len(selections) > 16 or sum(len(arg) for arg in selections) > 2048:
+        raise ValueError("Diagnostic recipe requires 1–16 bounded project paths")
+    resolved_root = root.resolve(strict=True)
+    for arg in selections:
+        if len(arg) > 240 or arg.startswith("-") or (recipe == "ruff_check" and arg.startswith("@")):
+            raise ValueError("Diagnostic recipe does not permit options, argfiles or oversized paths")
+        try:
+            relative = _portable_path(arg, "diagnostic path")
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        path = root
+        for component in relative.split("/"):
+            path = path / component
+            if not path.exists() or _reparse(path):
+                raise ValueError("Diagnostic path is absent or traverses a reparse point")
+        actual = path.resolve(strict=True)
+        if not actual.is_relative_to(resolved_root) or _is_sensitive_path(str(actual)):
+            raise ValueError("Diagnostic path escapes the authorized project")
+        actual_relative = actual.relative_to(resolved_root).as_posix()
+        if recipe == "python_py_compile":
+            allowed = (path.is_file() and path.suffix.lower() == ".py" and
+                       _path_is_allowed(relative, read_paths) and
+                       _path_is_allowed(actual_relative, read_paths))
+        else:
+            allowed = (path.is_file() and _path_is_allowed(relative, read_paths) and
+                       _path_is_allowed(actual_relative, read_paths)) if path.is_file() else (
+                       path.is_dir() and _search_root_allowed(relative, read_paths) and
+                       _search_root_allowed(actual_relative, read_paths))
+        if not allowed:
+            raise ValueError("Diagnostic path is outside approved read paths or has the wrong type")
+    return recipe
+
+
+def _stage_ruff_toolchain(executable: Path, private: Path) -> Path:
+    """Stage an existing Ruff executable; never install or run from host PATH."""
+    if _reparse(executable) or executable.suffix.lower() != ".exe":
+        raise TrustedExecutionUnavailable("Approved Ruff executable cannot be staged safely")
+    destination = private / ".odysseus-toolchain"
+    destination.mkdir(exist_ok=True)
+    staged = destination / "ruff.exe"
+    shutil.copy2(executable, staged)
+    if _file_sha256(staged) != _file_sha256(executable):
+        raise TrustedExecutionUnavailable("Ruff executable changed while staging")
+    return staged
 
 
 def _stage_python_toolchain(executable: Path, private: Path, include_pytest: bool = False) -> Path:

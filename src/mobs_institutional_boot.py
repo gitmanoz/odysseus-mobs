@@ -52,6 +52,8 @@ def _shell_operation(tokens: tuple[str, ...]) -> str:
     args = tokens[1:]
     if program in {"pytest"} or tokens[:3] == ("python", "-m", "pytest"):
         return "test"
+    if tokens[:3] == ("python", "-m", "py_compile"):
+        return "build"
     if program == "ruff" and args and args[0] in {"check", "format"}:
         return "lint"
     if program in {"mypy", "pyright"}:
@@ -540,7 +542,13 @@ class InstitutionalContext:
             if not _command_allowed(tokens, self.execution.allowed_commands):
                 raise InstitutionalBootError('Shell command is outside mandate')
             self._require_operation(operation)
-            from src.windows_native_execution import WindowsExecutionPolicy, inventory
+            from src.windows_native_execution import (WindowsExecutionPolicy, inventory,
+                                                       validate_diagnostic_command)
+            try:
+                validate_diagnostic_command(tokens, Path(self.target['path']),
+                                            self.execution.allowed_read_paths)
+            except ValueError as exc:
+                raise InstitutionalBootError(str(exc)) from exc
             promotion_binding = None
             if self.execution.promotion_eligible:
                 required = ('proposal_id', 'proposal_digest', 'authority_snapshot', '_promotion_session_id')
@@ -727,6 +735,7 @@ class InstitutionalContext:
                 'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
                 'status': 'blocked', 'exit_code': result.get('exit_code') if isinstance(result, dict) else None,
                 'reason': result.get('error') if isinstance(result, dict) else 'Missing execution result',
+                'command_capability': result.get('command_capability') if isinstance(result, dict) else None,
             })
             raise InstitutionalBootError('Required Windows execution boundary was not applied')
         try:

@@ -142,7 +142,7 @@ def test_profile_change_requires_a_new_proposal(projects):
     with pytest.raises(MandateProposalError, match="version or permissions"):
         validate_proposal_identity(altered)
     # The approval flow loads the persisted proposal; a browser selection cannot replace it.
-    assert item["capability_profile_version"] == "3"
+    assert item["capability_profile_version"] == "4"
 
 
 def test_persisted_older_capability_profile_cannot_be_reused(projects):
@@ -150,8 +150,8 @@ def test_persisted_older_capability_profile_cannot_be_reused(projects):
 
     item = proposal(projects)
     old = copy.deepcopy(item)
-    old["capability_profile_version"] = "1"
-    old["capabilities"]["version"] = "1"
+    old["capability_profile_version"] = "3"
+    old["capabilities"]["version"] = "3"
     old["proposal_digest"] = builder._proposal_digest(old)
     with pytest.raises(MandateProposalError, match="Capability profile version or permissions are incompatible"):
         validate_proposal_identity(old)
@@ -175,8 +175,8 @@ def test_saved_proposal_of_older_profile_requires_new_review(projects):
         db.close()
     builder.save_proposal("old-profile-session", item)
     old = copy.deepcopy(item)
-    old["capability_profile_version"] = "1"
-    old["capabilities"]["version"] = "1"
+    old["capability_profile_version"] = "3"
+    old["capabilities"]["version"] = "3"
     old["proposal_digest"] = builder._proposal_digest(old)
     db = SessionLocal()
     try:

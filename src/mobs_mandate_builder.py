@@ -21,7 +21,8 @@ from src.mobs_reviewer_authorization import (
 _READ_TOOLS = ["read_file", "ls", "grep", "glob", "get_workspace"]
 _DEV_TOOLS = _READ_TOOLS + ["write_file", "edit_file", "apply_patch", "bash"]
 _DEV_COMMANDS = ["pytest", "python -m pytest"]
-CAPABILITY_PROFILE_VERSION = "3"
+_PYTHON_COMMANDS = _DEV_COMMANDS + ["python -m py_compile", "ruff check --no-fix"]
+CAPABILITY_PROFILE_VERSION = "4"
 _GODOT_DIRECTORIES = (
     "addons", "scripts", "scenes", "assets", "resources", "shaders", "tests", "docs",
     "art", "audio", "fonts", "materials", "models", "textures", "ui",
@@ -71,7 +72,7 @@ def derive_capabilities(target: Path, project_profile: str) -> dict[str, Any]:
             raise MandateProposalError("Python profile found no supported project paths")
         return {"project_profile": "python", "version": CAPABILITY_PROFILE_VERSION,
                 "allowed_paths": paths, "creation_paths": [p for p in paths if p.endswith("/**")],
-                "allowed_commands": list(_DEV_COMMANDS)}
+                "allowed_commands": list(_PYTHON_COMMANDS)}
     if not (target / "project.godot").is_file():
         raise MandateProposalError("Godot profile requires project.godot")
     paths = ["project.godot"] + [f"{name}/**" for name in _GODOT_DIRECTORIES if (target / name).is_dir()]
