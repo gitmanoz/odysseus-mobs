@@ -28,11 +28,12 @@ def project(tmp_path):
     return root
 
 
-def test_v4_recipes_are_python_only_and_exactly_bounded(project):
+def test_v5_retains_python_recipes_and_adds_only_git_identity(project):
     python = derive_capabilities(project, "python")
-    assert CAPABILITY_PROFILE_VERSION == python["version"] == "4"
+    assert CAPABILITY_PROFILE_VERSION == python["version"] == "5"
     assert python["allowed_commands"] == [
-        "pytest", "python -m pytest", "python -m py_compile", "ruff check --no-fix",
+        "pytest", "python -m pytest", "git_branch_current", "git_head_current",
+        "python -m py_compile", "ruff check --no-fix",
     ]
     assert "python -m py_compile" not in derive_capabilities(project, "generic")["allowed_commands"]
     allowed = tuple(_command_tokens(item, "recipe") for item in python["allowed_commands"])

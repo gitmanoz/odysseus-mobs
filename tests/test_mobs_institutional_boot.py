@@ -585,27 +585,28 @@ def test_drift_during_mutation_is_detected_and_not_verified(mandate, tmp_path, m
 
 
 def test_authorized_shell_command_uses_existing_dispatcher_and_records_ledger(mandate, tmp_path, monkeypatch):
-    mandate = shell_mandate(mandate, tmp_path, ['git status'])
+    mandate = shell_mandate(mandate, tmp_path, ['git_branch_current'], timeout=20)
     loop = loop_setup(monkeypatch)
     calls = []
     async def stream(candidates, messages, **kwargs):
-        yield 'data: ' + json.dumps({'delta': '```bash\ngit status --short\n```'}) + '\n\n'
+        yield 'data: ' + json.dumps({'delta': '```bash\ngit_branch_current\n```'}) + '\n\n'
         yield 'data: [DONE]\n\n'
     async def execute(block, **kwargs):
         calls.append((block.tool_type, kwargs['workspace'], kwargs['shell_timeout']))
-        return ('bash', contained_result())
+        return ('bash', await kwargs['trusted_execution'].execute())
     monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
     monkeypatch.setattr(loop, 'execute_tool_block', execute)
     chunks = run_governed(loop, mandate)
-    assert calls == [('bash', mandate['target']['path'], 2)]
+    assert calls == [('bash', mandate['target']['path'], 20)], chunks
     command = next(json.loads(chunk[6:]) for chunk in chunks if 'institutional_command' in chunk)
     assert command['data']['operation'] == 'git_read'
     assert command['data']['exit_code'] == 0
+    assert command['data']['value'] == mandate['target']['branch']
     assert any('institutional_verified' in chunk for chunk in chunks)
 
 
 def test_shell_command_outside_mandate_is_blocked_before_dispatch(mandate, tmp_path, monkeypatch):
-    mandate = shell_mandate(mandate, tmp_path, ['git status'])
+    mandate = shell_mandate(mandate, tmp_path, ['git_branch_current'])
     loop = loop_setup(monkeypatch)
     async def stream(candidates, messages, **kwargs):
         yield 'data: ' + json.dumps({'delta': '```bash\ngit log -1\n```'}) + '\n\n'
@@ -615,11 +616,11 @@ def test_shell_command_outside_mandate_is_blocked_before_dispatch(mandate, tmp_p
     monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
     monkeypatch.setattr(loop, 'execute_tool_block', forbidden)
     chunks = run_governed(loop, mandate)
-    assert any('Shell command is outside mandate' in chunk for chunk in chunks)
+    assert any('Git executable is not available to the agent' in chunk for chunk in chunks)
 
 
 def test_shell_cwd_escape_is_blocked_before_dispatch(mandate, tmp_path, monkeypatch):
-    mandate = shell_mandate(mandate, tmp_path, ['git status'])
+    mandate = shell_mandate(mandate, tmp_path, ['git_branch_current'])
     loop = loop_setup(monkeypatch)
     async def stream(candidates, messages, **kwargs):
         yield 'data: ' + json.dumps({'delta': '```bash\ngit -C .. status\n```'}) + '\n\n'
@@ -633,7 +634,7 @@ def test_shell_cwd_escape_is_blocked_before_dispatch(mandate, tmp_path, monkeypa
 
 
 def test_shell_windows_path_escape_is_blocked_before_dispatch(mandate, tmp_path, monkeypatch):
-    mandate = shell_mandate(mandate, tmp_path, ['git status'])
+    mandate = shell_mandate(mandate, tmp_path, ['git_branch_current'])
     loop = loop_setup(monkeypatch)
     async def stream(candidates, messages, **kwargs):
         yield 'data: ' + json.dumps({'delta': '```bash\ngit -C C:\\outside status\n```'}) + '\n\n'
@@ -675,7 +676,7 @@ def test_existing_bash_tool_enforces_context_timeout():
 
 
 def test_git_mutation_is_blocked_before_dispatch(mandate, tmp_path, monkeypatch):
-    mandate = shell_mandate(mandate, tmp_path, ['git status'])
+    mandate = shell_mandate(mandate, tmp_path, ['git_branch_current'])
     loop = loop_setup(monkeypatch)
     async def stream(candidates, messages, **kwargs):
         yield 'data: ' + json.dumps({'delta': '```bash\ngit reset --hard\n```'}) + '\n\n'
@@ -685,7 +686,7 @@ def test_git_mutation_is_blocked_before_dispatch(mandate, tmp_path, monkeypatch)
     monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
     monkeypatch.setattr(loop, 'execute_tool_block', forbidden)
     chunks = run_governed(loop, mandate)
-    assert any('Git command is not read-only' in chunk for chunk in chunks)
+    assert any('Git executable is not available to the agent' in chunk for chunk in chunks)
 
 
 def test_failed_test_can_be_observed_and_retried_in_next_loop_round(mandate, tmp_path, monkeypatch):
@@ -712,10 +713,10 @@ def test_failed_test_can_be_observed_and_retried_in_next_loop_round(mandate, tmp
 
 
 def test_external_drift_during_command_is_detected(mandate, tmp_path, monkeypatch):
-    mandate = shell_mandate(mandate, tmp_path, ['git status'])
+    mandate = shell_mandate(mandate, tmp_path, ['python -m pytest'])
     loop = loop_setup(monkeypatch)
     async def stream(candidates, messages, **kwargs):
-        yield 'data: ' + json.dumps({'delta': '```bash\ngit status --short\n```'}) + '\n\n'
+        yield 'data: ' + json.dumps({'delta': '```bash\npython -m pytest\n```'}) + '\n\n'
         yield 'data: [DONE]\n\n'
     async def drift(block, **kwargs):
         (Path(kwargs['workspace']) / 'intruder.txt').write_text('external drift', encoding='utf-8')

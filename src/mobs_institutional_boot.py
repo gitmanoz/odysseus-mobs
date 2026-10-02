@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -28,6 +31,7 @@ _SECRET_PATH = re.compile(
     re.IGNORECASE,
 )
 _SHELL_METACHARACTERS = re.compile(r"[\r\n;&|><`$%^!]")
+_GIT_IDENTITY_RECIPES = frozenset({"git_branch_current", "git_head_current"})
 
 
 def _command_tokens(value: Any, label: str) -> tuple[str, ...]:
@@ -50,6 +54,10 @@ def _shell_operation(tokens: tuple[str, ...]) -> str:
     """Closed local-development command grammar; a mandate can only narrow it."""
     program = tokens[0]
     args = tokens[1:]
+    if program in _GIT_IDENTITY_RECIPES:
+        if args:
+            raise InstitutionalBootError("Git identity recipes do not accept arguments")
+        return "git_read"
     if program in {"pytest"} or tokens[:3] == ("python", "-m", "pytest"):
         return "test"
     if tokens[:3] == ("python", "-m", "py_compile"):
@@ -63,17 +71,7 @@ def _shell_operation(tokens: tuple[str, ...]) -> str:
     if program in {"godot", "godot4"} and tuple(args) == ("--headless", "--path", ".", "--editor", "--quit"):
         return "build"
     if program == "git":
-        if not args:
-            raise InstitutionalBootError("Git command is incomplete")
-        if any(arg == "-C" or arg.startswith("-C") or arg == "-c" or arg.startswith("-c")
-               or arg.startswith("--git-dir") or arg.startswith("--work-tree")
-               or arg.startswith("--output") for arg in args):
-            raise InstitutionalBootError("Git command may not change its repository or write output")
-        if args[0] in {"status", "diff", "log", "show"}:
-            return "git_read"
-        if args[0] == "branch" and tuple(args[1:]) in {(), ("--show-current",)}:
-            return "git_read"
-        raise InstitutionalBootError("Git command is not read-only")
+        raise InstitutionalBootError("Git executable is not available to the agent")
     raise InstitutionalBootError("Shell command is not in the local development allowlist")
 
 
@@ -329,13 +327,93 @@ class ExecutionMandate:
 
 
 def _git(root: Path, *args: str) -> bytes:
+    executable = shutil.which('git')
+    if executable is None:
+        raise InstitutionalBootError('Git executable is unavailable for repository evidence')
+    # Never inherit caller Git configuration, tracing, credentials or prompts.
+    environment = {
+        'PATH': os.path.dirname(executable), 'GIT_CONFIG_GLOBAL': os.devnull,
+        'GIT_CONFIG_SYSTEM': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
+        'GIT_OPTIONAL_LOCKS': '0', 'GIT_TERMINAL_PROMPT': '0',
+        'GIT_NO_LAZY_FETCH': '1', 'GIT_NO_REPLACE_OBJECTS': '1',
+        'GIT_ATTR_NOSYSTEM': '1', 'GIT_PAGER': 'cat', 'LC_ALL': 'C',
+    }
+    for name in ('SystemRoot', 'WINDIR'):
+        if name in os.environ:
+            environment[name] = os.environ[name]
     try:
         return subprocess.run(
-            ['git', '-C', str(root), *args], check=True, capture_output=True,
-            timeout=15,
+            [executable, '--no-pager', '--no-optional-locks',
+             '-c', 'core.fsmonitor=false', '-c', 'diff.external=',
+             '-c', 'credential.helper=', '-c', 'protocol.allow=never',
+             '-C', str(root), *args], check=True, capture_output=True,
+            timeout=15, env=environment,
         ).stdout
     except (OSError, subprocess.SubprocessError) as exc:
         raise InstitutionalBootError('Cannot capture repository evidence') from exc
+
+
+def _git_metadata(root: Path) -> bytes:
+    """Fingerprint Git files that may live outside a linked worktree root."""
+    paths = (
+        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'index').decode().strip()), True),
+        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').decode().strip()) / 'config', True),
+        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'HEAD').decode().strip()), True),
+        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'config.worktree').decode().strip()), False),
+    )
+    digest = hashlib.sha256()
+    for path, required in paths:
+        if path.is_symlink():
+            raise InstitutionalBootError('Required Git metadata is absent or redirected')
+        digest.update(str(path.resolve()).encode('utf-8'))
+        if not path.exists() and not required:
+            digest.update(b'absent')
+            continue
+        if not path.is_file():
+            raise InstitutionalBootError('Required Git metadata is absent or redirected')
+        before = path.stat()
+        if before.st_size > 128 * 1024 * 1024:
+            raise InstitutionalBootError('Git metadata exceeds capture limit')
+        with path.open('rb') as stream:
+            for chunk in iter(lambda: stream.read(65536), b''):
+                digest.update(chunk)
+        after = path.stat()
+        if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+            raise InstitutionalBootError('Git metadata changed during capture')
+        digest.update(str(before.st_mtime_ns).encode('ascii'))
+    return digest.digest()
+
+
+def _reject_git_alternates(root: Path) -> None:
+    """Do not let governed capture read a redirected or alternate object store."""
+    objects = Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'objects').decode().strip())
+    if not objects.is_absolute():
+        raise InstitutionalBootError('Git object store location is unsupported')
+
+    def reparse(path: Path) -> bool:
+        stat = path.lstat()
+        return path.is_symlink() or bool(getattr(stat, 'st_file_attributes', 0) & 0x400)
+
+    try:
+        if reparse(objects) or not objects.is_dir():
+            raise InstitutionalBootError('Redirected Git object store is unsupported')
+        for entry in objects.iterdir():
+            if reparse(entry):
+                raise InstitutionalBootError('Redirected Git object store is unsupported')
+        info = objects / 'info'
+        for name in ('alternates', 'http-alternates'):
+            try:
+                (info / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise InstitutionalBootError('Git object alternates are unsupported for governed capture')
+        pack = objects / 'pack'
+        if pack.is_dir():
+            for entry in pack.iterdir():
+                if reparse(entry):
+                    raise InstitutionalBootError('Redirected Git object store is unsupported')
+    except OSError as exc:
+        raise InstitutionalBootError('Cannot verify Git object store confinement') from exc
 
 
 def _capture_repository(path: str) -> dict:
@@ -346,15 +424,32 @@ def _capture_repository(path: str) -> dict:
     actual = Path(_git(root, 'rev-parse', '--show-toplevel').decode().strip()).resolve()
     if root != actual:
         raise InstitutionalBootError('Workspace must be the repository root')
+    if _git(root, 'rev-parse', '--is-bare-repository').strip() != b'false':
+        raise InstitutionalBootError('Bare repositories are unsupported for governed execution')
+    # --no-includes makes local/worktree configuration inspectable without
+    # following an include. Deny extension points that could invoke helpers.
+    for item in _git(root, 'config', '--no-includes', '--null', '--list').split(b'\0'):
+        if not item:
+            continue
+        key = item.split(b'\n', 1)[0].lower()
+        if (key.startswith((b'include.', b'includeif.', b'filter.'))
+                or key.endswith((b'.textconv', b'.command'))
+                or key in {b'core.attributesfile', b'extensions.partialclone'}
+                or (key.startswith(b'remote.') and key.endswith(b'.promisor'))):
+            raise InstitutionalBootError('Repository Git configuration is unsupported for governed capture')
+    _reject_git_alternates(root)
+    metadata = _git_metadata(root)
     head = _git(root, 'rev-parse', 'HEAD').decode().strip()
     branch = _git(root, 'symbolic-ref', '--quiet', '--short', 'HEAD').decode().strip()
+    if not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', head) or not branch or any(c in branch for c in '\r\n\0'):
+        raise InstitutionalBootError('Repository Git identity is inconsistent')
     status = _git(root, 'status', '--porcelain=v1', '-z', '--untracked-files=all')
     if any(item[:2] in (b'UU', b'AA', b'DD', b'AU', b'UA', b'DU', b'UD')
            for item in status.split(b'\0')):
         raise InstitutionalBootError('Unresolved repository conflicts')
     if any(line.startswith(b"160000 ") for line in _git(root, 'ls-files', '--stage').splitlines()):
         raise InstitutionalBootError('Submodule baselines are unsupported in this slice')
-    digest = hashlib.sha256(status)
+    digest = hashlib.sha256(metadata + status)
     digest.update(_git(root, 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--binary', '--'))
     digest.update(_git(root, 'diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'))
     # Status alone misses edits to an already-untracked file.
@@ -367,6 +462,11 @@ def _capture_repository(path: str) -> dict:
             with file.open('rb') as stream:
                 for chunk in iter(lambda: stream.read(65536), b''):
                     digest.update(chunk)
+    _reject_git_alternates(root)
+    if (metadata != _git_metadata(root)
+            or _git(root, 'rev-parse', 'HEAD').decode().strip() != head
+            or _git(root, 'symbolic-ref', '--quiet', '--short', 'HEAD').decode().strip() != branch):
+        raise InstitutionalBootError('Repository Git identity changed during capture')
     return dict(path=str(root), branch=branch, head=head,
                 working_tree_status=status.decode('utf-8').replace('\0', '\n'),
                 working_tree_sha256=digest.hexdigest())
@@ -380,6 +480,55 @@ def capture_repository(path: str) -> dict:
         raise
     except (OSError, ValueError, TypeError, UnicodeError) as exc:
         raise InstitutionalBootError('Invalid or unreadable repository workspace') from exc
+
+
+@dataclass(frozen=True)
+class GitIdentityExecutionPolicy:
+    """Resolve a fixed Git identity recipe from reviewed backend evidence."""
+
+    recipe: str
+    target_baseline: dict
+    source_baseline: dict
+    proposal_reference: dict
+    timeout_seconds: int
+
+    async def execute(self) -> dict:
+        return await asyncio.to_thread(self._execute_sync)
+
+    def _execute_sync(self) -> dict:
+        from src.windows_native_execution import inventory, TrustedExecutionUnavailable
+
+        capability = {'recipe': self.recipe, 'permitted': True,
+                      'executable_available': shutil.which('git') is not None,
+                      'boundary_executable': False}
+        started = time.monotonic()
+        try:
+            if self.recipe not in _GIT_IDENTITY_RECIPES:
+                raise InstitutionalBootError('Unsupported Git identity recipe')
+            root = Path(self.target_baseline['path'])
+            before = inventory(root, include_git=True)
+            observed = capture_repository(str(root))
+            if time.monotonic() - started > self.timeout_seconds:
+                raise InstitutionalBootError('Git identity read exceeded the mandate timeout')
+            if observed != self.target_baseline:
+                raise InstitutionalBootError('Repository baseline drift before Git identity read')
+            value = observed['branch' if self.recipe == 'git_branch_current' else 'head']
+            after = inventory(root, include_git=True)
+            if after != before or capture_repository(str(root)) != self.target_baseline:
+                raise InstitutionalBootError('Repository drift during Git identity read')
+            if time.monotonic() - started > self.timeout_seconds:
+                raise InstitutionalBootError('Git identity read exceeded the mandate timeout')
+            capability['boundary_executable'] = True
+            boundary = {'adapter': 'governed_git_identity_v1', 'effects': [],
+                        'command_capability': capability, 'value': value,
+                        'baseline': self.target_baseline,
+                        'source_baseline': self.source_baseline,
+                        'proposal_reference': self.proposal_reference}
+            return {'output': value, 'exit_code': 0,
+                    'trusted_execution': boundary, 'command_capability': capability}
+        except (InstitutionalBootError, TrustedExecutionUnavailable, OSError, KeyError) as exc:
+            return {'error': str(exc), 'exit_code': 1,
+                    'command_capability': capability}
 
 
 def _document(root: Path, name: str) -> str:
@@ -544,6 +693,14 @@ class InstitutionalContext:
             self._require_operation(operation)
             from src.windows_native_execution import (WindowsExecutionPolicy, inventory,
                                                        validate_diagnostic_command)
+            if tokens[0] in _GIT_IDENTITY_RECIPES:
+                return PendingCommand(content.strip(), operation,
+                                      _working_tree_entries(Path(self.target['path'])),
+                                      inventory(Path(self.target['path']), include_git=True),
+                                      GitIdentityExecutionPolicy(tokens[0], self.expected_target.copy(),
+                                                                 self.expected_source.copy(),
+                                                                 self.proposal_reference.copy(),
+                                                                 self.execution.command_timeout_seconds))
             try:
                 validate_diagnostic_command(tokens, Path(self.target['path']),
                                             self.execution.allowed_read_paths)
@@ -729,15 +886,31 @@ class InstitutionalContext:
                      'write_file_private' if pending.command.startswith('private write_file ') else 'bash')
         boundary = result.get('trusted_execution') if isinstance(result, dict) else None
         if (not isinstance(boundary, dict) or boundary.get('adapter') not in
-                {'windows_appcontainer_job_v1', 'windows_private_patch_v1'} or
-                (tool_name == 'apply_patch_private' and boundary.get('adapter') != 'windows_private_patch_v1')):
+                {'windows_appcontainer_job_v1', 'windows_private_patch_v1', 'governed_git_identity_v1'} or
+                (tool_name == 'apply_patch_private' and boundary.get('adapter') != 'windows_private_patch_v1') or
+                (isinstance(pending.boundary_policy, GitIdentityExecutionPolicy) !=
+                 (boundary.get('adapter') == 'governed_git_identity_v1'))):
             self.mutation_ledger.append({
                 'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
                 'status': 'blocked', 'exit_code': result.get('exit_code') if isinstance(result, dict) else None,
                 'reason': result.get('error') if isinstance(result, dict) else 'Missing execution result',
                 'command_capability': result.get('command_capability') if isinstance(result, dict) else None,
             })
-            raise InstitutionalBootError('Required Windows execution boundary was not applied')
+            raise InstitutionalBootError('Required governed execution boundary was not applied')
+        if boundary.get('adapter') == 'governed_git_identity_v1':
+            expected_value = self.expected_target['branch' if pending.command == 'git_branch_current' else 'head']
+            if (pending.command not in _GIT_IDENTITY_RECIPES or result.get('exit_code') != 0
+                    or boundary.get('value') != expected_value or result.get('output') != expected_value
+                    or boundary.get('baseline') != self.expected_target
+                    or boundary.get('source_baseline') != self.expected_source
+                    or boundary.get('proposal_reference') != self.proposal_reference
+                    or boundary.get('effects') != []):
+                self.mutation_ledger.append({
+                    'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
+                    'status': 'blocked', 'reason': 'Git identity evidence does not match approved baseline',
+                    'boundary': boundary,
+                })
+                raise InstitutionalBootError('Git identity evidence does not match approved baseline')
         try:
             if inventory(Path(self.target['path']), include_git=True) != pending.before_inventory:
                 raise InstitutionalBootError('Target workspace drift during private command')
@@ -759,6 +932,8 @@ class InstitutionalContext:
             'exit_code': result.get('exit_code'), 'output_sha256': hashlib.sha256(raw_output.encode('utf-8')).hexdigest(),
             'output_chars': len(raw_output), 'changed_paths': changed_paths,
             'private_effects': boundary['effects'], 'boundary': boundary,
+            'command_capability': boundary.get('command_capability'),
+            'value': boundary.get('value'),
             'before': self.mutation_ledger[-1]['after'] if self.mutation_ledger else self.target,
             'after': next_target,
         }

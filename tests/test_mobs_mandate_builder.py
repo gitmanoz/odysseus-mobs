@@ -74,7 +74,7 @@ def test_creates_conservative_proposal_from_selected_local_workspaces(projects):
     assert item["authority_review"] == "pending"
     assert set(item["allowed_paths"]) == {"src/**", "tests/**", "docs/**"}
     assert "bash" in item["allowed_tools"]
-    assert "python -m pytest" in item["allowed_commands"]
+    assert item["allowed_commands"] == ["pytest", "python -m pytest"]
     assert "git status" not in item["allowed_commands"]
     assert "commit" not in " ".join(item["allowed_commands"])
     assert set(proposal_summary(item)) >= {"objective", "scope", "allowed_paths", "limits"}
@@ -85,9 +85,10 @@ def test_python_profile_derives_only_existing_supported_paths(projects):
     source, target = projects
     (target / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
     item = build_proposal("Test", target_workspace=str(target), authority_workspace=str(source),
-                          category="Código", project_profile="python")
+                          category="Código", project_profile="python", profile="development")
     assert item["project_profile"] == "python"
     assert set(item["allowed_paths"]) == {"src/**", "tests/**", "docs/**", "pyproject.toml"}
+    assert {"git_branch_current", "git_head_current"}.issubset(item["allowed_commands"])
 
 
 def test_generic_profile_supports_repo_without_src_tests_or_docs(projects, tmp_path):
@@ -114,6 +115,7 @@ def test_godot_profile_derives_real_paths_without_unsupported_commands(projects)
     assert "project.godot" in item["allowed_paths"]
     assert "scripts/**" in item["allowed_paths"]
     assert "textures/**" in item["allowed_paths"]
+    assert item["allowed_commands"] == ["pytest", "python -m pytest"]
     assert not any(command.startswith("godot") for command in item["allowed_commands"])
 
 
@@ -142,7 +144,7 @@ def test_profile_change_requires_a_new_proposal(projects):
     with pytest.raises(MandateProposalError, match="version or permissions"):
         validate_proposal_identity(altered)
     # The approval flow loads the persisted proposal; a browser selection cannot replace it.
-    assert item["capability_profile_version"] == "4"
+    assert item["capability_profile_version"] == "5"
 
 
 def test_persisted_older_capability_profile_cannot_be_reused(projects):
@@ -150,8 +152,8 @@ def test_persisted_older_capability_profile_cannot_be_reused(projects):
 
     item = proposal(projects)
     old = copy.deepcopy(item)
-    old["capability_profile_version"] = "3"
-    old["capabilities"]["version"] = "3"
+    old["capability_profile_version"] = "4"
+    old["capabilities"]["version"] = "4"
     old["proposal_digest"] = builder._proposal_digest(old)
     with pytest.raises(MandateProposalError, match="Capability profile version or permissions are incompatible"):
         validate_proposal_identity(old)
@@ -175,8 +177,8 @@ def test_saved_proposal_of_older_profile_requires_new_review(projects):
         db.close()
     builder.save_proposal("old-profile-session", item)
     old = copy.deepcopy(item)
-    old["capability_profile_version"] = "3"
-    old["capabilities"]["version"] = "3"
+    old["capability_profile_version"] = "4"
+    old["capabilities"]["version"] = "4"
     old["proposal_digest"] = builder._proposal_digest(old)
     db = SessionLocal()
     try:

@@ -20,9 +20,10 @@ from src.mobs_reviewer_authorization import (
 
 _READ_TOOLS = ["read_file", "ls", "grep", "glob", "get_workspace"]
 _DEV_TOOLS = _READ_TOOLS + ["write_file", "edit_file", "apply_patch", "bash"]
+_GIT_IDENTITY_COMMANDS = ["git_branch_current", "git_head_current"]
 _DEV_COMMANDS = ["pytest", "python -m pytest"]
-_PYTHON_COMMANDS = _DEV_COMMANDS + ["python -m py_compile", "ruff check --no-fix"]
-CAPABILITY_PROFILE_VERSION = "4"
+_PYTHON_COMMANDS = _DEV_COMMANDS + _GIT_IDENTITY_COMMANDS + ["python -m py_compile", "ruff check --no-fix"]
+CAPABILITY_PROFILE_VERSION = "5"
 _GODOT_DIRECTORIES = (
     "addons", "scripts", "scenes", "assets", "resources", "shaders", "tests", "docs",
     "art", "audio", "fonts", "materials", "models", "textures", "ui",
