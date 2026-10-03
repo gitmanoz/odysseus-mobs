@@ -12,9 +12,10 @@
 //
 //   - Finalized blocks are rendered once and never touched again — so code-block
 //     hover buttons can't flicker and code is highlighted exactly once.
-//   - The live tail (the still-growing trailing block) is re-rendered each token,
-//     except an open code fence, which streams in append-mode (text appended to a
-//     stable <pre>, highlighted once when it closes).
+//   - The live tail is re-rendered as new content arrives, without a per-token
+//     fade/typewriter animation. Already-received text therefore appears immediately.
+//   - An open code fence streams in append-mode (text appended to a stable <pre>,
+//     highlighted once when it closes).
 //
 // All the "is this safe to freeze?" logic lives in the pure segmenter; this file
 // is deliberately mechanical. If anything throws, it latches into a full-re-render
@@ -31,7 +32,6 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
   let tailMarker = null; // finalized nodes precede it; live-tail nodes follow it
   let committedLen = 0; // chars of source already frozen
   let lastText = ''; // most recent full text (for finalize)
-  let tailShownLen = 0; // rendered-text length of the live tail (drives token fade)
   let appendMode = null; // { codeText: Text, appendedLen } while an open fence streams
   let degraded = !ENABLED; // true once we fall back to full re-render
 
@@ -59,7 +59,9 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
     while (holder.firstChild) contentEl.insertBefore(holder.firstChild, tailMarker);
   }
 
-  // Re-render the live tail. An open trailing fence streams in append-mode.
+  // Re-render the live tail. New text is inserted directly, without wrapping it in
+  // animation spans; this avoids the artificial letter-by-letter presentation when
+  // the browser has already received the response content.
   function renderTail(tailText) {
     const fence = tailText ? describeOpenFence(tailText) : null;
     if (fence) {
@@ -68,14 +70,9 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
     }
     appendMode = null;
     clearTail();
-    if (!tailText) {
-      tailShownLen = 0;
-      return;
-    }
+    if (!tailText) return;
     const holder = document.createElement('div');
     holder.innerHTML = render(tailText);
-    fadeNewText(holder, tailShownLen);
-    tailShownLen = holder.textContent.length;
     while (holder.firstChild) contentEl.appendChild(holder.firstChild);
   }
 
@@ -92,43 +89,11 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
       pre.appendChild(code);
       contentEl.appendChild(pre);
       appendMode = { codeText: textNode, appendedLen: 0 };
-      tailShownLen = 0; // code is never faded; prose after the fence fades fresh
     }
     const code = tailText.slice(fence.contentStart);
     if (code.length > appendMode.appendedLen) {
       appendMode.codeText.appendData(code.slice(appendMode.appendedLen));
       appendMode.appendedLen = code.length;
-    }
-  }
-
-  // Wrap tail text past `prevLen` characters in <span class="token-new"> for the
-  // streaming fade-in. Skips code (<pre>) and thinking blocks (.thinking-content).
-  // Note: the original chat.js helper checked `.think-content`, a class that exists
-  // nowhere in the app, so thinking text used to fade; matching the real
-  // `.thinking-content` corrects that. Operates on the detached fragment before insertion.
-  function fadeNewText(container, prevLen) {
-    if (!prevLen) return;
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
-    let count = 0;
-    const toWrap = [];
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const len = node.textContent.length;
-      if (count + len <= prevLen) {
-        count += len;
-        continue;
-      }
-      toWrap.push({ node, splitAt: count < prevLen ? prevLen - count : 0 });
-      count += len;
-    }
-    for (const { node, splitAt } of toWrap) {
-      const parent = node.parentNode;
-      if (!parent || parent.closest('pre, .thinking-content')) continue;
-      const target = splitAt > 0 ? node.splitText(splitAt) : node;
-      const span = document.createElement('span');
-      span.className = 'token-new';
-      parent.replaceChild(span, target);
-      span.appendChild(target);
     }
   }
 
@@ -160,7 +125,6 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
       if (started && (!tailMarker || tailMarker.parentNode !== contentEl)) {
         started = false;
         committedLen = 0;
-        tailShownLen = 0;
         appendMode = null;
       }
       if (!started) start();
@@ -169,7 +133,6 @@ export function createStreamRenderer(contentEl, { render, hljs } = {}) {
         freeze(fullText.slice(committedLen, next));
         committedLen = next;
         appendMode = null; // whatever was streaming is now frozen
-        tailShownLen = 0;
       }
       renderTail(fullText.slice(committedLen));
     } catch (err) {
