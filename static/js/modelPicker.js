@@ -10,7 +10,6 @@ import spinnerModule from './spinner.js';
 const API_BASE = window.location.origin;
 const MOBS_AUTO_MODEL_ID = '__mobs_auto__';
 const MOBS_AUTO_DISPLAY = 'MOBS Auto';
-const MOBS_GENERAL_MODEL = 'qwen3:8b';
 const MOBS_CODER_MODEL = 'qwen2.5-coder:7b';
 
 // ── Recent + Favorites persistence ──
@@ -379,18 +378,17 @@ function _initModelPickerDropdown() {
         });
       });
     });
-    const general = result.find(m => m.mid === MOBS_GENERAL_MODEL && !m.stale);
     const coder = result.find(m => m.mid === MOBS_CODER_MODEL && !m.stale);
-    if (general && coder) {
+    if (coder) {
       result.unshift({
         key: MOBS_AUTO_MODEL_ID,
         mid: MOBS_AUTO_MODEL_ID,
         display: MOBS_AUTO_DISPLAY,
-        url: general.url,
-        endpointId: general.endpointId,
+        url: coder.url,
+        endpointId: coder.endpointId,
         epName: 'Automatic routing',
         category: 'local',
-        providerText: 'MOBS Auto automatic routing qwen3 coder',
+        providerText: 'MOBS Auto automatic routing qwen2.5-coder',
         stale: false,
         offline: false,
       });

@@ -14,7 +14,6 @@ from src.endpoint_resolver import build_headers, normalize_base
 
 MOBS_AUTO_MODEL_ID = "__mobs_auto__"
 MOBS_AUTO_DISPLAY_NAME = "MOBS Auto"
-MOBS_GENERAL_MODEL = "qwen3:8b"
 MOBS_CODER_MODEL = "qwen2.5-coder:7b"
 
 _ENGINEERING_RE = re.compile(
@@ -51,7 +50,7 @@ def choose_mobs_model(
     workspace: str = "",
     plan_mode: bool = False,
 ) -> tuple[str, str]:
-    """Choose one of the two MOBS local models without calling another LLM."""
+    """Route both general and engineering prompts to the approved local model."""
     category = str(getattr(tool_intent, "category", "") or "").lower()
     needs_tools = bool(getattr(tool_intent, "needs_tools", False))
 
@@ -65,7 +64,7 @@ def choose_mobs_model(
         return MOBS_CODER_MODEL, "engineering_prompt"
     if plan_mode and _ENGINEERING_RE.search(str(message or "")):
         return MOBS_CODER_MODEL, "engineering_plan"
-    return MOBS_GENERAL_MODEL, "general_prompt"
+    return MOBS_CODER_MODEL, "general_prompt"
 
 
 def _json_list(value: Any) -> list[str]:
@@ -134,26 +133,22 @@ def resolve_mobs_auto_route(
         workspace=workspace,
         plan_mode=plan_mode,
     )
-    alternate = MOBS_GENERAL_MODEL if requested == MOBS_CODER_MODEL else MOBS_CODER_MODEL
-
     endpoints = list(_iter_enabled_endpoints(owner))
-    for candidate, used_fallback in ((requested, False), (alternate, True)):
-        for endpoint in endpoints:
-            if candidate not in _visible_models(endpoint):
-                continue
-            base = normalize_base(endpoint.base_url or "")
-            return ResolvedMobsRoute(
-                endpoint_id=str(endpoint.id or ""),
-                endpoint_url=_ollama_native_chat_url(base),
-                model=candidate,
-                headers={
-                    **(build_headers(endpoint.api_key or "", endpoint.base_url or "") if endpoint.api_key else {}),
-                    "X-MOBS-Auto": "1",
-                },
-                reason=reason if not used_fallback else f"{reason}:fallback",
-                used_fallback=used_fallback,
-            )
+    for endpoint in endpoints:
+        if requested not in _visible_models(endpoint):
+            continue
+        base = normalize_base(endpoint.base_url or "")
+        return ResolvedMobsRoute(
+            endpoint_id=str(endpoint.id or ""),
+            endpoint_url=_ollama_native_chat_url(base),
+            model=requested,
+            headers={
+                **(build_headers(endpoint.api_key or "", endpoint.base_url or "") if endpoint.api_key else {}),
+                "X-MOBS-Auto": "1",
+            },
+            reason=reason,
+        )
 
     raise RuntimeError(
-        "MOBS Auto requires qwen3:8b or qwen2.5-coder:7b on an enabled model endpoint"
+        "MOBS Auto requires qwen2.5-coder:7b on an enabled model endpoint"
     )
