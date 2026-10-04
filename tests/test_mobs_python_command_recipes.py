@@ -28,11 +28,11 @@ def project(tmp_path):
     return root
 
 
-def test_v5_retains_python_recipes_and_adds_only_git_identity(project):
+def test_v6_retains_python_recipes_and_adds_only_git_read(project):
     python = derive_capabilities(project, "python")
-    assert CAPABILITY_PROFILE_VERSION == python["version"] == "5"
+    assert CAPABILITY_PROFILE_VERSION == python["version"] == "6"
     assert python["allowed_commands"] == [
-        "pytest", "python -m pytest", "git_branch_current", "git_head_current",
+        "pytest", "python -m pytest", "git_branch_current", "git_head_current", "git_status_current",
         "python -m py_compile", "ruff check --no-fix",
     ]
     assert "python -m py_compile" not in derive_capabilities(project, "generic")["allowed_commands"]

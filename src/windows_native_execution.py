@@ -43,11 +43,17 @@ def inventory(root: Path, *, include_git: bool = False) -> dict[str, str]:
     total = 0
     for directory, dirs, files in os.walk(root, followlinks=False):
         base = Path(directory)
-        dirs[:] = sorted(d for d in dirs if include_git or not (base == root and d == ".git"))
+        # Git metadata is never workspace content.  A nested `.git` can occur
+        # in vendored repositories, while linked worktrees use a `.git` file.
+        dirs[:] = sorted(d for d in dirs if include_git or d != ".git")
         for name in dirs:
             if _reparse(base / name):
                 raise TrustedExecutionUnavailable("Reparse directory cannot be inventoried safely")
         for name in sorted(files):
+            # Linked worktrees represent their Git directory as a `.git` file.
+            # It is metadata, never workspace content or drift evidence.
+            if not include_git and name == ".git":
+                continue
             path = base / name
             if _reparse(path) or not path.is_file():
                 raise TrustedExecutionUnavailable("Non-regular project file cannot be inventoried safely")

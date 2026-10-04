@@ -32,6 +32,8 @@ _SECRET_PATH = re.compile(
 )
 _SHELL_METACHARACTERS = re.compile(r"[\r\n;&|><`$%^!]")
 _GIT_IDENTITY_RECIPES = frozenset({"git_branch_current", "git_head_current"})
+_GIT_READ_RECIPES = _GIT_IDENTITY_RECIPES | frozenset({"git_status_current"})
+_BASELINE_SAMPLE_BYTES = 64 * 1024
 
 
 def _command_tokens(value: Any, label: str) -> tuple[str, ...]:
@@ -54,9 +56,9 @@ def _shell_operation(tokens: tuple[str, ...]) -> str:
     """Closed local-development command grammar; a mandate can only narrow it."""
     program = tokens[0]
     args = tokens[1:]
-    if program in _GIT_IDENTITY_RECIPES:
+    if program in _GIT_READ_RECIPES:
         if args:
-            raise InstitutionalBootError("Git identity recipes do not accept arguments")
+            raise InstitutionalBootError("Git read recipes do not accept arguments")
         return "git_read"
     if program in {"pytest"} or tokens[:3] == ("python", "-m", "pytest"):
         return "test"
@@ -416,6 +418,128 @@ def _reject_git_alternates(root: Path) -> None:
         raise InstitutionalBootError('Cannot verify Git object store confinement') from exc
 
 
+def _inventory_sha256(entries: dict[str, str]) -> str:
+    """Make complete filesystem evidence comparable without retaining path data."""
+    return hashlib.sha256(json.dumps(entries, sort_keys=True,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
+
+
+def _baseline_stat(stat: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    """Stable local facts used to detect a replacement during a baseline read."""
+    return (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino,
+            stat.st_mode, getattr(stat, 'st_file_attributes', 0))
+
+
+def _baseline_file_fingerprint(path: Path, stat: os.stat_result, *, bounded: bool) -> str:
+    """Digest one file without retaining its content or metadata in the baseline."""
+    before = _baseline_stat(stat)
+    digest = hashlib.sha256()
+    digest.update(b'bounded-v1\0' if bounded else b'strong-v1\0')
+    digest.update(repr(before).encode('ascii'))
+    with path.open('rb') as stream:
+        if bounded:
+            offsets = sorted({0, max(0, stat.st_size // 2 - _BASELINE_SAMPLE_BYTES // 2),
+                              max(0, stat.st_size - _BASELINE_SAMPLE_BYTES)})
+            for offset in offsets:
+                stream.seek(offset)
+                sample = stream.read(min(_BASELINE_SAMPLE_BYTES, stat.st_size - offset))
+                if not sample and stat.st_size:
+                    raise InstitutionalBootError('Cannot read repository working tree safely')
+                digest.update(offset.to_bytes(8, 'big'))
+                digest.update(len(sample).to_bytes(8, 'big'))
+                digest.update(sample)
+        else:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                digest.update(chunk)
+    if _baseline_stat(path.stat()) != before:
+        raise InstitutionalBootError('Repository working tree changed during capture')
+    return digest.hexdigest()
+
+
+def _ignored_workspace_paths(root: Path) -> frozenset[str]:
+    """Read ignored names through the hardened Git invocation, never from the model."""
+    values = set()
+    raw = _git(root, 'ls-files', '--others', '--ignored', '--exclude-standard',
+               '--no-directory', '-z')
+    for item in raw.split(b'\0'):
+        if item:
+            values.add(_portable_path(item.decode('utf-8', 'strict').replace('\\', '/'),
+                                      'ignored repository path'))
+    return frozenset(values)
+
+
+def _baseline_inventory(root: Path) -> dict[str, str]:
+    """Capture baseline evidence without weakening the TEB's strong inventory.
+
+    Large ignored build outputs use bounded deterministic evidence. Tracked and
+    untracked files, and ignored files within the TEB file limit, retain full
+    content fingerprints. Returned values are digests only.
+    """
+    from src.windows_native_execution import (
+        MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_BYTES, TrustedExecutionUnavailable, _reparse,
+    )
+
+    ignored = _ignored_workspace_paths(root)
+    entries: dict[str, str] = {}
+    strong_total = 0
+    try:
+        for directory, dirs, files in os.walk(root, followlinks=False):
+            base = Path(directory)
+            dirs[:] = sorted(name for name in dirs if name != '.git')
+            for name in dirs:
+                if _reparse(base / name):
+                    raise InstitutionalBootError('Cannot inventory repository working tree safely')
+            for name in sorted(files):
+                if name == '.git':
+                    continue
+                path = base / name
+                if _reparse(path) or not path.is_file():
+                    raise InstitutionalBootError('Cannot inventory repository working tree safely')
+                relative = path.relative_to(root).as_posix()
+                stat = path.stat()
+                bounded = relative in ignored and stat.st_size > MAX_FILE_BYTES
+                if not bounded:
+                    if stat.st_size > MAX_FILE_BYTES:
+                        raise InstitutionalBootError('Cannot inventory repository working tree safely')
+                    strong_total += stat.st_size
+                    if strong_total > MAX_TOTAL_BYTES:
+                        raise InstitutionalBootError('Cannot inventory repository working tree safely')
+                if len(entries) >= MAX_FILES:
+                    raise InstitutionalBootError('Cannot inventory repository working tree safely')
+                entries[relative] = _baseline_file_fingerprint(path, stat, bounded=bounded)
+    except (OSError, ValueError, UnicodeError, TrustedExecutionUnavailable) as exc:
+        raise InstitutionalBootError('Cannot inventory repository working tree safely') from exc
+    return entries
+
+
+def _git_status_current(root: Path, allowed_read_paths: tuple[str, ...]) -> dict[str, Any]:
+    """Return only approved Git-status paths; caller must have validated a baseline."""
+    raw = _git(root, 'status', '--porcelain=v1', '-z', '--untracked-files=all')
+    ignored = _git(root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z')
+    entries: dict[str, str] = {}
+    for item in raw.split(b'\0'):
+        if not item:
+            continue
+        if len(item) < 4:
+            raise InstitutionalBootError('Invalid repository status evidence')
+        state = item[:2].decode('ascii', 'strict')
+        if state[0] in {'R', 'C'} or state[1] in {'R', 'C'}:
+            raise InstitutionalBootError('Rename/copy status is unsupported in this slice')
+        path = _portable_path(item[3:].decode('utf-8', 'strict').replace('\\', '/'),
+                              'repository status path')
+        entries[path] = state
+    for item in ignored.split(b'\0'):
+        if not item:
+            continue
+        path = _portable_path(item.decode('utf-8', 'strict').replace('\\', '/'),
+                              'ignored repository status path')
+        entries[path] = '!!'
+    return {'entries': [
+        {'path': path, 'status': entries[path]}
+        for path in sorted(entries) if _path_is_allowed(path, allowed_read_paths)
+    ]}
+
+
 def _capture_repository(path: str) -> dict:
     """Read-only evidence for review. Capturing does NOT authorize a baseline."""
     root = Path(path).resolve(strict=True)
@@ -449,6 +573,11 @@ def _capture_repository(path: str) -> dict:
         raise InstitutionalBootError('Unresolved repository conflicts')
     if any(line.startswith(b"160000 ") for line in _git(root, 'ls-files', '--stage').splitlines()):
         raise InstitutionalBootError('Submodule baselines are unsupported in this slice')
+    # The authoritative baseline includes every regular workspace file, even
+    # when Git ignores it.  Keep only its digest: the full path inventory is
+    # backend evidence and must never become model context by accident.
+    complete_inventory = _baseline_inventory(root)
+    inventory_digest = _inventory_sha256(complete_inventory)
     digest = hashlib.sha256(metadata + status)
     digest.update(_git(root, 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--binary', '--'))
     digest.update(_git(root, 'diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--'))
@@ -463,12 +592,15 @@ def _capture_repository(path: str) -> dict:
                 for chunk in iter(lambda: stream.read(65536), b''):
                     digest.update(chunk)
     _reject_git_alternates(root)
+    if _inventory_sha256(_baseline_inventory(root)) != inventory_digest:
+        raise InstitutionalBootError('Repository working tree changed during capture')
     if (metadata != _git_metadata(root)
             or _git(root, 'rev-parse', 'HEAD').decode().strip() != head
             or _git(root, 'symbolic-ref', '--quiet', '--short', 'HEAD').decode().strip() != branch):
         raise InstitutionalBootError('Repository Git identity changed during capture')
+    digest.update(inventory_digest.encode('ascii'))
     return dict(path=str(root), branch=branch, head=head,
-                working_tree_status=status.decode('utf-8').replace('\0', '\n'),
+                working_tree_inventory_sha256=inventory_digest,
                 working_tree_sha256=digest.hexdigest())
 
 
@@ -483,50 +615,56 @@ def capture_repository(path: str) -> dict:
 
 
 @dataclass(frozen=True)
-class GitIdentityExecutionPolicy:
-    """Resolve a fixed Git identity recipe from reviewed backend evidence."""
+class GitReadExecutionPolicy:
+    """Resolve a fixed Git read recipe from reviewed backend evidence."""
 
     recipe: str
     target_baseline: dict
     source_baseline: dict
     proposal_reference: dict
+    allowed_read_paths: tuple[str, ...]
     timeout_seconds: int
 
     async def execute(self) -> dict:
         return await asyncio.to_thread(self._execute_sync)
 
     def _execute_sync(self) -> dict:
-        from src.windows_native_execution import inventory, TrustedExecutionUnavailable
-
         capability = {'recipe': self.recipe, 'permitted': True,
                       'executable_available': shutil.which('git') is not None,
                       'boundary_executable': False}
         started = time.monotonic()
         try:
-            if self.recipe not in _GIT_IDENTITY_RECIPES:
-                raise InstitutionalBootError('Unsupported Git identity recipe')
+            if self.recipe not in _GIT_READ_RECIPES:
+                raise InstitutionalBootError('Unsupported Git read recipe')
             root = Path(self.target_baseline['path'])
-            before = inventory(root, include_git=True)
+            before = _baseline_inventory(root)
             observed = capture_repository(str(root))
             if time.monotonic() - started > self.timeout_seconds:
-                raise InstitutionalBootError('Git identity read exceeded the mandate timeout')
+                raise InstitutionalBootError('Git read exceeded the mandate timeout')
             if observed != self.target_baseline:
-                raise InstitutionalBootError('Repository baseline drift before Git identity read')
-            value = observed['branch' if self.recipe == 'git_branch_current' else 'head']
-            after = inventory(root, include_git=True)
+                raise InstitutionalBootError('Repository baseline drift before Git read')
+            if self.recipe == 'git_branch_current':
+                value: Any = observed['branch']
+            elif self.recipe == 'git_head_current':
+                value = observed['head']
+            else:
+                value = _git_status_current(root, self.allowed_read_paths)
+            after = _baseline_inventory(root)
             if after != before or capture_repository(str(root)) != self.target_baseline:
-                raise InstitutionalBootError('Repository drift during Git identity read')
+                raise InstitutionalBootError('Repository drift during Git read')
             if time.monotonic() - started > self.timeout_seconds:
-                raise InstitutionalBootError('Git identity read exceeded the mandate timeout')
+                raise InstitutionalBootError('Git read exceeded the mandate timeout')
             capability['boundary_executable'] = True
-            boundary = {'adapter': 'governed_git_identity_v1', 'effects': [],
+            boundary = {'adapter': 'governed_git_read_v1', 'effects': [],
                         'command_capability': capability, 'value': value,
                         'baseline': self.target_baseline,
                         'source_baseline': self.source_baseline,
                         'proposal_reference': self.proposal_reference}
-            return {'output': value, 'exit_code': 0,
+            output = (json.dumps(value, sort_keys=True, separators=(',', ':'))
+                      if isinstance(value, dict) else value)
+            return {'output': output, 'exit_code': 0,
                     'trusted_execution': boundary, 'command_capability': capability}
-        except (InstitutionalBootError, TrustedExecutionUnavailable, OSError, KeyError) as exc:
+        except (InstitutionalBootError, OSError, KeyError, UnicodeError) as exc:
             return {'error': str(exc), 'exit_code': 1,
                     'command_capability': capability}
 
@@ -693,14 +831,15 @@ class InstitutionalContext:
             self._require_operation(operation)
             from src.windows_native_execution import (WindowsExecutionPolicy, inventory,
                                                        validate_diagnostic_command)
-            if tokens[0] in _GIT_IDENTITY_RECIPES:
+            if tokens[0] in _GIT_READ_RECIPES:
                 return PendingCommand(content.strip(), operation,
                                       _working_tree_entries(Path(self.target['path'])),
-                                      inventory(Path(self.target['path']), include_git=True),
-                                      GitIdentityExecutionPolicy(tokens[0], self.expected_target.copy(),
-                                                                 self.expected_source.copy(),
-                                                                 self.proposal_reference.copy(),
-                                                                 self.execution.command_timeout_seconds))
+                                      inventory(Path(self.target['path']), include_git=False),
+                                      GitReadExecutionPolicy(tokens[0], self.expected_target.copy(),
+                                                             self.expected_source.copy(),
+                                                             self.proposal_reference.copy(),
+                                                             self.execution.allowed_read_paths,
+                                                             self.execution.command_timeout_seconds))
             try:
                 validate_diagnostic_command(tokens, Path(self.target['path']),
                                             self.execution.allowed_read_paths)
@@ -886,10 +1025,10 @@ class InstitutionalContext:
                      'write_file_private' if pending.command.startswith('private write_file ') else 'bash')
         boundary = result.get('trusted_execution') if isinstance(result, dict) else None
         if (not isinstance(boundary, dict) or boundary.get('adapter') not in
-                {'windows_appcontainer_job_v1', 'windows_private_patch_v1', 'governed_git_identity_v1'} or
+                {'windows_appcontainer_job_v1', 'windows_private_patch_v1', 'governed_git_read_v1'} or
                 (tool_name == 'apply_patch_private' and boundary.get('adapter') != 'windows_private_patch_v1') or
-                (isinstance(pending.boundary_policy, GitIdentityExecutionPolicy) !=
-                 (boundary.get('adapter') == 'governed_git_identity_v1'))):
+                (isinstance(pending.boundary_policy, GitReadExecutionPolicy) !=
+                 (boundary.get('adapter') == 'governed_git_read_v1'))):
             self.mutation_ledger.append({
                 'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
                 'status': 'blocked', 'exit_code': result.get('exit_code') if isinstance(result, dict) else None,
@@ -897,22 +1036,36 @@ class InstitutionalContext:
                 'command_capability': result.get('command_capability') if isinstance(result, dict) else None,
             })
             raise InstitutionalBootError('Required governed execution boundary was not applied')
-        if boundary.get('adapter') == 'governed_git_identity_v1':
-            expected_value = self.expected_target['branch' if pending.command == 'git_branch_current' else 'head']
-            if (pending.command not in _GIT_IDENTITY_RECIPES or result.get('exit_code') != 0
-                    or boundary.get('value') != expected_value or result.get('output') != expected_value
+        if boundary.get('adapter') == 'governed_git_read_v1':
+            if pending.command == 'git_branch_current':
+                expected_value: Any = self.expected_target['branch']
+            elif pending.command == 'git_head_current':
+                expected_value = self.expected_target['head']
+            elif pending.command == 'git_status_current':
+                expected_value = _git_status_current(Path(self.target['path']), self.execution.allowed_read_paths)
+            else:
+                expected_value = None
+            expected_output = (json.dumps(expected_value, sort_keys=True, separators=(',', ':'))
+                               if isinstance(expected_value, dict) else expected_value)
+            if (pending.command not in _GIT_READ_RECIPES or result.get('exit_code') != 0
+                    or boundary.get('value') != expected_value
                     or boundary.get('baseline') != self.expected_target
                     or boundary.get('source_baseline') != self.expected_source
                     or boundary.get('proposal_reference') != self.proposal_reference
-                    or boundary.get('effects') != []):
+                    or boundary.get('effects') != []
+                    or result.get('output') != expected_output):
                 self.mutation_ledger.append({
                     'tool': tool_name, 'command': pending.command, 'operation': pending.operation,
-                    'status': 'blocked', 'reason': 'Git identity evidence does not match approved baseline',
+                    'status': 'blocked', 'reason': 'Git read evidence does not match approved baseline',
                     'boundary': boundary,
                 })
-                raise InstitutionalBootError('Git identity evidence does not match approved baseline')
+                raise InstitutionalBootError('Git read evidence does not match approved baseline')
         try:
-            if inventory(Path(self.target['path']), include_git=True) != pending.before_inventory:
+            # Git-read recipes intentionally inventory only workspace content.
+            # Existing private execution policies retain their Git-metadata
+            # check exactly as before.
+            include_git = not isinstance(pending.boundary_policy, GitReadExecutionPolicy)
+            if inventory(Path(self.target['path']), include_git=include_git) != pending.before_inventory:
                 raise InstitutionalBootError('Target workspace drift during private command')
             if capture_repository(self.target['path']) != self.expected_target:
                 raise InstitutionalBootError('Repository baseline drift during private command')
@@ -1007,7 +1160,7 @@ def institutional_boot(request: dict, workspace: str) -> InstitutionalContext:
         if not isinstance(source, dict) or not vet_workspace(source.get('path', '')):
             raise InstitutionalBootError('Invalid institutional workspace')
         for baseline in (source, target):
-            if not isinstance(baseline, dict) or set(baseline) != {'path', 'branch', 'head', 'working_tree_status', 'working_tree_sha256'}:
+            if not isinstance(baseline, dict) or set(baseline) != {'path', 'branch', 'head', 'working_tree_inventory_sha256', 'working_tree_sha256'}:
                 raise InstitutionalBootError('Incomplete authorized baseline')
             if not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', baseline['head']):
                 raise InstitutionalBootError('Baseline must be an immutable full commit id')
