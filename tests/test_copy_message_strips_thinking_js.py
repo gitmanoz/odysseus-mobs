@@ -161,6 +161,43 @@ def _function_body(text: str, marker: str) -> str:
     return rest[: m.start()] if m else rest
 
 
+def _copy_message_text(raw: str, additions: list[dict]) -> str:
+    """Execute the renderer's copy function with a minimal DOM-shaped card."""
+    renderer = (_REPO / "static/js/chatRenderer.js").read_text(encoding="utf-8")
+    body = _function_body(renderer, "export function copyMessageText")
+    source = "function copyMessageText" + body
+    script = textwrap.dedent(
+        """
+        const stripToolBlocks = (text) => String(text || '').replace(/<tool[\\s\\S]*?<\\/tool>/g, '');
+        const markdownModule = { extractThinkingBlocks: (text) => ({ content: text.replace(/<think[\\s\\S]*?<\\/think>/g, '').trim() }) };
+        %s
+        const input = JSON.parse(process.argv[1]);
+        const body = { textContent: input.body || '', contains: (node) => !!node.inBody };
+        const nodes = input.additions.map(item => ({
+          textContent: item.text,
+          inBody: !!item.inBody,
+          closest: (selector) => item.control ? {} : null,
+        }));
+        const message = {
+          dataset: { raw: input.raw },
+          querySelector: (selector) => selector === '.body' ? body : null,
+          querySelectorAll: () => nodes,
+        };
+        console.log(JSON.stringify({ out: copyMessageText(message) }));
+        """ % source
+    )
+    result = subprocess.run(
+        ["node", "-e", script, json.dumps({"raw": raw, "additions": additions})],
+        cwd=_REPO,
+        capture_output=True,
+        timeout=15,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"node failed:\\nSTDERR:\\n{result.stderr}\\nSTDOUT:\\n{result.stdout}")
+    return json.loads(result.stdout.strip())["out"]
+
+
 def test_copy_message_text_mirrors_display_pipeline():
     text = (_REPO / "static/js/chatRenderer.js").read_text(encoding="utf-8")
     body = _function_body(text, "export function copyMessageText")
@@ -168,6 +205,58 @@ def test_copy_message_text_mirrors_display_pipeline():
     assert "extractThinkingBlocks" in body
     assert "stripToolBlocks" in body
     assert "dataset.raw" in body
+
+
+def test_copy_message_text_includes_dynamic_semantic_content_not_controls():
+    text = (_REPO / "static/js/chatRenderer.js").read_text(encoding="utf-8")
+    body = _function_body(text, "export function copyMessageText")
+    assert "[data-copy-content], pre" in body
+    assert "!body?.contains(node)" in body
+    assert "button, [role=\"button\"], .msg-footer, .msg-actions" in body
+
+
+def test_copy_message_text_copies_dynamic_evidence_but_not_controls(node_available):
+    copied = _copy_message_text(
+        "MOBS mandate proposal — review evidence below before confirming.",
+        [
+            {"text": "Proposal: p\\nAuthority contents\\n--- PROJECT_INDEX.md ---\\nindex"},
+            {"text": "Confirm authority snapshot review", "control": True},
+        ],
+    )
+    assert "MOBS mandate proposal" in copied
+    assert "Proposal: p" in copied
+    assert "Authority contents" in copied
+    assert "Confirm authority snapshot review" not in copied
+
+
+def test_copy_message_text_keeps_normal_reply_and_excludes_reasoning(node_available):
+    copied = _copy_message_text(
+        "<think>private reasoning</think>Visible reply <tool>internal</tool>",
+        [],
+    )
+    assert copied == "Visible reply"
+
+
+def test_mobs_proposal_marks_evidence_as_semantic_copy_content():
+    text = (_REPO / "static/js/chat.js").read_text(encoding="utf-8")
+    proposal_start = text.index("json.type === 'mobs_mandate_proposal'")
+    proposal_end = text.index("json.type === 'mobs_clarification_required'", proposal_start)
+    proposal = text[proposal_start:proposal_end]
+    assert "evidence.dataset.copyContent = 'true'" in proposal
+    for label in (
+        "Proposal:", "Version:", "Snapshot:", "Objective:", "Scope:",
+        "Project profile:", "Paths:", "Readable:", "Writable:",
+        "Creatable:", "Tools:", "Operations:", "Commands:",
+        "Exclusions:", "Limits:", "Authority review:", "Authority snapshot",
+        "Authority hashes", "Authority contents",
+    ):
+        assert label in proposal
+
+
+def test_chat_content_is_selectable_without_selecting_controls():
+    text = (_REPO / "static/style.css").read_text(encoding="utf-8")
+    assert ".msg [data-copy-content]" in text
+    assert "-webkit-user-select: text" in text
 
 
 def test_copy_handlers_route_through_copy_message_text():

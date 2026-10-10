@@ -3421,6 +3421,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                 const documents = Object.entries(e.documents || {}).map(([path, content]) => `--- ${path} ---\n${content}`).join('\n\n');
                 const card = addMessage('assistant', 'MOBS mandate proposal — review evidence below before confirming.');
                 const evidence = document.createElement('pre');
+                // The renderer includes semantic dynamic card content in Copy,
+                // while action controls remain deliberately excluded.
+                evidence.dataset.copyContent = 'true';
                 evidence.style.whiteSpace = 'pre-wrap';
                 evidence.textContent = `Proposal: ${p.proposal_id}\nVersion: ${p.proposal_digest}\nSnapshot: ${p.authority_snapshot}\n\nObjective: ${p.objective || ''}\nScope: ${p.scope || ''}\nProject profile: ${p.project_profile || ''} v${p.capability_profile_version || ''}\nPaths: ${(p.allowed_paths || []).join(', ')}\nReadable: ${(p.allowed_read_paths || []).join(', ')}\nWritable: ${(p.allowed_write_paths || []).join(', ')}\nCreatable: ${(p.allowed_create_paths || []).join(', ')}\nTools: ${(p.allowed_tools || []).join(', ')}\nOperations: ${(p.allowed_operations || []).join(', ')}\nCommands: ${(p.allowed_commands || []).join(', ')}\nExclusions: ${p.exclusions || ''}\nLimits: ${JSON.stringify(p.limits || {})}\nAuthority review: ${p.authority_review || 'pending'}\n\nAuthority snapshot\nSource: ${source.path || ''}\nBranch: ${source.branch || ''}\nCommit: ${source.head || ''}\nWorking tree: ${source.working_tree_status || '(clean)'}\nFingerprint: ${source.working_tree_sha256 || ''}\n\nAuthority hashes\n${authorities}\n\nAuthority contents\n${documents}`;
                 if (card) card.appendChild(evidence);

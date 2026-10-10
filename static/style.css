@@ -2289,6 +2289,14 @@ body.bg-pattern-sparkles {
 .msg-ai .body {
   color: var(--fg);
 }
+/* Chat content is information, not a control: users must be able to select
+   answers and institutional evidence without making buttons selectable. */
+.msg .body,
+.msg > pre,
+.msg [data-copy-content] {
+  user-select: text;
+  -webkit-user-select: text;
+}
 .model-endpoint-add-btn {
   display: inline-flex;
   align-items: center;

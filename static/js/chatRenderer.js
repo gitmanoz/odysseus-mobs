@@ -937,13 +937,23 @@ export function stripToolBlocks(text) {
  * displays it — tool blocks and <think> reasoning stripped. dataset.raw keeps
  * the full model output (chat.js even embeds the elapsed time into the
  * <think> tag for reload persistence), so copying it verbatim leaks the
- * thinking block (#3722). Falls back to the raw text when stripping leaves
- * nothing (e.g. turns interrupted mid-thinking).
+ * thinking block (#3722). A message may also receive semantic text after its
+ * initial bubble was rendered (for example, an institutional evidence card).
+ * Such nodes opt in with `data-copy-content`; a direct `<pre>` outside the
+ * message body is also treated as displayed semantic text. UI controls never
+ * participate in this payload.
  */
 export function copyMessageText(msgElement) {
   const raw = msgElement.dataset.raw || msgElement.querySelector('.body')?.textContent || '';
   const { content } = markdownModule.extractThinkingBlocks(stripToolBlocks(raw));
-  return content || raw;
+  const base = content || raw;
+  const body = msgElement.querySelector('.body');
+  const additions = Array.from(msgElement.querySelectorAll('[data-copy-content], pre'))
+    .filter(node => !body?.contains(node))
+    .filter(node => !node.closest('button, [role="button"], .msg-footer, .msg-actions'))
+    .map(node => (node.textContent || '').trim())
+    .filter(Boolean);
+  return [base, ...additions].filter(Boolean).join(additions.length && base ? '\n\n' : '');
 }
 
 /**

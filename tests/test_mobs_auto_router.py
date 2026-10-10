@@ -95,3 +95,14 @@ def test_qwen3_alone_cannot_satisfy_mobs_auto(monkeypatch):
     monkeypatch.setattr(router, "_iter_enabled_endpoints", lambda owner: [endpoint])
     with pytest.raises(RuntimeError, match="requires qwen2.5-coder:7b"):
         resolve_mobs_auto_route("Olá")
+
+
+def test_only_coder_is_visible_when_other_local_models_are_hidden():
+    import src.mobs_auto_router as router
+
+    endpoint = SimpleNamespace(
+        cached_models='["gemma3:12b", "llama3.1:8b", "qwen2.5:7b-instruct", "qwen3:8b", "qwen2.5-coder:7b"]',
+        pinned_models=None,
+        hidden_models='["gemma3:12b", "llama3.1:8b", "qwen2.5:7b-instruct", "qwen3:8b"]',
+    )
+    assert router._visible_models(endpoint) == [MOBS_CODER_MODEL]
