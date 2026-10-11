@@ -8,7 +8,11 @@ from typing import List, Dict, Any, Optional, Tuple
 from src.chat_helpers import extract_urls
 from src.youtube_handler import is_youtube_url
 from src.search import comprehensive_web_search, fetch_webpage_content
-from src.prompt_security import UNTRUSTED_CONTEXT_POLICY, untrusted_context_message
+from src.prompt_security import (
+    HUMAN_INPUT_INTERPRETATION_DIRECTIVE,
+    UNTRUSTED_CONTEXT_POLICY,
+    untrusted_context_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +309,12 @@ class ChatProcessor:
         preface.append({
             "role": "system",
             "content": UNTRUSTED_CONTEXT_POLICY,
+        })
+        # The directive guides interpretation only.  It never rewrites the
+        # user turn, so the persisted/UI/event value remains exact evidence.
+        preface.append({
+            "role": "system",
+            "content": HUMAN_INPUT_INTERPRETATION_DIRECTIVE,
         })
 
         # Memory: core pinned facts + relevant pinned/extended recall.
