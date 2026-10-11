@@ -17,11 +17,11 @@
 
 :root {
   /* Core palette */
-  --bg: #282c34;
-  --fg: #9cdef2;
-  --panel: #111;
-  --border: #355a66;
-  --red: #e06c75;
+  --bg: #101113;
+  --fg: #e6e8eb;
+  --panel: #181a1e;
+  --border: #2d3036;
+  --red: #83bfc7;
   /* Were `var(--green)` / `var(--warn)` — self-referential, so they
      resolved to invalid and every site fell back to its own literal
      (or, for sites with no fallback, painted as transparent/inherit).
@@ -41166,4 +41166,128 @@ body.theme-frosted .modal {
 @media (max-width: 768px) {
   .compare-grid[data-cols] { grid-template-columns: 1fr !important; overflow-y: auto; }
   .compare-pane { min-height: 60dvh; }
+}
+/* Graphite built-in: restrained surfaces for long development sessions.
+   Scoped to the theme presentation, so existing and custom palettes keep
+   their original styling. All component colors use the existing tokens. */
+:root[data-theme-appearance="graphite"] {
+  color-scheme: dark;
+  --font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --user-bubble-bg: #22252b;
+  --ai-bubble-bg: #101113;
+  --bubble-border: #2d3036;
+  --sidebar-bg: #181a1e;
+  --input-bg: #1c1e23;
+  --input-border: #343840;
+  --brand-color: #e6e8eb;
+  --brand-mix-to: #b8b1ce;
+  --code-bg: #16181c;
+  --code-fg: #e6e8eb;
+  --color-muted: #a0a6b0;
+  --color-muted-alt: #8b929e;
+  --color-subheader: #a0a6b0;
+  --color-accent: var(--red);
+  --color-link-hover: #a2d0d6;
+  --color-agent-active: #8bbfa0;
+  --color-success: #8bbfa0;
+  --green: #8bbfa0;
+  --color-warning: #d1b681;
+  --warn: #d1b681;
+  --color-error: #df9292;
+  --color-error-light: #efacac;
+  --accent-primary: var(--red);
+}
+:root[data-theme-appearance="graphite"] :is(.sidebar, .icon-rail) {
+  background: var(--sidebar-bg);
+  border-color: var(--border);
+}
+:root[data-theme-appearance="graphite"] :is(.list-item.active, .list-item.active-session) {
+  background: color-mix(in srgb, var(--fg) 7%, var(--panel));
+  border-color: transparent;
+  border-left-color: var(--red);
+  box-shadow: none;
+}
+:root[data-theme-appearance="graphite"] .list-item:hover {
+  background: color-mix(in srgb, var(--fg) 4%, var(--panel));
+}
+:root[data-theme-appearance="graphite"] .msg-ai {
+  border-color: transparent;
+  color: var(--fg);
+}
+:root[data-theme-appearance="graphite"] .msg-user {
+  border-color: var(--bubble-border);
+}
+:root[data-theme-appearance="graphite"] .msg .body { line-height: 1.65; }
+:root[data-theme-appearance="graphite"] .msg :is(h1,h2,h3,h4,h5,h6,strong,b,th) {
+  color: var(--fg);
+}
+:root[data-theme-appearance="graphite"] .msg :is(pre, code) {
+  font-family: 'Fira Code', ui-monospace, monospace;
+}
+:root[data-theme-appearance="graphite"] .msg > pre[data-copy-content] {
+  width: 100%;
+  max-height: 65vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-size: 0.85rem;
+  line-height: 1.65;
+}
+:root[data-theme-appearance="graphite"] :is(.chat-input-bar, .send-btn, .welcome-name) {
+  box-shadow: none;
+  text-shadow: none;
+}
+:root[data-theme-appearance="graphite"] .chat-input-bar:focus-within {
+  border-color: color-mix(in srgb, var(--red) 50%, var(--border));
+  box-shadow: none;
+}
+:root[data-theme-appearance="graphite"] :is(.model-picker-menu, .model-switch-menu, .msg-overflow-menu, .dropdown-menu, .modal-content) {
+  background: var(--panel);
+  border-color: var(--border);
+  box-shadow: 0 12px 32px #00000040;
+}
+:root[data-theme-appearance="graphite"] :is(.model-switch-item:hover, .model-switch-item.active) {
+  background: color-mix(in srgb, var(--fg) 7%, var(--panel));
+}
+:root[data-theme-appearance="graphite"] .msg > button {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  margin: 4px 4px 0 0;
+}
+:root[data-theme-appearance="graphite"] .msg > button:hover {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--fg) 5%, var(--panel));
+}
+:root[data-theme-appearance="graphite"] :is(button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+}
+:root[data-theme-appearance="graphite"] ::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+}
+:root[data-theme-appearance="graphite"] .chat-history {
+  scrollbar-color: var(--border) transparent;
+}
+:root[data-theme-appearance="graphite"] .chat-history::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+:root[data-theme-appearance="graphite"] .preset-btn.active {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--red) 12%, var(--panel));
+}
+:root[data-theme-appearance="graphite"] #welcome-screen .welcome-sub {
+  color: var(--color-muted);
+  opacity: 1;
+}
+:root[data-theme-appearance="graphite"] .theme-swatch.active {
+  box-shadow: none;
+  border-color: var(--red);
 }

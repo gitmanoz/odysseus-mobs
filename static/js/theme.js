@@ -9,6 +9,13 @@ import { makeWindowDraggable } from './windowDrag.js';
 import { snapModalToZone } from './tileManager.js';
 
 export const THEMES = {
+  graphite:   { bg:'#101113', fg:'#e6e8eb', panel:'#181a1e', border:'#2d3036', red:'#83bfc7',
+                appearance: 'graphite',
+                advanced: { userBubbleBg:'#22252b', aiBubbleBg:'#101113', bubbleBorder:'#2d3036',
+                            sidebarBg:'#181a1e', inputBg:'#1c1e23', inputBorder:'#343840',
+                            sendBtnBg:'#83bfc7', sendBtnHover:'#a2d0d6',
+                            brandColor:'#e6e8eb', brandMixTo:'#b8b1ce',
+                            codeBg:'#16181c', codeFg:'#e6e8eb', toggleActive:'#83bfc7' } },
   dark:       { bg:'#282c34', fg:'#9cdef2', panel:'#111111', border:'#355a66', red:'#e06c75' },
   light:      { bg:'#f0ebe3', fg:'#5a5248', panel:'#faf6f0', border:'#d4cdc2', red:'#c47d5a' },
   midnight:   { bg:'#0d1117', fg:'#c9d1d9', panel:'#161b22', border:'#30363d', red:'#f85149' },
@@ -31,7 +38,7 @@ export const THEMES = {
   cute:       { bg:'#fff0f5', fg:'#d4608a', panel:'#fff8fa', border:'#f0c0d0', red:'#ff6b9d' },
 };
 
-const DEFAULT_THEME = 'dark';
+const DEFAULT_THEME = 'graphite';
 const LS_KEY = 'odysseus-theme';
 const CUSTOM_THEMES_KEY = 'odysseus-custom-themes';
 
@@ -47,6 +54,7 @@ const MAX_CUSTOM_THEMES = 8;
 
 // Default background patterns for built-in themes
 const THEME_DEFAULT_PATTERN = {
+  graphite:   'none',
   dark:       'none',
   light:      'dots',
   midnight:   'rain',
@@ -255,6 +263,8 @@ function generateHarmonyColors(accentHex, harmonyType, mode) {
 }
 
 export function applyColors(colors) {
+  // Presentation belongs to the selected theme; switching presets resets it.
+  document.documentElement.dataset.themeAppearance = colors.appearance === 'graphite' ? 'graphite' : '';
   const s = document.documentElement.style;
   s.setProperty('--bg', colors.bg);
   s.setProperty('--fg', colors.fg);
@@ -709,7 +719,7 @@ export function initThemeUI() {
         sw.classList.add('active');
         syncPickers(colors);
         const ct = sw.dataset.custom ? customThemes[name] : null;
-        const f = ct && ct.font ? ct.font : DEFAULT_FONT;
+        const f = ct && ct.font ? ct.font : (name === 'graphite' ? 'sans' : DEFAULT_FONT);
         const d = ct && ct.density ? ct.density : DEFAULT_DENSITY;
         const p = ct && ct.bgPattern ? ct.bgPattern : (THEME_DEFAULT_PATTERN[name] || 'none');
         const ec = ct && ct.bgEffectColor ? ct.bgEffectColor : (THEME_DEFAULT_EFFECT_COLOR[name] || '');
@@ -938,17 +948,17 @@ export function initThemeUI() {
       const colors = THEMES[DEFAULT_THEME];
       applyColors(colors);
       syncPickers(colors);
-      applyFontDensity(DEFAULT_FONT, DEFAULT_DENSITY);
+      applyFontDensity('sans', DEFAULT_DENSITY);
       applyBgPattern('none');
       const fs = document.getElementById('theme-font-select');
       const ds = document.getElementById('theme-density-select');
       const ps = document.getElementById('theme-bg-pattern-select');
-      if (fs) fs.value = DEFAULT_FONT;
+      if (fs) fs.value = 'sans';
       if (ds) ds.value = DEFAULT_DENSITY;
       if (ps) ps.value = 'none';
       grid.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
-      const darkSwatch = grid.querySelector('[data-theme="dark"]');
-      if (darkSwatch) darkSwatch.classList.add('active');
+      const defaultSwatch = grid.querySelector(`[data-theme="${DEFAULT_THEME}"]`);
+      if (defaultSwatch) defaultSwatch.classList.add('active');
     });
   }
 
@@ -1092,7 +1102,7 @@ export function initThemeUI() {
   syncResetButtons();
 
   // Font, density, background pattern controls
-  const _initFont = (saved && saved.font) || DEFAULT_FONT;
+  const _initFont = (saved && saved.font) || (!saved ? 'sans' : DEFAULT_FONT);
   const _initDensity = (saved && saved.density) || DEFAULT_DENSITY;
   const _initPattern = (saved && saved.bgPattern) || (saved && THEME_DEFAULT_PATTERN[saved.name]) || 'none';
   const _initEffectColor = (saved && saved.bgEffectColor) || (saved && THEME_DEFAULT_EFFECT_COLOR[saved.name]) || '';
