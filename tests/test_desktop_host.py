@@ -11,6 +11,13 @@ import pytest
 from src import desktop_host
 
 
+def test_pyinstaller_spec_includes_all_pywebview_loader_architectures():
+    spec = (Path(__file__).resolve().parents[1] / "Odysseus.spec").read_text(encoding="utf-8")
+    for architecture in ("win-arm64", "win-x64", "win-x86"):
+        assert architecture in spec
+    assert "WebView2Loader.dll" in spec
+
+
 def test_launcher_defers_desktop_import_until_after_freeze_support(monkeypatch):
     import launcher
 

@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 
+import webview
 from PyInstaller.utils.hooks import collect_all
 
 runtime_root = os.environ.get("ODYSSEUS_WEBVIEW2_FIXED_ROOT")
@@ -23,6 +24,18 @@ webview_datas, webview_binaries, webview_hidden = collect_all("webview")
 datas += webview_datas
 binaries += webview_binaries
 hiddenimports += webview_hidden
+
+# pywebview probes each WebView2Loader architecture while it initializes the
+# Edge backend. PyInstaller's platform filtering otherwise omits the loaders
+# that are not native to this build, making a valid x64 Desktop fail before
+# the host can open its window.
+_WEBVIEW2_LOADER_ARCHITECTURES = ("win-arm64", "win-x64", "win-x86")
+_webview_runtimes = Path(webview.__file__).resolve().parent / "lib" / "runtimes"
+for _architecture in _WEBVIEW2_LOADER_ARCHITECTURES:
+    _runtime = _webview_runtimes / _architecture
+    if not (_runtime / "native" / "WebView2Loader.dll").is_file():
+        raise SystemExit(f"Missing pywebview WebView2Loader runtime: {_architecture}")
+    datas.append((str(_runtime), f"webview/lib/runtimes/{_architecture}"))
 
 a = Analysis(
     ["launcher.py"],
