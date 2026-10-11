@@ -48,3 +48,14 @@ def test_desktop_new_chat_actions_use_shared_preference_helper():
     assert "await _handleNewChatAction();" in brand_handler
     assert "const dc = await _refreshDefaultChat();" not in rail_handler
     assert "const dc = await _refreshDefaultChat();" not in brand_handler
+
+
+def test_new_chat_preserves_the_explicitly_selected_persona():
+    source = APP_JS.read_text(encoding="utf-8")
+    shared_handler = _slice(
+        source,
+        "async function _handleNewChatAction",
+        "// New session button on icon rail",
+    )
+
+    assert "presetsModule.deactivateCharacter" not in shared_handler
