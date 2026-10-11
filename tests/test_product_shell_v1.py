@@ -9,6 +9,20 @@ CHAT = (ROOT / "static" / "js" / "chat.js").read_text(encoding="utf-8")
 THEME = (ROOT / "static" / "js" / "theme.js").read_text(encoding="utf-8")
 
 
+def test_product_shell_keeps_primary_project_and_engineering_actions():
+    assert '<body class="product-shell-v1">' in INDEX
+    assert 'id="product-workspace-btn"' in INDEX
+    assert 'id="mobs-toggle-btn"' in INDEX
+    assert '>Engineering<' in INDEX
+    assert "action: 'propose'" in CHAT
+
+
+def test_normal_shell_does_not_require_engineering_or_mode_selection():
+    engineering = INDEX[INDEX.index('id="mobs-toggle-btn"'):INDEX.index('id="mobs-toggle-btn"') + 500]
+    assert "data-product-secondary" in engineering
+    for identifier in ('mode-agent-btn', 'mode-chat-btn'):
+        snippet = INDEX[INDEX.index(f'id="{identifier}"'):INDEX.index(f'id="{identifier}"') + 300]
+        assert "data-product-secondary" in snippet
 
 
 def test_secondary_surfaces_are_hidden_without_removing_their_capabilities():

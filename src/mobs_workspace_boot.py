@@ -15,6 +15,23 @@ class WorkspaceBootError(ValueError):
 
 _ROOT_ENV_KEYS = ("MOBS_INSTITUTIONAL_ROOT", "MOBS_WORKSPACE_PATH", "MOBS_WORKSPACE")
 
+# Intent-first is deliberately narrower than the Decision Tree classifier. It
+# decides only whether a human request should enter the governed *proposal*
+# path; the Index remains the authority that classifies that proposal.
+_GOVERNED_ACTION_RE = re.compile(
+    r"\b(?:analise?|analisar|inspecione?|inspecionar|revise?|revisar|"
+    r"corrij\w*|conserte?\w*|implemente?\w*|adicione?\w*|atualiz\w*|remova?\w*|"
+    r"refatore?\w*|edite?\w*|crie?\w*|teste?\w*|valide?\w*|build\w*|"
+    r"fix(?:e|ar)?|implement\w*|add\w*|remove\w*|refactor\w*)\b",
+    re.IGNORECASE,
+)
+_GOVERNED_SUBJECT_RE = re.compile(
+    r"\b(?:bug|c[oó]digo|code|teste|tests?|lint|build|arquivo|m[oó]dulo|"
+    r"fun[cç][aã]o|classe|reposit[oó]rio|repo|projeto|project|workspace|"
+    r"arquitetura|architect\w*|documenta[cç][aã]o|document\w*)\b",
+    re.IGNORECASE,
+)
+
 
 def resolve_institutional_root() -> str:
     """Resolve the institutional root only from trusted runtime configuration."""
@@ -40,6 +57,17 @@ def decision_tree_categories(index: str) -> list[str]:
     if not categories or len(categories) != len(set(categories)):
         raise WorkspaceBootError("Decision Tree categories are missing or ambiguous")
     return categories
+
+
+def requests_governed_proposal(user_request: str) -> bool:
+    """Return true only for an explicit engineering request, never for chat.
+
+    This does not infer authorization, capabilities, a Decision Tree category,
+    or an execution mode. It merely enters the existing workspace-first
+    proposal path, where those values are derived and verified independently.
+    """
+    text = " ".join(str(user_request or "").split())
+    return bool(_GOVERNED_ACTION_RE.search(text) and _GOVERNED_SUBJECT_RE.search(text))
 
 
 def classify_request(user_request: str, index: str) -> str:

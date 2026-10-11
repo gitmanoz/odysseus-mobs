@@ -1007,6 +1007,13 @@ def setup_chat_routes(
             yield "data: [DONE]\n\n"
 
         mobs_execution = None
+        # The normal product path is intent-first. A clear engineering request
+        # may create a proposal, but it never infers review, approval, or
+        # execution. Ambiguity remains fail-closed in build_workspace_proposal.
+        if not mobs_action and isinstance(message, str):
+            from src.mobs_workspace_boot import requests_governed_proposal
+            if requests_governed_proposal(message):
+                mobs_action = "propose"
         if mobs_action:
             if mobs_action not in {"propose", "review", "approve", "cancel", "promote", "validate_promotion"}:
                 raise HTTPException(400, "Invalid MOBS action")
@@ -1039,6 +1046,13 @@ def setup_chat_routes(
                    for key in payload):
                 raise HTTPException(400, "Client cannot replace trusted MOBS proposal state")
             if mobs_action == "propose":
+                if not workspace:
+                    return StreamingResponse(
+                        _mobs_reply("mobs_clarification_required", {
+                            "message": "Select the target workspace before MOBS can build a proposal."
+                        }),
+                        media_type="text/event-stream",
+                    )
                 try:
                     proposal = build_workspace_proposal(
                         message,

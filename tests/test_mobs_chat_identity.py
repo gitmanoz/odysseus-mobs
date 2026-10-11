@@ -119,6 +119,35 @@ def test_workspace_first_proposal_reaches_route_without_client_category_or_autho
     assert stored["category"] == "Código"
 
 
+def test_intent_first_engineering_request_automatically_builds_only_a_proposal(chat):
+    proposal = event(chat.post(workspace_first=True, message="Ayla, corrija este bug no código."), "mobs_mandate_proposal")
+    assert proposal["category"] == "Código"
+    assert proposal["profile"] == "development"
+    assert proposal["status"] == "pending"
+    assert load_proposal("s")["status"] == "pending"
+
+
+def test_intent_first_engineering_request_without_workspace_requires_clarification(chat):
+    response = chat.post(message="Ayla, corrija este bug no código.", workspace="")
+    clarification = event(response, "mobs_clarification_required")
+    assert "workspace" in clarification["message"].lower()
+    assert load_proposal("s") is None
+
+
+def test_intent_first_ambiguous_engineering_request_requires_clarification(chat):
+    response = chat.post(workspace_first=True, message="Atualize a arquitetura e a documentação.")
+    clarification = event(response, "mobs_clarification_required")
+    assert "classification" in clarification["message"].lower()
+    assert load_proposal("s") is None
+
+
+def test_intent_first_conversation_stays_outside_mobs(chat):
+    response = chat.post(message="Explique o que é uma função Python.")
+    assert response.status_code == 200, response.text
+    assert "mobs_" not in response.text
+    assert load_proposal("s") is None
+
+
 def test_browser_cannot_replace_institutional_root_with_another_valid_workspace(chat, tmp_path):
     alternate = tmp_path / "alternate-mobs"
     shutil.copytree(chat.source, alternate)

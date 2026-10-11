@@ -4,7 +4,7 @@ import pytest
 
 from src.mobs_workspace_boot import (
     WorkspaceBootError, classify_request, derive_execution_profile,
-    detect_project_profile, resolve_institutional_root, workspace_boot_inputs,
+    detect_project_profile, requests_governed_proposal, resolve_institutional_root, workspace_boot_inputs,
 )
 
 
@@ -38,6 +38,14 @@ def test_workspace_first_reads_index_before_classification(tmp_path, monkeypatch
 def test_bug_fix_derives_development_without_granting_category_from_persona():
     assert classify_request("Ayla, corrija este bug no código.", INDEX) == "Código"
     assert derive_execution_profile("Ayla, corrija este bug.") == "development"
+
+
+def test_intent_first_enters_proposal_only_for_clear_engineering_requests():
+    assert requests_governed_proposal("Ayla, corrija este bug no código.")
+    assert requests_governed_proposal("Analise este projeto e execute os testes.")
+    assert requests_governed_proposal("Atualize a arquitetura e a documentação.")
+    assert not requests_governed_proposal("Explique o que é uma função Python.")
+    assert not requests_governed_proposal("Olá, como você está?")
 
 
 def test_ambiguous_or_unclassified_request_fails_closed():
