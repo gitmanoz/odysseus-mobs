@@ -50,6 +50,16 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
   // authority hashes, approval markers, or baselines.
   let _mobsAction = null;
 
+  // This is a presentational projection of existing stream evidence only. It
+  // never controls runtime state, permissions, or MOBS decisions.
+  function setProductActivity(state, label) {
+    const activity = document.getElementById('product-agent-activity');
+    const text = document.getElementById('product-agent-activity-label');
+    if (!activity || !text) return;
+    activity.dataset.state = state;
+    text.textContent = label;
+  }
+
   function _fmtContextNumber(n) {
     const v = Number(n || 0);
     return v ? v.toLocaleString() : '?';
@@ -721,6 +731,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       if (!workspace) { uiModule.showToast('Select the target workspace before preparing MOBS.', 5000); return; }
       if (!event.shiftKey) {
         _mobsAction = { action: 'propose', session: sessionModule.getCurrentSessionId() };
+        setProductActivity('awaiting-decision', 'Engineering task ready');
         uiModule.showToast('MOBS workspace-first mode ready. Send the task to build a governed proposal.', 5000);
         return;
       }
@@ -732,6 +743,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       if (!projectProfile) return;
       _mobsAction = { action: 'propose', category, profile, projectProfile,
         session: sessionModule.getCurrentSessionId() };
+      setProductActivity('awaiting-decision', 'Engineering task ready');
       uiModule.showToast('Advanced MOBS proposal configured. Send the task to request review.', 5000);
     });
   }
@@ -1413,6 +1425,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     // The `isStreaming` flag is the re-click guard for the send button.
     if (messageInput) messageInput.disabled = false;
     updateSubmitButton('streaming', submitBtn);
+    setProductActivity('understanding', 'Understanding request');
     if (submitBtn) submitBtn.classList.remove('send-pending');
     _sendInFlight = false;
 
@@ -3070,6 +3083,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.type === 'tool_start') {
                 if (_isBg) continue;
+                setProductActivity('executing', 'Executing tool');
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 // Force-close thinking if still open — tools are real content, not thinking
@@ -3414,6 +3428,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.type === 'mobs_mandate_proposal') {
                 if (_isBg) continue;
+                setProductActivity('awaiting-decision', 'Awaiting MOBS review');
                 const p = json.data || {};
                 const e = p.authority_evidence || {};
                 const source = e.source || {};
@@ -3431,27 +3446,32 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.type === 'mobs_clarification_required') {
                 if (_isBg) continue;
+                setProductActivity('awaiting-decision', 'Needs clarification');
                 const detail = (json.data && json.data.message) || 'The task could not be classified safely.';
                 addMessage('assistant', `MOBS needs clarification before it can build a mandate. ${detail}`);
 
               } else if (json.type === 'mobs_authority_reviewed') {
                 if (_isBg) continue;
+                setProductActivity('awaiting-decision', 'Awaiting mandate approval');
                 const reviewed = json.data || {};
                 const card = addMessage('assistant', `Authority snapshot reviewed: ${reviewed.authority_snapshot}. Proposal: ${reviewed.proposal_id}; version: ${reviewed.proposal_digest}. Mandate approval is still required.`);
                 mobsActionButtons(card, reviewed, true);
 
               } else if (json.type === 'mobs_mandate_cancelled') {
                 if (_isBg) continue;
+                setProductActivity('complete', 'Mandate cancelled');
                 addMessage('assistant', 'MOBS mandate cancelled.');
 
               } else if (json.type === 'mobs_promotion_applied') {
                 if (_isBg) continue;
+                setProductActivity('complete', 'Promotion verified');
                 const applied = json.data || {};
                 addMessage('assistant', `MOBS promotion verified: ${Array.isArray(applied.effects)
                   ? applied.effects.map(item => item.path).join(', ') : applied.path || ''}`);
 
               } else if (json.type === 'mobs_promotion_validated') {
                 if (_isBg) continue;
+                setProductActivity('awaiting-decision', 'Awaiting promotion approval');
                 const validation = (json.data || {}).validation || {};
                 document.querySelectorAll('button[data-mobs-promotion-digest]').forEach((button) => {
                   if (button.dataset.mobsPromotionDigest === validation.artifact_digest) {
@@ -3463,6 +3483,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (typeof json.type === 'string' && json.type.startsWith('institutional_')) {
                 if (_isBg) continue;
+                if (json.type === 'institutional_verified') setProductActivity('complete', 'Execution verified');
+                else if (json.type === 'institutional_blocked') setProductActivity('failed', 'Execution blocked');
+                else setProductActivity('investigating', 'Checking institutional evidence');
                 if (json.type === 'institutional_command' && json.data && json.data.promotion) {
                   mobsPromotionButton(json.data.promotion);
                 }
@@ -3483,6 +3506,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.type === 'agent_step') {
                 if (_isBg) continue;
+                setProductActivity('investigating', 'Investigating');
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 _renderStream();
@@ -3596,6 +3620,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.error) {
                 // --- Backend error (timeout, connection issue, etc.) ---
+                setProductActivity('failed', 'Response failed');
                 console.error('Stream error from backend:', json.error);
                 if (_isBg) continue;
                 if (spinner && spinner.element) spinner.destroy();
@@ -3617,6 +3642,10 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       }
 
       _renderStream();
+      const _productActivity = document.getElementById('product-agent-activity');
+      if (_productActivity && !['awaiting-decision', 'failed'].includes(_productActivity.dataset.state)) {
+        setProductActivity('complete', 'Response complete');
+      }
       if (spinner && spinner.element) { try { spinner.destroy(); } catch (_) {} spinner = null; }
       _cancelThinkingTimer();
       _removeThinkingSpinner();

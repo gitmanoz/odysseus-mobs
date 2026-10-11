@@ -41291,3 +41291,22 @@ body.theme-frosted .modal {
   box-shadow: none;
   border-color: var(--red);
 }
+
+
+/* Product Shell v1: keep the engineering path primary while retaining advanced capabilities. */
+body.product-shell-v1:not(.product-shell-advanced) [data-product-secondary] { display: none !important; }
+.product-shell-advanced-row { margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
+.product-shell-advanced-btn { color: color-mix(in srgb, var(--fg) 68%, transparent); font-size: 12px; }
+.product-shell-advanced-btn[aria-expanded="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.product-workspace-btn, .product-engineering-btn { gap: 6px; width: auto; padding: 0 8px; font-size: 11px; }
+.product-workspace-btn span, .product-engineering-btn span { font-weight: 650; white-space: nowrap; }
+.product-engineering-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 38%, var(--border)); }
+.product-engineering-btn:hover, .product-engineering-btn.active { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.product-agent-activity { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: 999px; color: color-mix(in srgb, var(--fg) 66%, transparent); font-size: 11px; line-height: 1; background: color-mix(in srgb, var(--panel) 88%, transparent); pointer-events: none; }
+.product-agent-activity-dot { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--fg) 35%, transparent); }
+.product-agent-activity[data-state="understanding"] .product-agent-activity-dot, .product-agent-activity[data-state="investigating"] .product-agent-activity-dot, .product-agent-activity[data-state="executing"] .product-agent-activity-dot, .product-agent-activity[data-state="validating"] .product-agent-activity-dot { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); animation: product-shell-pulse 1.4s ease-in-out infinite; }
+.product-agent-activity[data-state="awaiting-decision"] .product-agent-activity-dot { background: #d6a75b; }
+.product-agent-activity[data-state="complete"] .product-agent-activity-dot { background: #77b88f; }
+.product-agent-activity[data-state="failed"] .product-agent-activity-dot { background: var(--color-error, #d87575); }
+@keyframes product-shell-pulse { 50% { opacity: .45; } }
+@media (max-width: 768px) { .product-agent-activity { right: 8px; font-size: 10px; } .product-workspace-btn span, .product-engineering-btn span { display: none; } .product-workspace-btn, .product-engineering-btn { padding: 0 6px; } }

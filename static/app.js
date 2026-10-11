@@ -1953,6 +1953,24 @@ function initializeEventListeners() {
   setupToggle('bash-toggle-btn', 'bash-toggle', 'bash');
   try { workspaceModule.initWorkspace(); } catch (_) {}
 
+  // Product Shell v1 keeps the full workspace picker as the single source of
+  // truth. The primary composer control only exposes that existing flow.
+  const productWorkspaceBtn = el('product-workspace-btn');
+  if (productWorkspaceBtn) productWorkspaceBtn.addEventListener('click', () => {
+    const workspaceBtn = el('overflow-workspace-btn');
+    if (workspaceBtn) workspaceBtn.click();
+  });
+
+  // Advanced capability surfaces stay available without competing with the
+  // project-and-task flow that is the default product shell.
+  const productAdvancedBtn = el('product-advanced-btn');
+  if (productAdvancedBtn) productAdvancedBtn.addEventListener('click', () => {
+    const isOpen = !document.body.classList.contains('product-shell-advanced');
+    document.body.classList.toggle('product-shell-advanced', isOpen);
+    productAdvancedBtn.setAttribute('aria-expanded', String(isOpen));
+    productAdvancedBtn.title = isOpen ? 'Hide advanced capabilities' : 'Show advanced capabilities';
+  });
+
   // Document editor toggle (special: uses module panel, not a checkbox)
   function bringOpenDocumentToFrontOnMobile() {
     if (window.innerWidth > 768) return false;
