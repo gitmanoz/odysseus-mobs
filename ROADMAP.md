@@ -1,87 +1,64 @@
-# Roadmap / Help Wanted
+# Roadmap oficial da plataforma
 
-Odysseus is on a voyage, but not home yet. It works great for me (lol), but this ship is moving fast and feedback/help would be appreciated! (I don't know what I'm doing, help).
+Source of Truth da sequência estratégica de materialização do produto atualmente chamado Odisseus. O [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) mantém universo, estado factual, evidências, ownership e dependências das capacidades.
 
-If you see weird CSS, strange layout behavior, or a suspiciously murky corner of
-the codebase, you are probably right to stay away.
+Base observada em 2026-10-11: consumidor `dev` em `72d16b26028c644302d0d3ee64c13b0eb4e5e4a3`; baseline institucional MOBS `009feb3558df7919070971656411f6c0a58cf8cf`. Datas deste documento identificam revisão, não compromisso de lançamento.
 
-## High Priority
+## Direção e fronteiras
 
-- SQUASH BUGS
-- Fresh install smoke tests on Linux, macOS, and Windows. Docker, native Python,
-  and WSL all need coverage.
+O objetivo é tornar a plataforma o ambiente principal de engenharia agêntica do fundador. Codex atual é baseline mínimo integral de capacidade de produto, não teto. A substituição cotidiana ocorre por fluxos reais concluídos; paridade integral inclui capacidades além de programação. Diferenciais próprios incluem governança MOBS, provenance e evolução verificável do próprio consumidor.
 
-- Integration audit: do integrations even work? Confirm what works, what needs setup docs, and what should be removed or hidden. 
-- Cookbook reliability on other computers. This is probably the area most likely to need work across different machines, GPUs, drivers, shells, and Python environments.
-- Cookbook SGLang support across platforms. Make sure SGLang setup/serve works
-  predictably on Linux, Windows/WSL, macOS where possible, Docker, and common
-  NVIDIA/AMD hardware paths.
-- Deep Research model presets by hardware. Recommend approved model/parameter
-  profiles for small, medium, and large local setups so people with different
-  hardware can use Deep Research without guessing. Surface this either in Deep
-  Research settings or as a Cookbook scan/dropdown suggestion.
-- Cookbook model scan/download ranking. Prioritize newer architectures and
-  better hardware-fit models instead of scoring everything almost the same.
-  Ranking should account for architecture age, quant format, VRAM/RAM fit,
-  backend support, vision/mmproj requirements, and likely serve reliability.
-- Cookbook error feedback and logging. Failed downloads, dependency installs,
-  preflights, and serve jobs should show the actual command/output/error in the
-  UI, with copyable logs and clear next steps instead of just "crashed".
-- Agent prompt/context bloat. Agent mode is too heavy for smaller local models:
-  tool schemas, skills, memory, documents, and instructions can eat the context
-  before the user request really starts. We need slimmer prompts, better tool
-  selection, smaller default tool sets, and clearer guidance for models with
-  4k/8k/16k context windows.
-- Local model speculative decoding support. For Odysseus-tuned local models,
-  plan to ship or recommend a small same-tokenizer draft model when the serving
-  backend supports it. Early vLLM testing showed a generic `Qwen3-0.6B` draft
-  beside `Qwen3-8B` can materially reduce wall time, while an unsupported
-  DSpark conversion performed poorly. Treat this as a supported draft-model lane
-  first; keep MTP-specific packaging as future work only when the architecture
-  and runtime support are real. Judge this by time-to-success, tool correctness,
-  grammar, and unchanged target output, not tokens/sec alone.
-- Skill/tool prompt-injection audit. User-editable skills, notes, documents,
-  fetched pages, and memories should be treated as untrusted data. Keep testing
-  whether models follow malicious instructions from those surfaces.
-- Better degraded-state reporting for ChromaDB, SearXNG, email, ntfy, and provider probes.
-- Email performance audit. Fetching, searching, opening, deleting, and sending
-  email can feel slow, especially over IMAP/SMTP providers with high latency.
-  Need someone who knows mail performance to profile the current flow, identify
-  whether the bottleneck is IMAP folder select/fetch, cache invalidation,
-  attachment/body loading, SMTP handshakes, or frontend refresh behavior, then
-  propose safer caching/prefetch/batching without breaking multi-account state.
-- Provider setup/probing audit for Anthropic, Gemini, Groq, xAI, OpenRouter, OpenAI, and DeepSeek.
+MOBS permanece autoridade institucional externa; o consumidor mantém runtime e produto. Roadmap não concede capabilities, altera OAP nem autoriza implementação. Cada ciclo exige mandato próprio. O AUTOMATION_ROADMAP do MOBS não é roadmap deste produto.
 
-## Refactor Targets
-- CSS cleanup. `static/style.css` basically Calypso's island atm.
-- Tour core helper. The onboarding tours have too much copy-pasted scaffolding; promote a shared `tour-core.js` helper before adding more tours.
-- Modal/window positioning cleanup. Some window controls have improved, but the
-  underlying popup/dropdown/fixed-position behavior is still too fragile.
-- Mobile media override discoverability. A lot of "CSS did not move" bugs are mobile `@media` overrides of the same selector; comments or linting around desktop/mobile paired rules would help.
-- Dead code pass for old routes, stale feature flags, and unused UI states.
+Self-Development é prioridade estratégica explícita: evoluir o próprio source em target separado. Self-Audit examina código e comportamento; Self-Update instala/ativa versões. Nenhum desses objetivos concede autoridade especial ao agente.
 
-## Frontend
+## Fases e critérios
 
-- Expand the Editor for quicker, more robust everyday use. Better file/document
-  handling, smoother window behavior, clearer save/export flows, stronger image
-  editing affordances, and fewer brittle edge cases.
-- Better AI integration for Notes and Todos. Notes should be easier for the
-  agent to read, update, summarize, and turn into actions. Todos should be
-  assignable to an agent from the UI, possibly through a button, task action,
-  or dedicated skill/tool flow.
-- Mobile gallery/editor polish. Easier to launch/download inpaint model or any missing pieces.
-- Accessibility pass: keyboard navigation, focus states, contrast, reduced motion.
-- Improve empty states and error messages on fresh installs.
-- Tighten first-run setup, hints, and tours so they do not repeat or fight each other.
-- Vendor CDN assets eventually for a more fully self-hosted/offline mode.
+Fases expressam dependências, não versões já entregues. Estado de ciclo pertence a este documento; estado de capacidade pertence ao Map. Preparação de trilhas pode ocorrer em paralelo quando suas garantias estiverem disponíveis.
 
-## Backend
+| Fase | Objetivo e IDs do Map | Entrada | Saída verificável | Estado |
+|---|---|---|---|---|
+| F0 — Base operacional confiável | TEB física Windows, saúde, diagnóstico, segurança e UX de falhas (`execution`, `desktop`, `security`, `observability`) | Causa factual do bloqueio ACL/AppContainer e mandato de correção | Processo controlado inicia sob garantias exigidas; cancelamento/timeout cessam a unidade; efeitos são registrados; sem fallback inseguro | Próximo desbloqueio técnico |
+| F1 — Desenvolvimento cotidiano e Self-Development | Investigar, editar, testar/debug, reparar, revisar, promover e fechar Git (`repository`, `editing`, `validation`, `promotion`, `git-read`, `git-closure`, `review`, `self-development`) | F0 funcional, receitas/perfis e isolamento suficientes | Tarefas reais, inclusive no próprio source separado, concluídas com delta exato validado, provenance e fechamento Git autorizado | Próxima prioridade estratégica; base parcial existente |
+| F2 — Continuidade e conhecimento | Durable execution, steering, Memory, Skills, Authority-Aware Context Engine, avaliação e Self-Audit (`continuity`, `memory`, `skills`, `context-intelligence`, `planning`, `evaluation`, `self-audit`) | Identidades e evidências reconstruíveis; fronteiras das fontes definidas | Retomada preserva mandato; contexto relevante, limitado e rastreável; falhas/achados avaliados sem autoampliar autorização | Planejada |
+| F3 — Operação ampliada | Browser, Computer Use, automations, Specialists, Model Router, plugins/MCP e multi-agent (`browser`, `computer-use`, `automation`, `specialists`, `models`, `extensions`, `multi-agent`, `integrations`) | Execução confiável, política por ferramenta e provenance | Fluxos integrados observáveis, ações autorizadas, recuperação explícita e coordenação sem runtime paralelo | Planejada |
+| F4 — Produção multimodal e games | Imagem/edição, referências, sprites/spritesheets, animação 2D/futura 3D, áudio, audiovisual, 3D, Visual Evaluation e games (`visual-input`, `images`, `sprites`, `animation`, `audio`, `video`, `three-d`, `visual-evaluation`, `games`, `artifacts`) | Perfis, ferramentas disponíveis, corpus curado quando necessário | Asset integrado e avaliado em contexto real, identidade/versão e sincronização; The Last Sentinel como campo de validação | Planejada |
+| F5 — Acesso e evolução de instalações | Remote/mobile/voz, cloud/devboxes e Self-Update (`remote`, `voice`, `self-update`) | Segurança de acesso, continuidade e identidade de versão | Controle remoto preserva autorizações; atualização/ativação preserva dados e registra falha/recuperação | Planejada |
 
-- More tests around endpoint probing and provider setup.
-- Better task scheduler defaults and visibility.
-- Backup/restore guide and helper flow for `data/`.
-- Security hardening around admin-only tools and clear docs for their risk.
+## Dependências e trilhas explícitas
 
-## Not The Focus Right Now
+- TEB física Windows permanece bloqueador imediato, conforme restrição operacional do ciclo anterior. Esta revisão documental não reexecuta o diagnóstico. Correção deve preservar isolamento e fail-closed.
+- Self-Development em F1 mantém runtime ativo separado do target, vínculo confiável, artifact exato validado e promoção governada. A utilidade deve crescer para tarefas reais sem ampliar autoridade.
+- Git read precede closure. Branch/worktree, commit, push e PR exigem fatias e autorizações próprias; não decorrem deste planejamento.
+- O roteamento mínimo por autoridade já existe. Authority-Aware Context Engine pertence a F2, antes da adoção de corpus em grande escala. Não exige criar novos corpus primeiro nem escolher banco vetorial neste ciclo.
+- Model Router em F3 interage com Context Engine para modalidade, contexto, custo e capacidade; não decide autoridade.
+- Browser/Computer Use usam observação, autorização, ação e verificação. Visual Evaluation pode começar nessa trilha e ser reutilizada em games e multimodalidade.
+- Self-Audit em F2 produz achados e evidências, sem autoaprovar correções. Self-Update em F5 separa preparação, instalação e ativação; restart, migração e recuperação exigem decisão específica.
+- Corpus especializados serão curados por necessidade. Skills aplicam workflows; Specialists assumem papéis; modelos inferem; Project Profiles fornecem defaults; ferramentas executam; Evaluators confrontam evidências.
+- Capability Harvest é contínuo (`capability-harvest`): descoberta factual → Map → priorização → mandato de implementação. Novas capacidades ainda desconhecidas recebem posição após evidência, sem implementação implícita.
 
-I prob shouldnt add more themes.
+## Itens herdados preservados ou reclassificados
+
+O conteúdo anterior deste path permanece recuperável pelo Git. Não há LEGACY_ROADMAP nem backlog legado paralelo.
+
+| Itens herdados | Destino |
+|---|---|
+| Bugs, fresh-install smoke, onboarding, empty states e erros claros | F0: confiabilidade; plataformas adicionais somente com garantias verificadas |
+| Prompt/context bloat, seleção de tools e carga de Skills | F2: Context Intelligence, budgeting e carga progressiva |
+| Prompt injection e ferramentas administrativas | Segurança transversal F0–F3; conteúdo recuperado não concede autoridade |
+| Provider probing e degraded states de ChromaDB/SearXNG/email/ntfy | F0: diagnóstico; F3: providers/extensões |
+| Backup/restore de data | F0 e requisito de Self-Update em F5 |
+| Scheduler, Notes/Todos e tarefas por agente | F2–F3: continuidade e automations; reutilizar backend útil |
+| Acessibilidade, foco, teclado, modal/layout, mobile | F0 no fluxo principal; F5 para acesso mobile |
+| Editor, arquivos, export e previews | F1: engenharia; F4: artefatos |
+| Research por hardware, Cookbook/serving/SGLang e model ranking | F3: modelos/extensões; F5: ambientes remotos, por demanda |
+| Speculative decoding | Condicional em F3 após medir qualidade, tempo de conclusão e compatibilidade |
+| Integrações e performance de Email | F3: admissão por caso de uso; otimização condicionada à demanda |
+| Gallery/editor, inpaint e mobile | F4: produção visual; F5: acesso mobile |
+| Assets CDN/offline | F0/F5 quando exigido pela instalação suportada |
+| CSS, tours, dead code e refactors genéricos | Retirados como objetivos autônomos; manutenção por defeito demonstrado |
+| Humor, preferência sobre temas e exemplos históricos de modelos | Descartados da direção vigente; recuperáveis pelo Git |
+
+## Manutenção e autorização
+
+Fundador decide direção estratégica; maintainers delegados mantêm ciclos de seu escopo. Critérios de saída exigem resultados e evidências, não apenas código presente. O benchmark deve ser revisto com fonte/data e disponibilidade por ambiente. Paridade de responsabilidade não exige copiar arquitetura interna ou interface. Segurança, provenance, UX e independência de modelo atravessam todas as fases.

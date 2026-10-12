@@ -10,6 +10,7 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="docs/setup.md">Setup Guide</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="docs/product/PLATFORM_CAPABILITY_MAP.md">Capability Map</a> ·
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
@@ -25,11 +26,11 @@
 
 ## Quick Start
 
-> `dev` is the default branch and gets the newest changes first. Use [`main`](https://github.com/odysseus-dev/odysseus/tree/main) if you want the more curated branch.
+> The official consumer repository is [`gitmanoz/odysseus-mobs`](https://github.com/gitmanoz/odysseus-mobs). `dev` is its current primary development branch.
 
 ```bash
-git clone https://github.com/odysseus-dev/odysseus.git
-cd odysseus
+git clone --branch dev https://github.com/gitmanoz/odysseus-mobs.git
+cd odysseus-mobs
 cp .env.example .env
 docker compose up -d --build
 ```
@@ -55,7 +56,7 @@ A full hover-to-play tour lives on the landing page: [`docs/index.html`](docs/in
 
 ## Contributing
 
-Help is welcome. The best entry points are fresh-install testing, provider setup bugs, mobile/editor polish, docs, and small focused refactors. See [CONTRIBUTING.md](CONTRIBUTING.md) and [ROADMAP.md](ROADMAP.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance. The [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) is the source of truth for capability coverage, evidence, ownership, and current state; [ROADMAP.md](ROADMAP.md) is the source of truth for the strategic order of materialization. Planned capabilities require a separate authorized implementation cycle.
 
 ## Security
 
