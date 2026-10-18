@@ -3483,7 +3483,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (typeof json.type === 'string' && json.type.startsWith('institutional_')) {
                 if (_isBg) continue;
-                if (json.type === 'institutional_verified') setProductActivity('complete', 'Execution verified');
+                if (json.type === 'institutional_verified') setProductActivity('complete', 'Contexto e baseline verificados');
                 else if (json.type === 'institutional_blocked') setProductActivity('failed', 'Execution blocked');
                 else setProductActivity('investigating', 'Checking institutional evidence');
                 if (json.type === 'institutional_command' && json.data && json.data.promotion) {
@@ -3492,7 +3492,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                 const labels = {
                   institutional_boot: 'MOBS institutional boot verified.',
                   institutional_mutation: 'MOBS mutation recorded.',
-                  institutional_verified: 'MOBS execution verified.',
+                  institutional_verified: 'Contexto e baseline MOBS verificados. A conclusão da tarefa depende dos resultados das ferramentas.',
                   institutional_blocked: 'MOBS execution blocked.',
                 };
                 uiModule.showToast(labels[json.type] || 'MOBS execution progress.', 4000);

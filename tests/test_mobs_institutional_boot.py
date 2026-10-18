@@ -631,6 +631,12 @@ def test_authorized_shell_command_uses_existing_dispatcher_and_records_ledger(ma
     loop = loop_setup(monkeypatch)
     calls = []
     async def stream(candidates, messages, **kwargs):
+        assert not kwargs.get('tools')
+        tool_prompt = '\n'.join(str(m.get('content', '')) for m in messages
+                                if 'Available tools' in str(m.get('content', '')))
+        assert 'fenced code block' in tool_prompt
+        assert '```bash' in tool_prompt
+        assert 'Only the tool schemas provided by the API' not in tool_prompt
         yield 'data: ' + json.dumps({'delta': '```bash\ngit_branch_current\n```'}) + '\n\n'
         yield 'data: [DONE]\n\n'
     async def execute(block, **kwargs):

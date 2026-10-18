@@ -814,7 +814,8 @@ def _compact_tool_line(name: str, section: str) -> str:
     return f"- `{name}` — " + lines[0][:160]
 
 
-def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool = False) -> str:
+def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool = False,
+                     native_tools: bool = True) -> str:
     """Build the system prompt with only the specified tools included."""
     disabled = disabled_tools or set()
     included = tool_names - disabled
@@ -823,13 +824,24 @@ def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool 
         tool_lines = []
         for name, _default_section in TOOL_SECTIONS.items():
             if name in included:
-                tool_lines.append(f"- `{name}`")
-        parts = [
+                tool_lines.append(f"- `{name}`" if native_tools else
+                                  _compact_tool_line(name, _section_text(name, _default_section)))
+        protocol = (
             "You are an AI assistant with native tool/function calling. "
             "Only the tool schemas provided by the API are available for this turn. "
-            "Use native tool calls when action is needed; do not write tool syntax or tool instructions in chat.",
+            "Use native tool calls when action is needed; do not write tool syntax or tool instructions in chat."
+            if native_tools else
+            "To use a tool, write a fenced code block with the tool name as its language tag, "
+            "the actual arguments as its body, and a closing fence on its own line. "
+            "Use the argument syntax documented below; commands and paths still require mandate authorization. "
+            "Do not merely promise an action: emit the tool block and wait for its result."
+        )
+        parts = [
+            protocol,
             "## Available tools\n" + ("\n".join(tool_lines) if tool_lines else "none"),
-            _API_AGENT_RULES,
+            _API_AGENT_RULES if native_tools else _API_AGENT_RULES.replace(
+                "Prefer native tool/function calling when tools are needed.",
+                "Use the documented fenced tool blocks when tools are needed."),
         ]
         parts.extend(_domain_rules_for_tools(included))
         return "\n\n".join(parts)
@@ -2038,6 +2050,7 @@ def _build_system_prompt(
     suppress_skills: bool = False,
     active_email: Optional[Dict[str, str]] = None,
     workspace: Optional[str] = None,
+    native_tools: bool = True,
 ) -> List[Dict]:
     """Build agent system prompt, inject MCP/document context, merge consecutive system msgs."""
     global _cached_base_prompt, _cached_base_prompt_key
@@ -2054,7 +2067,7 @@ def _build_system_prompt(
         _ov_sig = _hl.sha256(_json.dumps(get_builtin_overrides() or {}, sort_keys=True).encode()).hexdigest()
     except Exception:
         _ov_sig = ""
-    cache_key = (frozenset(disabled_tools or []), bool(mcp_mgr), needs_admin, _rt_key, compact, _ov_sig, owner, suppress_local_context, suppress_skills)
+    cache_key = (frozenset(disabled_tools or []), bool(mcp_mgr), needs_admin, _rt_key, compact, native_tools, _ov_sig, owner, suppress_local_context, suppress_skills)
     if _cached_base_prompt and _cached_base_prompt_key == cache_key and not active_document:
         agent_prompt = _cached_base_prompt
         # Skill index is user-editable (name + description), so it must never
@@ -2065,6 +2078,7 @@ def _build_system_prompt(
             mcp_disabled_map=mcp_disabled_map, compact=compact, owner=owner,
             suppress_local_context=suppress_local_context,
             suppress_skills=suppress_skills,
+            native_tools=native_tools,
         )
     else:
         agent_prompt, _skill_index_block = _build_base_prompt(
@@ -2077,6 +2091,7 @@ def _build_system_prompt(
             owner=owner,
             suppress_local_context=suppress_local_context,
             suppress_skills=suppress_skills,
+            native_tools=native_tools,
         )
         if not active_document:
             _cached_base_prompt = agent_prompt
@@ -2614,6 +2629,7 @@ def _build_base_prompt(
     owner: Optional[str] = None,
     suppress_local_context: bool = False,
     suppress_skills: bool = False,
+    native_tools: bool = True,
 ):
     """Build the agent prompt with only relevant tools included.
 
@@ -2637,7 +2653,7 @@ def _build_base_prompt(
         tool_names = set(relevant_tools) | {"ask_user", "update_plan"}
         if needs_admin:
             tool_names |= _ADMIN_TOOLS
-        agent_prompt = _assemble_prompt(tool_names, disabled, compact=compact)
+        agent_prompt = _assemble_prompt(tool_names, disabled, compact=compact, native_tools=native_tools)
     else:
         # Fallback: full prompt (RAG unavailable)
         agent_prompt = AGENT_SYSTEM_PROMPT
@@ -2648,10 +2664,10 @@ def _build_base_prompt(
                 "chat_with_model", "ask_teacher", "list_models",
             }
             agent_prompt = _assemble_prompt(
-                set(TOOL_SECTIONS.keys()) - mgmt_tools, disabled, compact=compact
+                set(TOOL_SECTIONS.keys()) - mgmt_tools, disabled, compact=compact, native_tools=native_tools
             )
         elif compact:
-            agent_prompt = _assemble_prompt(set(TOOL_SECTIONS.keys()), disabled, compact=True)
+            agent_prompt = _assemble_prompt(set(TOOL_SECTIONS.keys()), disabled, compact=True, native_tools=native_tools)
 
     # Inject the Level-0 skill index — one line per skill so the agent
     # knows what canonical procedures exist. Includes published skills
@@ -3719,6 +3735,7 @@ async def _stream_agent_loop(
         needs_admin=_needs_admin, relevant_tools=_relevant_tools,
         mcp_disabled_map=_mcp_disabled_map,
         compact=_compact_agent_prompt,
+        native_tools=_is_api_model,
         owner=owner,
         suppress_local_context=guide_only,
         suppress_skills=_low_signal_turn,
@@ -3913,12 +3930,14 @@ async def _stream_agent_loop(
     # tool, so we don't nudge on harmless transitional text like "let me
     # know what you think".
     _INTENT_RE = re.compile(
-        r"(?:^|\n)\s*(?:let me|i'?ll|i will|i need to|we need to|need to|"
+        r"(?:^|\n|[.!?]\s+)\s*(?:(?:vou|vamos)\s+(?:executar|rodar|verificar|consultar|ler|testar)"
+        r"|(?:executarei|rodarei|verificarei|consultarei|testarei)"
+        r"|(?:let me|i'?ll|i will|i need to|we need to|need to|"
         r"i should|we should|i must|we must|going to|let's)\s+"
         r"(?:tail|check|investigate|look at|see|tail|read|fetch|inspect|"
         r"verify|diagnose|examine|debug|capture|grab|pull|view|run|call|"
         r"trigger|launch|start|kick off|stop|kill|restart|adopt|serve|"
-        r"register|adopt|list|search|find|query|hit|ping|test|use|perform|do)"
+        r"register|adopt|list|search|find|query|hit|ping|test|use|perform|do))"
         r"\b[^.\n]{0,140}",
         re.IGNORECASE,
     )
@@ -4531,8 +4550,10 @@ async def _stream_agent_loop(
                         "turn without making the actual tool call. The user can "
                         "see you announced the action but didn't run it, which "
                         "is the most frustrating thing you can do. "
-                        "DO IT NOW: emit the actual function call this turn. "
-                        f"{_cookbook_log_hint}"
+                        "DO IT NOW: "
+                        + ("emit the actual native function call this turn. " if _is_api_model else
+                           "emit the actual fenced tool block with arguments this turn. ")
+                        + f"{_cookbook_log_hint}"
                         "If you decided not to do it after all, say so plainly in "
                         "one sentence instead of restating the plan."
                     ),

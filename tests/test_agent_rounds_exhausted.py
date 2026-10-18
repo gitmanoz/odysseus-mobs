@@ -8,6 +8,7 @@ return, or moves the done-break, could silently flip this. See PR #1999 / #1997.
 
 import asyncio
 import json
+import pytest
 
 import src.agent_loop as al
 
@@ -79,6 +80,26 @@ def test_emits_intent_nudge_exhausted_when_cap_is_exhausted(monkeypatch):
     assert guard is not None, events
     assert guard["reason"] == "intent_without_action_nudge_cap"
     assert guard["nudges"] == 2
+
+
+@pytest.mark.parametrize('text', [
+    'Entendido. Executarei `python -m pytest -q tests/test_probe.py` na cópia privada.',
+    'Vou executar o teste agora.',
+    'Vamos verificar os arquivos.',
+])
+def test_portuguese_action_promise_uses_existing_bounded_supervisor(monkeypatch, text):
+    _patch_common(monkeypatch)
+    events = _run_loop(monkeypatch, text, max_rounds=5)
+    guard = next(e for e in events if e.get('type') == 'intent_nudge_exhausted')
+    assert guard['nudges'] == 2
+
+
+@pytest.mark.parametrize('text', ['Não executarei comandos.', 'Os testes passaram ontem.',
+                                'Vou explicar o resultado que você enviou.'])
+def test_portuguese_answer_does_not_trigger_tool_promise_supervisor(monkeypatch, text):
+    _patch_common(monkeypatch)
+    events = _run_loop(monkeypatch, text, max_rounds=5)
+    assert not any(e.get('type') in {'intent_nudge_exhausted', 'agent_step'} for e in events)
 
 
 def test_emits_loop_breaker_triggered_when_loop_breaker_trips(monkeypatch):
