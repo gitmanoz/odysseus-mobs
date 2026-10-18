@@ -434,6 +434,16 @@ def test_authorized_write_uses_existing_dispatcher_and_records_provenance(mandat
 
 @pytest.mark.skipif(__import__('os').name != 'nt', reason='Windows Native adapter')
 def test_real_agent_loop_private_write_reaches_sealed_artifact_without_target_write(mandate, tmp_path, monkeypatch):
+    # This physical adapter test requires an installed standard Python runtime.
+    # A virtualenv launcher has no adjacent Lib/DLLs and is not such a runtime.
+    # Select the same installation's base executable, keeping real staging,
+    # AppContainer, ACLs and all target/artifact verification unchanged.
+    import sys
+    import src.windows_native_execution as native
+    base_python = Path(sys._base_executable)
+    assert base_python.is_file()
+    assert all((base_python.parent / name).is_dir() for name in ('Lib', 'DLLs'))
+    monkeypatch.setattr(native.sys, 'executable', str(base_python))
     from tests.mobs_reviewer_support import install_junior_operational_profile
     from src.mobs_mandate_builder import _proposal_digest
     install_junior_operational_profile(monkeypatch, tmp_path)
