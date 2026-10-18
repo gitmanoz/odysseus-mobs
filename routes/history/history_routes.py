@@ -714,11 +714,12 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
             raise HTTPException(404, "Session not found")
 
         try:
-            from src.model_context import estimate_tokens, get_context_length
+            from src.model_context import estimate_tokens, get_context_length_known
 
             messages = session.get_context_messages()
             used = int(estimate_tokens(messages))
-            ctx_len = int(get_context_length(session.endpoint_url, session.model) or 0)
+            context_window, context_known = get_context_length_known(session.endpoint_url, session.model)
+            ctx_len = int(context_window or 0)
             pct = round((used / ctx_len) * 100, 1) if ctx_len else 0.0
             pct = max(0.0, min(100.0, pct))
             visible_messages = sum(
@@ -736,6 +737,7 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
                 "endpoint_url": session.endpoint_url,
                 "used_tokens": used,
                 "context_length": ctx_len,
+                "context_known": context_known,
                 "context_percent": pct,
                 "messages": visible_messages,
                 "context_messages": len(messages),

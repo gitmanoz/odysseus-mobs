@@ -205,6 +205,44 @@ class TestGetContextLength:
         model_context._context_cache.clear()
         model_context._catalog_ctx_cache.clear()
 
+    def test_ollama_uses_served_context_not_family_maximum(self, monkeypatch):
+        def get(url, **kwargs):
+            assert url == 'http://127.0.0.1:11434/api/ps'
+            return _FakeResp({'models': [{'name': 'qwen2.5-coder:7b', 'context_length': 4096}]})
+        monkeypatch.setattr(model_context.httpx, 'get', get)
+        assert model_context.get_context_length_known(
+            'http://127.0.0.1:11434/v1/chat/completions', 'qwen2.5-coder:7b') == (4096, True)
+
+    @pytest.mark.parametrize('models', [[], [{'name': 'other:7b', 'context_length': 32768}],
+        [{'name': 'qwen2.5-coder:7b', 'context_length': -1}],
+        [{'name': 'qwen2.5-coder:7b', 'context_length': True}]])
+    def test_ollama_missing_runner_does_not_claim_family_maximum(self, monkeypatch, models):
+        monkeypatch.setattr(model_context.httpx, 'get', lambda *a, **kw: _FakeResp({'models': models}))
+        assert model_context.get_context_length_known(
+            'http://127.0.0.1:11434/api/chat', 'qwen2.5-coder:7b') == (4096, False)
+
+    def test_ollama_runner_change_is_not_cached(self, monkeypatch):
+        windows = iter([4096, 8192])
+        monkeypatch.setattr(model_context.httpx, 'get', lambda *a, **kw: _FakeResp(
+            {'models': [{'model': 'qwen2.5-coder:7b', 'context_length': next(windows)}]}))
+        endpoint = 'http://localhost:11434/v1/chat/completions'
+        assert model_context.get_context_length(endpoint, 'qwen2.5-coder:7b') == 4096
+        assert model_context.get_context_length(endpoint, 'qwen2.5-coder:7b') == 8192
+
+    def test_ollama_probe_error_does_not_expand_context(self, monkeypatch):
+        def unavailable(*args, **kwargs):
+            raise TimeoutError('runner unavailable')
+        monkeypatch.setattr(model_context.httpx, 'get', unavailable)
+        assert model_context.get_context_length_known(
+            'http://localhost:11434/v1/chat/completions', 'qwen2.5-coder:7b') == (4096, False)
+
+    def test_cold_ollama_ceiling_also_bounds_agent_input_budget(self, monkeypatch):
+        from src.context_budget import compute_input_token_budget
+        monkeypatch.setattr(model_context.httpx, 'get', lambda *a, **kw: _FakeResp({'models': []}))
+        window = model_context.budget_context_for_model('http://localhost:11434/v1/chat/completions', 'qwen2.5-coder:7b')
+        assert window == 4096
+        assert compute_input_token_budget(6000, window, False) <= 4096
+
     def test_local_endpoint_requeries_same_model_after_restart(self, monkeypatch):
         calls = []
 
@@ -312,3 +350,22 @@ class TestGetContextLength:
 
         endpoint = "http://100.117.136.97:34521/v1/chat/completions"
         assert model_context.get_context_length(endpoint, "unknown-proxy-model") == model_context.DEFAULT_CONTEXT
+
+@pytest.mark.parametrize('known', [True, False])
+def test_context_usage_exposes_unverified_conservative_window(monkeypatch, known):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routes.history import history_routes
+    checked = []
+    monkeypatch.setattr(history_routes, '_verify_session_owner', lambda request, sid: checked.append(sid))
+    monkeypatch.setattr(model_context, 'get_context_length_known', lambda *args: (4096, known))
+    session = types.SimpleNamespace(endpoint_url='http://localhost:11434/v1', model='qwen2.5-coder:7b',
+        history=[], get_context_messages=lambda: [{'role': 'user', 'content': 'hello'}])
+    app = FastAPI()
+    app.include_router(history_routes.setup_history_routes(types.SimpleNamespace(get_session=lambda sid: session)))
+    with TestClient(app) as client:
+        response = client.get('/api/session/synthetic/context')
+    assert response.status_code == 200, response.text
+    assert response.json()['context_length'] == 4096
+    assert response.json()['context_known'] is known
+    assert checked == ['synthetic']

@@ -3841,6 +3841,9 @@ async def _stream_agent_loop(
 
     if institutional_context:
         # A future reducer must not silently drop any reviewed authority.
+        # Bind an explicit output reserve instead of relying on a server default.
+        if not max_tokens or max_tokens < 0:
+            max_tokens = 2048
         protected = institutional_context.message()
         if not any(m.get("content") == protected["content"] for m in messages):
             from src.mobs_institutional_boot import InstitutionalBootError
@@ -3942,6 +3945,9 @@ async def _stream_agent_loop(
             if context_length and estimate_tokens(messages) + max_tokens > context_length:
                 from src.mobs_institutional_boot import InstitutionalBootError
                 raise InstitutionalBootError("Institutional context exceeds model capacity")
+            from src.model_context import verify_governed_ollama_window
+            await asyncio.to_thread(verify_governed_ollama_window,
+                                    endpoint_url, model, messages, context_length, max_tokens)
         round_response = ""
         round_reasoning = ""  # reasoning_content deltas (DeepSeek-thinking, vLLM --reasoning-parser)
         native_tool_calls = []  # populated if model uses function calling
@@ -4247,6 +4253,11 @@ async def _stream_agent_loop(
                 yield chunk
             # Intercept [DONE] — don't forward until all rounds finish
 
+        if institutional_context:
+            # /v1 can reload Ollama at its default size despite a larger warm-up.
+            # Check before parsing/dispatching tools or accepting completion.
+            await asyncio.to_thread(verify_governed_ollama_window,
+                                    endpoint_url, model, messages, context_length, max_tokens)
         logger.info(
             "[agent-timing] round_stream_done round=%s elapsed=%.3fs text_chars=%s tool_calls=%s first_event=%s first_token=%s",
             round_num,

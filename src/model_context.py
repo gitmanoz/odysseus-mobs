@@ -280,11 +280,33 @@ def get_context_length_known(endpoint_url: str, model: str) -> Tuple[int, bool]:
     return _get_context_length_cached(endpoint_url, model)
 
 
+def verify_governed_ollama_window(endpoint_url: str, model: str, messages: List[Dict],
+                                 expected_window: int, output_tokens: int) -> None:
+    """Revalidate the actual local runner, including after an OpenAI-compat call.
+
+    A warm-up's num_ctx does not bind a later /v1 request. Never dispatch a
+    tool from a response whose runner shrank or became unverifiable.
+    """
+    if not _local_ollama_base(endpoint_url):
+        return
+    from src.mobs_institutional_boot import InstitutionalBootError
+    actual, known = get_context_length_known(endpoint_url, model)
+    if not known or expected_window <= 0:
+        raise InstitutionalBootError("Governed Ollama context window is unverified")
+    if actual != expected_window:
+        raise InstitutionalBootError("Governed Ollama context window changed during execution")
+    reserve = output_tokens if output_tokens > 0 else 2048
+    if estimate_tokens(messages) + reserve > actual:
+        raise InstitutionalBootError("Reviewed context and output reserve exceed the actual Ollama window")
+
+
 def budget_context_for_model(endpoint_url: str, model: str, *, fallback: int = 0) -> int:
     """Context window to scale the agent input budget against.
 
     Returns the *freshly discovered* window when it was actually proven
     (endpoint-reported / known table), else 0 so auto-scaling stays conservative.
+    Cold Ollama's explicit 4096-token ceiling also constrains trimming while
+    remaining unverified in the presentation; it is never scaled upward.
     Crucially this binds the ``known`` flag to the value it proves — callers must
     not pair this flag with a context length from a *different* lookup (a stale
     local re-query, or a caller that didn't pass one), which would budget off an
@@ -292,7 +314,13 @@ def budget_context_for_model(endpoint_url: str, model: str, *, fallback: int = 0
     caller's best-known value) to preserve prior behaviour."""
     try:
         ctx, known = get_context_length_known(endpoint_url, model)
-        return ctx if known else 0
+        if known:
+            return ctx
+        # The explicit cold-Ollama ceiling must constrain trimming too; using
+        # the generic 6000-token unknown-model budget would exceed that ceiling.
+        if ctx == 4096 and _local_ollama_base(endpoint_url):
+            return ctx
+        return 0
     except Exception:
         return fallback
 
@@ -393,6 +421,18 @@ def _proxy_catalog_context(endpoint_url: str, model: str) -> Optional[int]:
     return None
 
 
+def _local_ollama_base(endpoint_url: str) -> Optional[str]:
+    if not is_local_endpoint(endpoint_url):
+        return None
+    try:
+        parsed = urlparse(endpoint_url)
+        if parsed.port == 11434 or parsed.path.rstrip("/") == "/api/chat":
+            return f"{parsed.scheme}://{parsed.netloc}"
+    except ValueError:
+        pass
+    return None
+
+
 def _query_context_length(endpoint_url: str, model: str) -> Tuple[int, bool]:
     """Query the model API for context length. Returns (context_length, known) where
     ``known`` is False only for the bare DEFAULT_CONTEXT fallback."""
@@ -416,6 +456,28 @@ def _query_context_length(endpoint_url: str, model: str) -> Tuple[int, bool]:
             logger.info(f"Proxy catalog reports context window for {model}: {api_ctx}")
             return api_ctx, True
         return DEFAULT_CONTEXT, False
+
+    # Ollama's model-family maximum is not its allocated serving window.
+    # Query the existing local native API, never increase num_ctx to a catalog
+    # maximum merely because that model is installed. Re-query on every local
+    # lookup so unloading/reloading cannot leave a stale advertised window.
+    base = _local_ollama_base(endpoint_url)
+    if base:
+        try:
+            response = httpx.get(f"{base}/api/ps", timeout=REQUEST_TIMEOUT)
+            if response.is_success:
+                for entry in response.json().get("models", []):
+                    names = (entry.get("model"), entry.get("name"))
+                    if model in names or (":" not in model and model + ":latest" in names):
+                        window = entry.get("context_length")
+                        if isinstance(window, int) and not isinstance(window, bool) and window > 0:
+                            return window, True
+        except Exception as exc:
+            logger.debug("Ollama serving context unavailable: %s", exc)
+        # A cold/unavailable runner is not evidence for a 128K allocation.
+        # Keep a conservative input ceiling, explicitly unverified, until /ps
+        # reports the actual runner. Do not alter the server configuration.
+        return 4096, False
 
     # Try llama.cpp /slots endpoint first — reports actual serving context
     if is_local_endpoint(endpoint_url):

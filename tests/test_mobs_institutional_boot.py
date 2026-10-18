@@ -210,7 +210,9 @@ def loop_setup(monkeypatch):
     monkeypatch.setattr('src.tool_execution.owner_is_admin_or_single_user', lambda owner: True)
     monkeypatch.setattr(loop, 'get_setting', lambda key, default=None: default)
     monkeypatch.setattr(loop, 'get_mcp_manager', lambda: None)
-    # Keep the real loop, reducers and dispatcher; only the external model is fake.
+    monkeypatch.setattr('src.model_context.get_context_length_known', lambda *a: (100000, True))
+    # Keep the real loop, reducers and dispatcher; external model and its
+    # serving-window report are synthetic, not queries to a personal runner.
     return loop
 
 
@@ -269,6 +271,36 @@ def test_failed_boot_never_calls_model_or_tools(mandate, monkeypatch):
     monkeypatch.setattr(loop, 'execute_tool_block', forbidden)
     chunks = run_governed(loop, mandate)
     assert any('institutional_blocked' in c for c in chunks)
+
+
+def test_loop_blocks_smaller_runner_after_response_before_tool_dispatch(mandate, monkeypatch):
+    loop = loop_setup(monkeypatch)
+    serving = {'window': 100000}
+    monkeypatch.setattr('src.model_context.get_context_length_known',
+                        lambda *a: (serving['window'], True))
+    async def stream(candidates, messages, **kwargs):
+        assert kwargs['max_tokens'] == 2048
+        serving['window'] = 4096
+        yield 'data: ' + json.dumps({'delta': '```read_file\nPROJECT_RULES.md\n```'}) + '\n\n'
+        yield 'data: [DONE]\n\n'
+    def forbidden(*args, **kwargs):
+        pytest.fail('tool ran after the provider reduced the context window')
+    monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
+    monkeypatch.setattr(loop, 'execute_tool_block', forbidden)
+    chunks = run_governed(loop, mandate, max_tokens=0)
+    assert any('context window changed' in c for c in chunks)
+    assert any('institutional_blocked' in c for c in chunks)
+    assert not any('institutional_verified' in c for c in chunks)
+
+
+def test_loop_unverified_runner_never_calls_model(mandate, monkeypatch):
+    loop = loop_setup(monkeypatch)
+    monkeypatch.setattr('src.model_context.get_context_length_known', lambda *a: (4096, False))
+    def forbidden(*args, **kwargs):
+        pytest.fail('model called without a verified serving window')
+    monkeypatch.setattr(loop, 'stream_llm_with_fallback', forbidden)
+    chunks = run_governed(loop, mandate)
+    assert any('context window is unverified' in c for c in chunks)
 
 
 def test_non_mobs_delegates_without_boot(monkeypatch):
