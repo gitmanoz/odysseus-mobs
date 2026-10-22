@@ -101,3 +101,37 @@ Uma rodada `completed` representa término do processamento, não objetivo cumpr
 6. Decidir gameplay/Computer Use e atualização automática como responsabilidades próprias; nenhuma decorre das anteriores.
 
 Custo externo adicional deste ciclo: R$ 0,00. Nenhum endpoint/serviço novo, permissão, ferramenta de execução ou alteração de autoridades. Lacunas de cobertura e prova operacional estão registradas; a correção realizada não exige divergência da arquitetura aprovada. Requisitos futuros de N arquivos, Godot, conclusão, Git e auto-update permanecem decisões, não desvios implementados.
+
+## Continuação de qualidade sem Computer Use
+
+Base desta continuação: `25c5631f308887efe066216aa81405e59b52e441`. Nenhuma inferência, teste gráfico ou execução de projeto Godot. A continuidade foi confrontada por persistência real em SQLite temporário, requisições sintéticas distintas, desconexão/reconexão e substituição de rodada aguardando o salvamento parcial. Os casos preservam último pedido, ordem e isolamento entre sessões. Isso não demonstra a causa da saudação repetida pelo modelo real; nenhuma mudança artificial de prompt foi introduzida para mascará-la.
+
+Chamadas nativas malformadas agora são rejeitadas isoladamente; não podem disparar exemplos por fallback textual. Os schemas existentes das ferramentas de código fornecem tipos e campos obrigatórios para a conversão. Valores vazios explícitos continuam válidos quando o contrato permite, por exemplo criação de arquivo vazio ou replacement vazio. Aliases existentes de patch continuam aceitos; entradas rejeitadas não concedem permissão nem mudam o dispatcher. Negação por ferramenta desabilitada ou política é testada antes da execução vinculada.
+
+### Medição de overhead e limite da otimização
+
+Um caso real da suíte multifile isolada levou 45,08 s na chamada, com 29 capturas de repositório, 58 fingerprints de metadados e 697 invocações Git. Consulta conjunta dos mesmos quatro caminhos de metadados reduziu as invocações para 523, mantendo as 29 capturas e os 58 fingerprints; a chamada levou 33,01 s no ensaio posterior. A melhora observada é de aproximadamente 27% nesse caso; não extrapolar para toda a suíte, para modelo ou para Computer Use. Perfis cProfile incluem overhead e as medições não são benchmark estatístico de múltiplas máquinas.
+
+Não foram removidos hashes, leitura de index/config/HEAD/config.worktree, comparação antes/depois, verificações de reparse/drift/alternates ou ambiente Git restrito. Testes com repositório normal e worktree confrontam o mesmo fingerprint com as quatro consultas anteriores. Saída incompleta/ambígua falha fechada. Uma alternativa de redirecionar pipes para arquivos temporários não melhorou a mediana no ensaio intercalado e foi descartada, sem alteração de produção.
+
+### Exemplos concretos para os workflows
+
+| Workflow | Caso e definição utilizável | Evidência / limite |
+|---|---|---|
+| Investigar defeito | Reproduzir chamada nativa com `write_file` sem conteúdo, envelope não-objeto ou ferramenta desconhecida junto a exemplo textual. Esperado: rejeição sem crash, despacho ou execução do exemplo | Casos sintéticos em `test_native_tool_contract.py`; o defeito foi corrigido nesta continuação, não repetir como pendência aberta |
+| Implementar mudança pequena | Acrescentar regressão que preserve o último pedido ao reabrir conversa e impeça mistura entre sessões. Esperado: histórico original e novo pedido no contexto, replay sem duplicação e preservação do salvamento parcial | Exemplo implementado em `test_session_continuity_offline.py`; não substitui teste com modelo real |
+| Revisar delta | Examinar o candidato de dois arquivos e confrontar digest, paths, recibo e drift por rename/criação concorrente. Esperado: mudança do usuário preservada, aplicação bloqueada e nenhum sucesso presumido | Testes em fixtures; a visão Revisão da tarefa apresenta digest e arquivos, mas não cria recibo ou aprovação |
+
+### Especificação mínima proposta da receita Godot
+
+Preparação, sem admissão operacional. Binário/versão/hash são os já identificados; o próximo mandato deve declarar a pinagem admitida ao executor existente e comprovar bibliotecas/diretórios necessários sem liberar caminhos gerais. Perfil deve permitir apenas manifest e scripts de teste explicitamente escolhidos, incluindo arquivos na raiz quando pertinentes. A receita de parse candidata usa argv fixo `--headless --path <cópia privada> --check-only --script <script autorizado>`; rejeitar flags extras e caminhos fora do target. A documentação da versão e o próprio binário devem confirmar os argumentos antes da admissão.
+
+Preparar um baseline mínimo descartável, com manifest sem autoloads/plugins/GDExtensions do jogo real, script positivo e erro conhecido. Primeiro comprovar ambos os resultados e inventário, sem saves, rede, imports arbitrários ou criação de APK. Verificar também a aceitação de scripts RefCounted em check-only nessa versão; se exigir outra forma de invocação, devolver a diferença à decisão da receita, sem inventar um harness ou executar o projeto inteiro. Só depois avaliar `progression_rules.gd` e um teste de limites já existentes, sem reequilibrar o jogo.
+
+Comandos de parse, teste lógico, importação, build e gameplay permanecem operações distintas. Timeout, cancelamento da árvore, logs limitados, isolamento de user-data/cache e limite de recursos precisam de prova no dispatcher/TEB atuais. Leitura da CLI e um retorno zero não bastam. A promoção segue em um ou exatamente dois arquivos; manifest de fixture deve existir no baseline, não ser uma terceira alteração implicitamente promovida.
+
+### Preparação da próxima ativação
+
+Preflight somente leitura encontrou as dependências Desktop pinadas presentes e sem requisitos quebrados, além do CAB WebView2 existente com SHA256 esperado. A instalação canônica conserva a versão 1.0.2; difere do source em módulos de protocolo/metadados/contexto e recursos web, e ainda não contém studioEngineering.js. É necessário rebuild para ativar o conjunto completo.
+
+O script de build atual instala requisitos e remove build/dist antes de empacotar. Não executá-lo contra o aplicativo aberto. Próxima ativação: confirmar fechamento normal e recursos; manter backup binário completo e dados/config; produzir build rastreável em staging temporário dentro da infraestrutura de build, verificar inventário/version/hash/toolchain/WebView2; substituir somente a instalação canônica liberada; conferir saúde e versão, com rollback para o backup se necessário. Não criar instalação permanente paralela, atualizar dependências silenciosamente ou apagar evidências. Nenhuma dessas etapas foi executada nesta continuação.

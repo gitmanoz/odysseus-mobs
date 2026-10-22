@@ -61,6 +61,17 @@ export function renderStudioDiagnostics(target, history) {
       if (profile.duplicate_system_messages) row('Revisão das repetições', 'Verifique origem e obrigatoriedade antes de propor mudanças. Nenhuma deduplicação automática ou remoção de autoridade foi autorizada.');
       const schemas = data.last_round_context_profile || profile;
       row('Schemas na última chamada observada', `${schemas.tool_schema_count || 0} · ~${schemas.tool_schema_tokens_estimated || 0} tokens`);
+      const last = data.last_round_context_profile;
+      if (last && Number.isFinite(last.message_tokens_estimated) && Number.isFinite(profile.message_tokens_estimated)) {
+        const change = last.message_tokens_estimated - profile.message_tokens_estimated;
+        row('Variação estimada de mensagens até a última rodada', `${change > 0 ? '+' : ''}${change} tokens`);
+        const keys = new Set([...Object.keys(profile.categories || {}), ...Object.keys(last.categories || {})]);
+        for (const key of keys) {
+          const delta = (last.categories?.[key]?.estimated_tokens || 0) - (profile.categories?.[key]?.estimated_tokens || 0);
+          if (delta) row(`Variação · ${labels[key] || 'Outros'}`, `${delta > 0 ? '+' : ''}${delta} tokens`);
+        }
+        row('Interpretação da variação', 'Compara observações de rodadas diferentes, incluindo novas mensagens e retornos. Não mede desperdício nem autoriza remover contexto obrigatório.');
+      }
       row('Limite da estimativa', 'Schemas contabilizados separadamente; custo de imagens não incluído. Nenhum conteúdo obrigatório foi removido por este diagnóstico.');
     } else row('Composição detalhada', 'Não registrada nesta resposta. Dados antigos não são reconstruídos por suposição.');
   }

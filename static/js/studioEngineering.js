@@ -65,8 +65,16 @@ export function reviewChecklist(view) {
     { label: 'Atividade no servidor', state: fresh && view?.active === true ? 'execução ativa' : 'sem execução ativa confirmada' },
     { label: 'Candidatos pendentes', state: String(pending.length) },
   ];
-  for (const candidate of pending) checks.push({ label: `Artefato ${text(candidate.id)}`,
-    state: `${fresh && candidate.validity === 'valid' ? 'referência conferida' : 'referência não confirmada'}; ${fresh && candidate.validity === 'valid' && candidate.validated === true ? 'recibo de validação exato registrado' : 'validação exata não confirmada'}` });
+  for (const candidate of pending) {
+    checks.push({ label: `Artefato ${text(candidate.id)}`,
+      state: `${fresh && candidate.validity === 'valid' ? 'referência conferida' : 'referência não confirmada'}; ${fresh && candidate.validity === 'valid' && candidate.validated === true ? 'recibo de validação exato registrado' : 'validação exata não confirmada'}` });
+    checks.push({ label: 'Digest do candidato', state: text(candidate.artifact_digest) });
+    const effects = Array.isArray(candidate.effects) ? candidate.effects : [candidate];
+    for (const effect of effects) {
+      if (typeof effect?.path !== 'string') continue;
+      checks.push({ label: 'Arquivo apresentado', state: `${text(effect.effect)} · ${effect.path}` });
+    }
+  }
   if (p?.status === 'blocked') checks.push({ label: 'Última rodada', state: 'bloqueada; consulte o evento original para determinar a causa, sem presumir falta de memória' });
   return checks;
 }
@@ -80,6 +88,7 @@ export function renderEngineeringReview(target, view) {
   paragraph(target, 'Confira o objetivo, o escopo e as exclusões em Projeto e escopo. Inspecione o diff e os conteúdos selados do candidato exato.');
   paragraph(target, 'Confronte comandos, retornos e falhas em Atividade e arquivos. Uma marcação no plano ou um retorno sem erro não comprova o objetivo cumprido.');
   paragraph(target, 'Confirme testes pertinentes, efeitos fora do escopo e possibilidade de rollback. As ações disponíveis continuam na proposta e no artefato, com nova validação no servidor.');
+  paragraph(target, 'Arquivo apresentado não significa arquivo aplicado. O recibo confirma somente a validação vinculada ao candidato; não informa aqui cobertura completa de testes ou ausência de riscos. Renomear ou criar arquivos no target pode invalidar o candidato.');
   const report = ['MOBS Studio — revisão da tarefa', `Conversa: ${text(view?.session_id)}`,
     ...checks.map(check => `${check.label}: ${check.state}`),
     'Checklist observacional; nenhum objetivo, aprovação ou aplicação é certificado por este relatório.'].join('\n');

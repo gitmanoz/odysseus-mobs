@@ -358,11 +358,16 @@ def _git(root: Path, *args: str) -> bytes:
 
 def _git_metadata(root: Path) -> bytes:
     """Fingerprint Git files that may live outside a linked worktree root."""
+    # Resolve all four names in one fixed read-only invocation. Keep both
+    # before/after fingerprints and every file/reparse/change check below.
+    names = _git(root, 'rev-parse', '--path-format=absolute',
+                 '--git-path', 'index', '--git-common-dir',
+                 '--git-path', 'HEAD', '--git-path', 'config.worktree').decode().splitlines()
+    if len(names) != 4 or any(not name.strip() for name in names):
+        raise InstitutionalBootError('Git metadata path query is incomplete or ambiguous')
+    index, common, head, worktree_config = (Path(name.strip()) for name in names)
     paths = (
-        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'index').decode().strip()), True),
-        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir').decode().strip()) / 'config', True),
-        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'HEAD').decode().strip()), True),
-        (Path(_git(root, 'rev-parse', '--path-format=absolute', '--git-path', 'config.worktree').decode().strip()), False),
+        (index, True), (common / 'config', True), (head, True), (worktree_config, False),
     )
     digest = hashlib.sha256()
     for path, required in paths:

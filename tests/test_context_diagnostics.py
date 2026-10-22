@@ -56,6 +56,22 @@ def test_multimodal_and_native_tool_call_shapes_use_existing_estimator():
     assert "private" not in json.dumps(context_profile(messages))
 
 
+def test_reproducible_history_comparison_keeps_protected_cost_and_sources():
+    protected = {'role':'system','content':'PRIVATE_AUTHORITY '*20,'_protected':True}
+    schema = {'function':{'name':'read_file','parameters':{'type':'object'}}}
+    observations = []
+    for turns in (1, 5, 20):
+        messages = [deepcopy(protected)] + [{'role':'user' if i%2==0 else 'assistant','content':'PRIVATE_HISTORY '*10} for i in range(turns)]
+        before = deepcopy(messages)
+        profile = context_profile(messages, [schema])
+        observations.append(profile)
+        assert messages == before
+        assert profile['categories']['protected_context'] == observations[0]['categories']['protected_context']
+        assert profile['tool_schema_tokens_estimated'] == observations[0]['tool_schema_tokens_estimated']
+        assert 'PRIVATE_' not in json.dumps(profile)
+    assert observations[0]['message_tokens_estimated'] < observations[1]['message_tokens_estimated'] < observations[2]['message_tokens_estimated']
+
+
 def test_actual_agent_loop_emits_and_persists_profiles_with_fake_transport(monkeypatch):
     from tests.test_fenced_example_not_executed_for_native_models import _patch_common, _run_loop
     calls = []

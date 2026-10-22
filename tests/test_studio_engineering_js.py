@@ -137,3 +137,30 @@ assert.match(target.textContent,/não determina a causa/);assert.doesNotMatch(ta
 item.remove();A.renderStudioDiagnostics(target,history);assert.match(target.textContent,/Nenhum registro de ferramenta/);
 assert.doesNotMatch(target.textContent,/Último registro com falha/);
 ''')
+
+
+def test_review_lists_exact_candidate_digest_and_files_without_claiming_application():
+    run(r'''
+const target=new E();G.renderEngineeringReview(target,{session_id:'one',validity:'valid',promotions:[
+ {id:'pair',status:'human_approval_required',validity:'valid',validated:true,artifact_digest:'exact-version',
+ effects:[{effect:'write',path:'src/<script>.py'},{effect:'create',path:'tests/test_a.py'}]}]});
+assert.match(target.textContent,/Digest do candidato: exact-version/);
+assert.match(target.textContent,/Arquivo apresentado: write · src\/<script>.py/);
+assert.equal(target.querySelector('script'),null);
+assert.match(target.textContent,/não significa arquivo aplicado/);
+await target.querySelector('button').onclick();assert.match(copied[0],/tests\/test_a.py/);
+''')
+
+
+def test_round_comparison_distinguishes_history_growth_from_authority_and_schemas():
+    run(r'''
+const target=new E(),history=new E(),message=new E('div','msg-ai');history.appendChild(message);
+A.recordStudioDiagnostics(message,{
+ initial_context_profile:{estimate_only:true,message_tokens_estimated:100,categories:{protected_context:{estimated_tokens:80,messages:1},user:{estimated_tokens:20,messages:1}}},
+ last_round_context_profile:{estimate_only:true,message_tokens_estimated:145,categories:{protected_context:{estimated_tokens:80,messages:1},user:{estimated_tokens:20,messages:1},tool:{estimated_tokens:45,messages:1}},tool_schema_count:2,tool_schema_tokens_estimated:500}});
+A.renderStudioDiagnostics(target,history);
+assert.match(target.textContent,/Variação estimada de mensagens até a última rodada: \+45 tokens/);
+assert.match(target.textContent,/Variação · Retornos de ferramentas: \+45 tokens/);
+assert.doesNotMatch(target.textContent,/Variação · Contexto protegido/);
+assert.match(target.textContent,/Não mede desperdício/);assert.match(target.textContent,/~500 tokens/);
+''')

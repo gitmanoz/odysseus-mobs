@@ -339,6 +339,24 @@ def test_drift_in_unrelated_path_blocks_entire_pair(chat, tmp_path):
         assert db.get(MobsPromotion, artifact["id"]).status == "promotion_blocked"
 
 
+@pytest.mark.parametrize('external_change', ['rename', 'create-conflict'])
+def test_user_rename_or_created_file_is_preserved_and_blocks_pair(chat, tmp_path, external_change):
+    proposal, _ = _context(chat)
+    artifact = _sealed_two(chat, tmp_path, proposal, second='create')
+    record_pending('s', artifact); _validate_receipt(chat, artifact)
+    if external_change == 'rename':
+        (chat.target / 'src/app.py').rename(chat.target / 'src/renamed.py')
+    else:
+        (chat.target / 'tests/new_test.py').write_text('user content\n')
+    user_inventory = inventory(chat.target, include_git=True)
+    with pytest.raises(PromotionError, match='drift'):
+        approve_and_apply('s', {'promotion_id':artifact['id'],'promotion_digest':artifact['artifact_digest']},
+                          authenticated_actor(chat.trust))
+    assert inventory(chat.target, include_git=True) == user_inventory
+    with chat.factory() as db:
+        assert db.get(MobsPromotion, artifact["id"]).status == "promotion_blocked"
+
+
 def test_http_validation_binds_exact_pair_and_does_not_autoapprove(chat, tmp_path, monkeypatch):
     proposal, _ = _context(chat)
     artifact = _sealed_two(chat, tmp_path, proposal)
