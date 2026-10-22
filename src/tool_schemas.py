@@ -1367,9 +1367,12 @@ def _repair_document_function_args(tool_type: str, arguments: str) -> Optional[d
     return None
 
 
+_CODE_TOOL_NAMES = frozenset({"bash", "python", "read_file", "write_file", "edit_file", "apply_patch", "grep", "glob", "ls", "get_workspace"})
+
+
 def _valid_code_tool_args(tool_type, args):
     """Check existing code-tool schemas before lossy conversion to text."""
-    if tool_type not in {"bash", "python", "read_file", "write_file", "edit_file", "apply_patch", "grep", "glob", "ls", "get_workspace"}:
+    if tool_type not in _CODE_TOOL_NAMES:
         return True
     parameters = next(item["function"]["parameters"] for item in FUNCTION_TOOL_SCHEMAS
                       if item["function"]["name"] == tool_type)
@@ -1397,7 +1400,7 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
         return None
     tool_type = _TOOL_NAME_MAP.get(name, name)
     try:
-        if not arguments or (isinstance(arguments, str) and not arguments.strip()):
+        if arguments is None or (isinstance(arguments, str) and not arguments.strip()):
             args = {}
         else:
             args = json.loads(arguments) if isinstance(arguments, str) else arguments
@@ -1411,13 +1414,14 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
 
     # Some models emit valid JSON that isn't an object (e.g. a bare array
     # ["ls -la"], string, or number) as function arguments. Legacy tools keep
-    # empty-object coercion; code-tool required fields are checked below. Email MCP tools
+    # empty-object coercion; code tools reject malformed objects even when
+    # every schema field is optional (ls/get_workspace). Email MCP tools
     # must fail closed so a malformed call cannot read the default mailbox.
     # Uses the shared BUILTIN_EMAIL_TOOLS (single source of truth) so the
     # fail-closed set can't drift from the dispatch/blocklist sets.
     if not isinstance(args, dict):
-        if tool_type.startswith("mcp__email__") or name in BUILTIN_EMAIL_TOOLS:
-            logger.warning(f"Non-object email function call arguments for {name}: {args!r}; rejecting")
+        if tool_type in _CODE_TOOL_NAMES or tool_type.startswith("mcp__email__") or name in BUILTIN_EMAIL_TOOLS:
+            logger.warning("Rejecting non-object function call arguments for %s", name)
             return None
         logger.warning(f"Non-object function call arguments for {name}: {args!r}; treating as empty")
         args = {}

@@ -3,7 +3,7 @@
 Covers:
 - _is_ollama_openai_compat_url: URL classification (local host + /v1 path)
 - think: false is injected into the payload for Ollama /v1 thinking models
-- think: false is NOT injected for non-thinking models or non-Ollama /v1 endpoints
+- think: false covers non-thinking/custom aliases too, but never remote OpenAI
 """
 import asyncio
 import json
@@ -127,7 +127,7 @@ class TestIsOllamaOpenAICompatUrl:
 
 
 # ---------------------------------------------------------------------------
-# Payload injection — think: false only when both conditions hold
+# Payload injection — endpoint-scoped policy, independent of model classification
 # ---------------------------------------------------------------------------
 
 class TestThinkSuppression:
@@ -140,12 +140,12 @@ class TestThinkSuppression:
         )
         assert payload.get("think") is False
 
-    def test_no_think_for_ollama_v1_non_thinking_model(self, monkeypatch):
-        """think must NOT be set for a plain (non-thinking) model on Ollama /v1."""
+    def test_think_false_for_ollama_v1_non_thinking_model(self, monkeypatch):
+        """Existing endpoint policy includes plain/unknown model aliases."""
         payload = _capture_payload(
             monkeypatch, "http://127.0.0.1:11434/v1/chat/completions", "llama3.2:3b"
         )
-        assert "think" not in payload
+        assert payload.get("think") is False
 
     def test_no_think_for_openai_endpoint_with_thinking_model_name(self, monkeypatch):
         """think must NOT leak to a real OpenAI endpoint even if the model name

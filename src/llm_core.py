@@ -2077,7 +2077,8 @@ async def llm_call_async(
         if max_tokens and max_tokens > 0:
             tok_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
             payload[tok_key] = max_tokens
-        # Suppress thinking for qwen3/gemma4 on Ollama /v1 — same as stream_llm.
+        # Explicitly suppress thinking for all Ollama /v1 models, including
+        # unknown/custom aliases; keep async and streaming policy aligned.
         if _is_ollama_openai_compat_url(url):
             payload["think"] = False
         if provider == "mistral" and _supports_thinking(model):
@@ -2248,9 +2249,8 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
         # (high / medium / low / none); default "high".
         if provider == "mistral" and _supports_thinking(model):
             payload["reasoning_effort"] = _MISTRAL_REASONING_EFFORT
-        # For Ollama's OpenAI-compat /v1 endpoint with thinking models (qwen3,
-        # gemma4, etc.), suppress thinking so tool calls aren't swallowed inside
-        # <think> blocks. Ollama /v1 accepts "think": false as a top-level param.
+        # Suppress thinking for every Ollama /v1 alias, as in llm_call_async.
+        # Model-name classification must not bypass this existing policy.
         if _is_ollama_openai_compat_url(url):
             payload["think"] = False
         _apply_local_cache_affinity(payload, url, session_id)
@@ -2343,6 +2343,8 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
     # ── Native Ollama streaming ──
     if provider == "ollama":
         _ollama_tool_calls: List[Dict] = []
+        _ollama_seen_ids: set[str] = set()
+        _ollama_invalid_ids: set[str] = set()
         _harmony_router = _HarmonyStreamRouter()
         _ollama_thinking_guard = _DegenerateStreamGuard(model)
         try:
@@ -2378,25 +2380,36 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                         for part, is_thinking in _harmony_router.feed(content):
                             yield _stream_delta_event(part, thinking=is_thinking)
                     for tc in message.get("tool_calls") or []:
+                        if not isinstance(tc, dict) or not isinstance(tc.get("function"), dict):
+                            continue
                         fn = tc.get("function") or {}
-                        if fn.get("name"):
+                        if isinstance(fn.get("name"), str) and fn["name"] and isinstance(fn.get("arguments", {}), dict):
+                            if tc.get("id") is not None and not isinstance(tc["id"], str):
+                                continue
+                            call_id = tc.get("id") or f"call_{len(_ollama_tool_calls)}"
+                            if not isinstance(call_id, str):
+                                continue
+                            if call_id in _ollama_seen_ids:
+                                _ollama_invalid_ids.add(call_id)
+                            _ollama_seen_ids.add(call_id)
                             _ollama_tool_calls.append({
-                                "id": tc.get("id") or f"call_{len(_ollama_tool_calls)}",
+                                "id": call_id,
                                 "name": fn.get("name") or "",
                                 "arguments": json.dumps(fn.get("arguments") or {}),
                             })
                     if j.get("done"):
                         for part, is_thinking in _harmony_router.flush():
                             yield _stream_delta_event(part, thinking=is_thinking)
-                        if _ollama_tool_calls:
-                            yield f'data: {json.dumps({"type": "tool_calls", "calls": _ollama_tool_calls})}\n\n'
+                        valid_calls = [c for c in _ollama_tool_calls if c["id"] not in _ollama_invalid_ids]
+                        if valid_calls:
+                            yield f'data: {json.dumps({"type": "tool_calls", "calls": valid_calls})}\n\n'
                         if j.get("prompt_eval_count") is not None or j.get("eval_count") is not None:
                             yield f'data: {json.dumps({"type": "usage", "data": {"input_tokens": j.get("prompt_eval_count", 0), "output_tokens": j.get("eval_count", 0)}})}\n\n'
                         yield "data: [DONE]\n\n"
                         return
                 for part, is_thinking in _harmony_router.flush():
                     yield _stream_delta_event(part, thinking=is_thinking)
-                yield "data: [DONE]\n\n"
+                yield f'event: error\ndata: {json.dumps({"error": "Ollama stream ended before done", "status": 502})}\n\n'
         except (httpx.ConnectError, httpx.ConnectTimeout) as e:
             _cooled = _mark_host_dead(target_url)
             _tail = f" — host cooled for {DEAD_HOST_COOLDOWN:.0f}s" if _cooled else " — transient, will retry"
@@ -2521,6 +2534,9 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
     # ── OpenAI-compatible streaming ──
     # Accumulate native tool_calls across streaming chunks
     _tc_acc: Dict[int, Dict] = {}  # index -> {id, name, arguments}
+    _tc_invalid: set[int] = set()
+    _tc_ids: Dict[str, int] = {}
+    _finish_reason = None
     _tc_last_idx = [-1]  # most-recently-touched slot, for providers that omit `index`
     # For thinking models: prepend <think> to first content delta so frontend
     # can detect thinking-in-progress (some models output </think> but no <think>)
@@ -2537,7 +2553,9 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
         """Build the tool_calls event string if any were accumulated."""
         if not _tc_acc:
             return None
-        calls = [_tc_acc[i] for i in sorted(_tc_acc)]
+        calls = [_tc_acc[i] for i in sorted(_tc_acc) if i not in _tc_invalid]
+        if not calls:
+            return None
         return f'data: {json.dumps({"type": "tool_calls", "calls": calls})}\n\n'
 
     def _format_routed_content(parts: List[Tuple[str, bool]]) -> List[str]:
@@ -2577,6 +2595,9 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                 if line.startswith("data:"):
                     data = line[5:].strip()
                     if data == "[DONE]":
+                        if _tc_acc and _finish_reason in {"length", "content_filter"}:
+                            yield 'event: error\ndata: {"error":"Tool-call stream was truncated or filtered.","status":502}\n\n'
+                            return
                         for event in _format_routed_content(_harmony_router.flush()):
                             yield event
                         tc_event = _emit_tool_calls()
@@ -2600,6 +2621,8 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                         yield f'data: {json.dumps({"type": "model_actual", "requested_model": model, "model": _actual_model})}\n\n'
                                 # Usage chunk (from stream_options)
                                 _choices = j.get("choices") or []
+                                if _choices and isinstance(_choices[0], dict) and isinstance(_choices[0].get("finish_reason"), str):
+                                    _finish_reason = _choices[0]["finish_reason"]
                                 _delta0 = _choices[0].get("delta") if (_choices and _choices[0] is not None) else None
                                 # Capture usage whenever the chunk carries it and
                                 # the delta has no actual output. Some gateways /
@@ -2724,10 +2747,28 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                                     yield f'data: {json.dumps({"delta": content})}\n\n'
                                         # Native tool calls — accumulate across chunks
                                         for tc in delta.get("tool_calls") or []:
-                                            if tc is None:
+                                            # Reject one malformed entry without abandoning
+                                            # valid siblings in the same wire delta.
+                                            if not isinstance(tc, dict):
+                                                continue
+                                            raw_idx = tc.get("index")
+                                            if raw_idx is not None and (type(raw_idx) is not int or raw_idx < 0):
+                                                continue
+                                            if not isinstance(tc.get("function", {}), dict):
+                                                if raw_idx is not None:
+                                                    _tc_invalid.add(raw_idx)
                                                 continue
                                             func = tc.get("function") or {}
-                                            raw_idx = tc.get("index")
+                                            if func.get("name") is not None and not isinstance(func["name"], str):
+                                                if raw_idx is not None:
+                                                    _tc_invalid.add(raw_idx)
+                                                continue
+                                            if func.get("arguments") is not None and not isinstance(func["arguments"], str):
+                                                if raw_idx is not None:
+                                                    _tc_invalid.add(raw_idx)
+                                                elif _tc_last_idx[0] >= 0 and not func.get("name"):
+                                                    _tc_invalid.add(_tc_last_idx[0])
+                                                continue
                                             if raw_idx is None:
                                                 # Gemini's OpenAI-compat layer omits `index` on
                                                 # parallel tool calls (every delta arrives as
@@ -2739,7 +2780,9 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                                 # follow-up round 400s. A function name marks the
                                                 # start of a new call → allocate a fresh slot;
                                                 # an arg-only continuation attaches to the last.
-                                                if func.get("name") or _tc_last_idx[0] < 0:
+                                                if isinstance(tc.get("id"), str) and tc["id"] in _tc_ids:
+                                                    idx = _tc_ids[tc["id"]]
+                                                elif func.get("name") or _tc_last_idx[0] < 0:
                                                     # Next free slot ABOVE any existing key (not
                                                     # len()), so a provider mixing integer indices
                                                     # with index=None can never collide.
@@ -2751,6 +2794,22 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                             _tc_last_idx[0] = idx
                                             if idx not in _tc_acc:
                                                 _tc_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                                            call_id = tc.get("id")
+                                            if call_id is not None and not isinstance(call_id, str):
+                                                _tc_invalid.add(idx)
+                                                continue
+                                            if call_id:
+                                                previous_idx = _tc_ids.get(call_id)
+                                                if previous_idx is not None and previous_idx != idx:
+                                                    _tc_invalid.update({idx, previous_idx})
+                                                    continue
+                                                if _tc_acc[idx]["id"] and _tc_acc[idx]["id"] != call_id:
+                                                    _tc_invalid.add(idx)
+                                                    continue
+                                                _tc_ids[call_id] = idx
+                                            if func.get("name") and _tc_acc[idx]["name"] and func["name"] != _tc_acc[idx]["name"]:
+                                                _tc_invalid.add(idx)
+                                                continue
                                             if tc.get("id"):
                                                 _tc_acc[idx]["id"] = tc["id"]
                                             # Gemini 3 returns an opaque thought_signature in
@@ -2786,6 +2845,9 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                         continue
 
             # End of stream (no explicit [DONE] received)
+            if _tc_acc and _finish_reason not in {"stop", "tool_calls", "function_call"}:
+                yield 'event: error\ndata: {"error":"Tool-call stream ended before completion was confirmed.","status":502}\n\n'
+                return
             for event in _format_routed_content(_harmony_router.flush()):
                 yield event
             tc_event = _emit_tool_calls()

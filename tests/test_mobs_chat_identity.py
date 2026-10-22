@@ -105,7 +105,7 @@ def chat(projects, tmp_path, monkeypatch):
         payload.update(extras)
         return client.post("/api/chat_stream", json=payload)
     yield SimpleNamespace(post=post, source=source, target=target, factory=factory, client=client,
-                          model_calls=model_calls, trust=trust, app=app)
+                          model_calls=model_calls, trust=trust, app=app, manager=manager, sess=sess)
     client.close()
     engine.dispose()
 

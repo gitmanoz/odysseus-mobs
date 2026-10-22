@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class _Run:
-    __slots__ = ("buffer", "subscribers", "status", "task", "evict_task")
+    __slots__ = ("buffer", "subscribers", "status", "task", "evict_task", "started", "stop_requested")
 
     def __init__(self) -> None:
         self.buffer: list = []          # ordered SSE event strings (replay log)
@@ -31,6 +31,8 @@ class _Run:
         self.status: str = "running"    # running | done | error | stopped
         self.task: Optional[asyncio.Task] = None
         self.evict_task: Optional[asyncio.Task] = None
+        self.started = False
+        self.stop_requested = False
 
 
 _RUNS: Dict[str, _Run] = {}
@@ -85,25 +87,20 @@ def get_status(session_id: str) -> Optional[str]:
     return r.status if r else None
 
 
-async def _drain(session_id: str, agen: AsyncGenerator[str, None],
+async def _drain(session_id: str, run: _Run, agen: AsyncGenerator[str, None],
                  prev_task: Optional[asyncio.Task] = None) -> None:
     """Pull every event from the wrapped generator into the run buffer, fanning
     each out to live subscribers. Runs to completion regardless of subscribers."""
-    run = _RUNS.get(session_id)
-    if run is None:
-        return
+    run.started = True
     # If this run replaced an in-flight one (rapid double-send), wait for that
     # one to fully finish first. Its CancelledError handler calls aclose(), which
     # persists its partial response — letting it complete before we start writing
     # keeps the two runs' session saves sequential instead of interleaved.
-    if prev_task is not None and not prev_task.done():
-        try:
-            await asyncio.wait({prev_task})
-        except asyncio.CancelledError:
-            raise            # our own cancellation — propagate
-        except Exception:
-            pass
     try:
+        if run.stop_requested:
+            raise asyncio.CancelledError
+        if prev_task is not None and not prev_task.done():
+            await asyncio.wait({prev_task})
         async for ev in agen:
             _publish(run, ev)
         if run.status == "running":
@@ -115,7 +112,10 @@ async def _drain(session_id: str, agen: AsyncGenerator[str, None],
         try:
             await agen.aclose()
         except Exception:
-            pass
+            logger.exception("[agent-run] interrupted source cleanup failed for %s", session_id)
+            run.status = "error"
+            _publish(run, 'event: error\ndata: {"error":"Interrupted response could not be preserved.","status":500}\n\n')
+            _publish(run, "data: [DONE]\n\n")
     except Exception as e:
         logger.error("[agent-run] %s failed: %s", session_id, e, exc_info=True)
         run.status = "error"
@@ -126,6 +126,10 @@ async def _drain(session_id: str, agen: AsyncGenerator[str, None],
         )
         _publish(run, "data: [DONE]\n\n")
     finally:
+        # A cancelled replacement remains a serialization barrier: a third
+        # send must still wait for the original run's partial save.
+        if prev_task is not None and not prev_task.done():
+            await asyncio.wait({prev_task})
         # Wake every subscriber with the end sentinel so their SSE closes.
         for q in list(run.subscribers):
             try:
@@ -135,7 +139,8 @@ async def _drain(session_id: str, agen: AsyncGenerator[str, None],
         # Run is terminal — arm the grace timer so it (and its buffer) is
         # eventually freed even if nobody ever reconnects. subscribe() cancels
         # this on connect and re-arms on disconnect.
-        _schedule_evict(session_id)
+        if _RUNS.get(session_id) is run:
+            _schedule_evict(session_id)
 
 
 def start(session_id: str, agen: AsyncGenerator[str, None]) -> _Run:
@@ -145,13 +150,13 @@ def start(session_id: str, agen: AsyncGenerator[str, None]) -> _Run:
     prev_task: Optional[asyncio.Task] = None
     if prev:
         if prev.task and not prev.task.done():
-            prev.task.cancel()
+            stop(session_id)
             prev_task = prev.task   # new run awaits this before it starts writing
         if prev.evict_task and not prev.evict_task.done():
             prev.evict_task.cancel()
     run = _Run()
     _RUNS[session_id] = run
-    run.task = asyncio.create_task(_drain(session_id, agen, prev_task))
+    run.task = asyncio.create_task(_drain(session_id, run, agen, prev_task))
     return run
 
 
@@ -208,6 +213,12 @@ def stop(session_id: str) -> bool:
     """Cancel an in-flight run (the wrapped generator saves its partial)."""
     run = _RUNS.get(session_id)
     if run and run.task and not run.task.done():
-        run.task.cancel()
+        if run.stop_requested:
+            return True  # do not cancel an already-running partial-save cleanup
+        run.stop_requested = True
+        # Cancelling a task before its first tick never enters its finally:
+        # let _drain start and close its source without iterating it instead.
+        if run.started:
+            run.task.cancel()
         return True
     return False

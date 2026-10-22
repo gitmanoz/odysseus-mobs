@@ -12,6 +12,7 @@ import json
 import re
 import time
 import logging
+from contextlib import aclosing
 from typing import Any, AsyncGenerator, List, Dict, Optional, Set
 from urllib.parse import urlparse
 
@@ -3183,10 +3184,13 @@ async def stream_agent_loop(*args, mobs_execution=_MOBS_NOT_REQUESTED, **kwargs)
             kwargs["plan_mode"] = allowed.issubset({"read_file", "ls", "grep", "glob", "get_workspace"})
             kwargs["disabled_tools"] = set(kwargs.get("disabled_tools") or ()) | (set(TOOL_TAGS) - allowed)
             kwargs["relevant_tools"] = allowed
-        async for chunk in _stream_agent_loop(*args, institutional_context=context, **kwargs):
-            if context and chunk == "data: [DONE]\n\n":
-                continue
-            yield chunk
+        # Closing the public stream must synchronously close the inner loop,
+        # whose finally cancels and awaits any in-flight tool task.
+        async with aclosing(_stream_agent_loop(*args, institutional_context=context, **kwargs)) as stream:
+            async for chunk in stream:
+                if context and chunk == "data: [DONE]\n\n":
+                    continue
+                yield chunk
         if context:
             await asyncio.to_thread(context.verify)
             yield f"data: {json.dumps({'type': 'institutional_verified', 'data': {'source': context.source, 'target': context.target, 'final_target': context.expected_target, 'mutations': context.mutation_ledger}})}\n\n"

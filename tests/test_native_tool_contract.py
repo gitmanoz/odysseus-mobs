@@ -39,6 +39,12 @@ def test_empty_file_and_empty_replacement_are_valid_explicit_values():
     assert function_call_to_tool_block('edit_file', {'path': 'src/a.py', 'old_string': 'old', 'new_string': ''})
 
 
+@pytest.mark.parametrize('tool', ['ls', 'get_workspace'])
+@pytest.mark.parametrize('args', ['[]', 'false', '0', 'null', '"bad"', [], False, 0])
+def test_optional_code_args_cannot_coerce_non_object_into_default_read(tool, args):
+    assert function_call_to_tool_block(tool, args) is None
+
+
 @pytest.mark.parametrize('envelope', [{}, 42, False, 'malformed'])
 def test_malformed_top_level_native_container_never_falls_back_to_examples(envelope):
     assert loop._resolve_tool_blocks('```bash\necho example\n```', envelope, 1)[0] == []

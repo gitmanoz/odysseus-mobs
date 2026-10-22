@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Reject ambiguous streaming tool identities, non-object optional code arguments and unconfirmed/truncated tool streams while preserving valid sibling calls.
+- Close nested agent generators on cancellation, preserve replacement save barriers and report interrupted-response persistence failures without exposing storage details.
+- Align Ollama thinking-suppression tests with the deliberate endpoint-wide policy; generation parameters remain unchanged.
+
 - Preserve saved conversations during cleanup, reject ambiguous truncation requests and fail closed when image/upload ownership cannot be checked.
 - Pin the packaged Python interpreter used by the existing Windows execution boundary; suppress transient console windows during background probes.
 - Preserve complete local tool examples, document existing code-navigation tools and reject a governed command round that ends without a tool call.
@@ -25,6 +29,8 @@
 - Batch four fixed Git metadata-path queries while preserving before/after fingerprints, repository checks and restricted subprocess settings. One profiled multifile case reduced Git-helper invocations from 697 to 523 and call time from about 45 to 33 seconds; this is not a whole-suite or model-performance claim.
 
 ### Validation and limits
+
+- Offline consolidation passed 220 distinct regression cases plus the 22-case two-file promotion audit. These fixtures do not certify Desktop Python E2E, real-model continuity or gameplay.
 
 - The overnight campaign passed 306 distinct cases across separate test selections. A small real Qwen generation demonstrated the local tool-format correction; it did not dispatch a tool.
 - The engineering-readiness selection passed 65 cases, including 20 isolated two-file promotion cases; 12 affected workflow/UI cases also passed after final refinements. These overlapping selections are not a full-suite or Desktop E2E certification.

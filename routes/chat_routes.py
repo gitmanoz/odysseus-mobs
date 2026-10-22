@@ -2033,8 +2033,12 @@ def setup_chat_routes(
                             )
                             sess.add_message(ChatMessage("assistant", _stopped_content2, metadata=_stopped_md2))
                             session_manager.save_sessions()
-                    except Exception:
+                    except Exception as exc:
                         logger.exception("Failed to save partial response on disconnect (session %s)", session)
+                        # The outer finally still clears the registry. Report
+                        # persistence failure rather than disguising it as a
+                        # normal stopped run; never expose storage details.
+                        raise RuntimeError("Interrupted response could not be saved") from exc
                     raise
                 finally:
                     _active_streams.pop(session, None)
