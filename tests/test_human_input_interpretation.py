@@ -6,7 +6,7 @@ import pytest
 
 from src.chat_handler import ChatHandler
 from src.chat_processor import ChatProcessor
-from src.prompt_security import HUMAN_INPUT_INTERPRETATION_DIRECTIVE
+from src.prompt_security import HUMAN_INPUT_INTERPRETATION_DIRECTIVE, CONVERSATIONAL_RESPONSE_DIRECTIVE
 
 
 class _Memory:
@@ -74,3 +74,26 @@ def test_effectful_ambiguity_requires_clarification():
     directive = HUMAN_INPUT_INTERPRETATION_DIRECTIVE.lower()
     assert "ask the user to clarify" in directive
     assert "path, command, target, or operation" in directive
+
+
+def test_response_guidance_coexists_with_literal_preset_and_security():
+    from src.prompt_security import UNTRUSTED_CONTEXT_POLICY
+    preset = 'Comece pelo PROJECT_INDEX.md. Ao escrever um mandato, preserve o Boot.'
+    preface, _, _ = _processor().build_context_preface(
+        message='Uma pergunta comum, sem tarefa.', session=SimpleNamespace(),
+        preset_system_prompt=preset, use_memory=False, use_rag=False)
+    texts = [m['content'] for m in preface]
+    assert preset in texts  # No destructive rewriting of personal configuration.
+    assert CONVERSATIONAL_RESPONSE_DIRECTIVE in texts
+    assert UNTRUSTED_CONTEXT_POLICY in texts
+    assert HUMAN_INPUT_INTERPRETATION_DIRECTIVE in texts
+
+
+@pytest.mark.parametrize('message', [
+    'teste', 'oi', 'quem é você?',
+    'Não foi isso, estou apenas explicando a interface, não pedi alteração.',
+    'Explique por que o céu parece azul.',
+])
+def test_conversation_does_not_enter_a_governed_proposal(message):
+    from src.mobs_workspace_boot import requests_governed_proposal
+    assert not requests_governed_proposal(message)

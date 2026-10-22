@@ -609,8 +609,9 @@ Maintain a structured task list for multi-step coding work. Use it when the task
 
     "get_workspace": """\
 ```get_workspace
+{}
 ```
-Return the absolute path of the active workspace folder. File tools are CONFINED to it (paths can be RELATIVE to it); the shell starts there (cwd) but is NOT sandboxed. Call this first when the user says "the project"/"the code"/"this folder" without a path, instead of asking them. No arguments.""",
+Return the absolute path of the active workspace folder. File tools are CONFINED to it (paths can be RELATIVE to it); the shell starts there (cwd) but is NOT sandboxed. Call this first when the user says "the project"/"the code"/"this folder" without a path, instead of asking them. No arguments; use an empty JSON object in the fenced call.""",
 
     "create_document": """\
 ```create_document
@@ -791,7 +792,7 @@ def _section_text(name: str, default: str) -> str:
 
 
 def _compact_tool_line(name: str, section: str) -> str:
-    """One-line fenced-tool usage hint for compact/local prompts."""
+    """Compact usage hint preserving the executable fence syntax."""
     text = (section or "").strip()
     if not text:
         return f"- `{name}`"
@@ -800,17 +801,17 @@ def _compact_tool_line(name: str, section: str) -> str:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     usage = []
     in_fence = False
-    for ln in lines:
-        if ln.startswith("```"):
-            usage.append(ln)
+    for ln in text.splitlines():
+        if ln.strip().startswith("```"):
+            usage.append(ln.strip())
             in_fence = not in_fence
-            if len(usage) >= 3:
+            if not in_fence:
                 break
             continue
-        if in_fence and len(usage) < 3:
+        if in_fence:
             usage.append(ln)
     if usage:
-        return f"- `{name}` — " + " ".join(usage)
+        return f"- `{name}`\n" + "\n".join(usage)
     return f"- `{name}` — " + lines[0][:160]
 
 
@@ -826,6 +827,24 @@ def _assemble_prompt(tool_names: set, disabled_tools: set = None, compact: bool 
             if name in included:
                 tool_lines.append(f"- `{name}`" if native_tools else
                                   _compact_tool_line(name, _section_text(name, _default_section)))
+        # Code-navigation tools ship schemas rather than prose sections. Local
+        # fenced models need their argument contract too; selection/authority
+        # remains the caller's responsibility, exactly as for prose tools.
+        for schema in FUNCTION_TOOL_SCHEMAS:
+            function = schema.get("function", {})
+            name = function.get("name")
+            if name in TOOL_SECTIONS or name not in ({"grep", "glob", "ls"} & included):
+                continue
+            if native_tools:
+                tool_lines.append(f"- `{name}`")
+            else:
+                parameters = function["parameters"]
+                example = {key: f"<{key}>" for key in parameters.get("required", [])}
+                tool_lines.append(
+                    f"- `{name}` — {function.get('description', '')}\n"
+                    f"JSON parameters: {json.dumps(parameters, ensure_ascii=False)}\n"
+                    f"```{name}\n{json.dumps(example)}\n```"
+                )
         protocol = (
             "You are an AI assistant with native tool/function calling. "
             "Only the tool schemas provided by the API are available for this turn. "
@@ -1026,6 +1045,39 @@ def _insert_before_latest_user(messages: List[Dict], context_msg: Dict) -> List[
             return out
     out.append(context_msg)
     return out
+
+
+def _governed_action_message(institutional_context) -> Dict:
+    """Keep the closed execution boundary legible beside a governed request.
+
+    The reviewed authority is deliberately comprehensive and can be long. A
+    short, protected instruction next to the user turn prevents a local
+    text-only model from mistaking one tool name for a shell command or from
+    turning an approved action into a tutorial. It restates only facts already
+    enforced by ``InstitutionalContext.authorize_tool``; it never grants a
+    command, path, or operation.
+    """
+    commands = [" ".join(command) for command in institutional_context.execution.allowed_commands]
+    command_lines = "\n".join(f"- `{command}`" for command in commands) or "- none"
+    body = (
+        "GOVERNED ACTION INSTRUCTION\n"
+        "The active workspace has already been bound and verified by the trusted runtime. "
+        "Boot, document loading, snapshot review and mandate approval have already been completed by the backend. "
+        "You are executing the approved request now. Do not restart or narrate the boot sequence, "
+        "claim to load the supplied documents, or ask the user to wait for classification. "
+        "Do not put a tool name, `/workspace` directive, placeholder path, or explanatory step inside a `bash` block. "
+        "When the latest request names an allowed shell command, invoke that exact command first as one fenced `bash` tool block; "
+        "do not write a tutorial or ask the user to run it. If no allowed command is named, use only the documented tool whose "
+        "argument syntax matches the action. The runtime independently rejects every other tool and command.\n"
+        "Allowed shell-command prefixes:\n"
+        f"{command_lines}"
+    )
+    return {
+        "role": "system",
+        "content": body,
+        "_protected": True,
+        "_governed_action_instruction": True,
+    }
 
 
 def _uploaded_files_context_message(uploaded_files: Optional[List[Dict]]) -> Optional[Dict]:
@@ -2051,6 +2103,7 @@ def _build_system_prompt(
     active_email: Optional[Dict[str, str]] = None,
     workspace: Optional[str] = None,
     native_tools: bool = True,
+    protect_tool_protocol: bool = False,
 ) -> List[Dict]:
     """Build agent system prompt, inject MCP/document context, merge consecutive system msgs."""
     global _cached_base_prompt, _cached_base_prompt_key
@@ -2556,6 +2609,9 @@ def _build_system_prompt(
             logger.debug(f"MCP description injection skipped: {_mcp_err}")
 
     agent_msg = {"role": "system", "content": agent_prompt}
+    if protect_tool_protocol:
+        agent_msg["_protected"] = True
+        agent_msg["_governed_tool_protocol"] = True
     insert_idx = 0
     for i, msg in enumerate(messages):
         if msg.get("role") == "system":
@@ -3653,6 +3709,9 @@ async def _stream_agent_loop(
                 _removed_doc_file_tools,
             )
 
+    if institutional_context:
+        # Retrieval/domain hints describe ordinary chat, not mandate authority.
+        _relevant_tools = set(institutional_context.execution.allowed_tools)
     if _relevant_tools is not None:
         logger.info("[agent-intent] selected_tools=%s", sorted(_relevant_tools)[:50])
 
@@ -3736,6 +3795,7 @@ async def _stream_agent_loop(
         mcp_disabled_map=_mcp_disabled_map,
         compact=_compact_agent_prompt,
         native_tools=_is_api_model,
+        protect_tool_protocol=bool(institutional_context),
         owner=owner,
         suppress_local_context=guide_only,
         suppress_skills=_low_signal_turn,
@@ -3803,6 +3863,16 @@ async def _stream_agent_loop(
 
     if institutional_context:
         messages = _insert_before_latest_user(messages, institutional_context.message())
+        messages = _insert_before_latest_user(
+            messages, _governed_action_message(institutional_context)
+        )
+        if not max_tokens or max_tokens < 0:
+            max_tokens = 2048
+    governed_tool_protocol = next((m["content"] for m in messages
+                                  if m.get("_governed_tool_protocol")), None)
+    governed_user_message = next((m.get("content") for m in reversed(messages)
+                                 if m.get("role") == "user"), None)
+    governed_input_budget = None
 
     _t3 = time.time()
     try:
@@ -3837,6 +3907,12 @@ async def _stream_agent_loop(
                 budget_is_explicit,
                 hard_max=hard_max,
             )
+            if institutional_context and ctx_for_budget and not budget_is_explicit:
+                # A soft comfort target must not destroy the execution protocol
+                # when the complete request fits the verified serving window.
+                effective_budget = min(ctx_for_budget, hard_max)
+            if institutional_context:
+                governed_input_budget = effective_budget - reserve_tokens
             trimmed_messages = trim_for_context(
                 messages,
                 effective_budget,
@@ -3862,15 +3938,58 @@ async def _stream_agent_loop(
         if not max_tokens or max_tokens < 0:
             max_tokens = 2048
         protected = institutional_context.message()
+        governed_action_instruction = _governed_action_message(institutional_context)
         if not any(m.get("content") == protected["content"] for m in messages):
             from src.mobs_institutional_boot import InstitutionalBootError
             raise InstitutionalBootError("Institutional context lost during prompt reduction")
+        if governed_input_budget is not None and estimate_tokens(messages) > governed_input_budget:
+            # An unverified local serving window has a more specific, fail-closed
+            # outcome below.  Do not let a provisional 4K budget conceal that
+            # condition: no model call can occur until the runner proves its
+            # actual window.  Once proven, an oversized reviewed context still
+            # blocks before the provider is called.
+            from src.model_context import get_context_length_known
+            _, serving_window_known = get_context_length_known(endpoint_url, model)
+            if serving_window_known:
+                from src.mobs_institutional_boot import InstitutionalBootError
+                raise InstitutionalBootError("Governed context exceeds configured input budget")
+        if not governed_tool_protocol or not any(
+            m.get("content") == governed_tool_protocol for m in messages
+        ):
+            from src.mobs_institutional_boot import InstitutionalBootError
+            raise InstitutionalBootError("Governed tool protocol lost during prompt reduction")
+        if not any(m.get("content") == governed_action_instruction["content"] for m in messages):
+            from src.mobs_institutional_boot import InstitutionalBootError
+            raise InstitutionalBootError("Governed action instruction lost during prompt reduction")
+        if next((m.get("content") for m in reversed(messages)
+                 if m.get("role") == "user"), None) != governed_user_message:
+            from src.mobs_institutional_boot import InstitutionalBootError
+            raise InstitutionalBootError("Governed request lost during prompt reduction")
         if context_length and estimate_tokens(messages) + max_tokens > context_length:
             from src.mobs_institutional_boot import InstitutionalBootError
             raise InstitutionalBootError("Reviewed institutional context exceeds model capacity")
 
+    # Prompt assembly/reduction can regroup protected system messages. Restore
+    # the fresh, backend-selected persona source after historical assertions.
+    from src.mobs_persona_context import place_persona_context
+    persona_context = next((m for m in messages if m.get('_protected')
+                            and m.get('role') == 'system'
+                            and '_mobs_persona_sources' in m), None)
+    messages = place_persona_context(messages, persona_context)
+    if institutional_context:
+        # Keep the execution phase after persona/history placement. Identity
+        # guidance must not become the last instruction for an approved action.
+        messages = [m for m in messages if not m.get('_governed_action_instruction')]
+        messages = _insert_before_latest_user(messages, _governed_action_message(institutional_context))
+
+    # Observe composition before removing classification flags. No content is
+    # exposed and nothing is dropped or granted by this diagnostic.
+    from src.context_diagnostics import context_profile
+    initial_context_profile = context_profile(messages)
+    last_round_context_profile = initial_context_profile
     # Strip internal metadata keys before sending to the LLM API
-    messages = [{k: v for k, v in msg.items() if k != "_protected"} for msg in messages]
+    messages = [{k: v for k, v in msg.items()
+                 if k not in {"_protected", "_governed_tool_protocol", "_governed_action_instruction"}} for msg in messages]
 
     agent_prompt_tokens = estimate_tokens(messages)
     logger.info(
@@ -3880,7 +3999,7 @@ async def _stream_agent_loop(
         context_length,
         {k: round(v, 3) for k, v in prep_timings.items()},
     )
-    yield f"data: {json.dumps({'type': 'agent_prep', 'data': {k: round(v, 3) for k, v in prep_timings.items()}})}\n\n"
+    yield f"data: {json.dumps({'type': 'agent_prep', 'data': {k: round(v, 3) for k, v in prep_timings.items()}, 'context_profile': initial_context_profile})}\n\n"
 
     full_response = ""
     total_start = time.time()
@@ -4035,6 +4154,7 @@ async def _stream_agent_loop(
 
         _tool_names_sent = [t.get("function", {}).get("name") for t in (all_tool_schemas or []) if t.get("function")]
         logger.info(f"[agent-debug] round={round_num} model={model} _is_api_model={_is_api_model} tools_sent={len(_tool_names_sent)} tool_names={_tool_names_sent[:15]} relevant_tools={sorted(_relevant_tools)[:15] if _relevant_tools else 'ALL'}")
+        last_round_context_profile = context_profile(messages, all_tool_schemas)
 
         # Primary target + any configured fallback models. stream_llm_with_fallback
         # only switches on a pre-content failure, so streamed output is never
@@ -4467,6 +4587,18 @@ async def _stream_agent_loop(
             yield f'data: {json.dumps({"delta": cleaned_round})}\n\n'
 
         if not tool_blocks:
+            if (institutional_context and not tool_events
+                    and any(re.search(r'(?<!\w)' + re.escape(' '.join(command)) + r'(?!\w)',
+                                      institutional_context.mandate)
+                            for command in institutional_context.execution.allowed_commands)):
+                # A governed operation with no tool result has produced no
+                # execution evidence. Use the existing fail-closed outcome;
+                # never turn prose about future actions into completed work.
+                from src.mobs_institutional_boot import InstitutionalBootError
+                raise InstitutionalBootError(
+                    "The model emitted no governed tool call; no operation was executed. "
+                    "No automatic retry was started."
+                )
             # ── Completion verifier (mechanism 3a) ────────────────────
             # The model is finishing. If this was an effectful agentic turn,
             # have a fresh-context verifier independently check the work
@@ -5351,6 +5483,8 @@ async def _stream_agent_loop(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    metrics["initial_context_profile"] = initial_context_profile
+    metrics["last_round_context_profile"] = last_round_context_profile
     yield f"data: {json.dumps({'type': 'metrics', 'data': metrics})}\n\n"
 
     # Teacher-escalation: inline takeover visible in the chat stream.

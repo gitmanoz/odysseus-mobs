@@ -1,0 +1,58 @@
+"""Context telemetry is observational, content-free and additive."""
+from copy import deepcopy
+import json
+
+from src.context_diagnostics import context_profile
+from src.model_context import estimate_tokens
+
+
+def test_classification_keeps_protected_authority_and_never_returns_source_text():
+    messages = [
+        {"role": "system", "content": "SECRET_AUTHORITY", "_protected": True},
+        {"role": "system", "content": "SECRET_PERSONA", "_protected": True, "_mobs_persona_sources": ["private/path"]},
+        {"role": "system", "content": "PROTOCOL", "_protected": True, "_governed_tool_protocol": True},
+        {"role": "system", "content": "ACTION", "_protected": True, "_governed_action_instruction": True},
+        {"role": "user", "content": "PRIVATE_USER_REQUEST"},
+        {"role": "tool", "content": "PRIVATE_TOOL_OUTPUT"},
+    ]
+    original = deepcopy(messages)
+    profile = context_profile(messages)
+    assert messages == original
+    assert profile["message_tokens_estimated"] == estimate_tokens(messages)
+    assert sum(bucket["estimated_tokens"] for bucket in profile["categories"].values()) == estimate_tokens(messages)
+    assert set(profile["categories"]) == {"protected_context", "persona", "tool_protocol", "action_instruction", "user", "tool"}
+    text = json.dumps(profile)
+    for secret in ["SECRET_AUTHORITY", "SECRET_PERSONA", "private/path", "PRIVATE_USER_REQUEST", "PRIVATE_TOOL_OUTPUT"]:
+        assert secret not in text
+
+
+def test_schema_cost_and_literal_duplicates_are_observed_without_deduplication():
+    messages = [{"role": "system", "content": "same"}, {"role": "system", "content": "same"}]
+    schemas = [{"function": {"name": "read_file", "parameters": {"type": "object"}}}]
+    profile = context_profile(messages, schemas)
+    assert profile["duplicate_system_messages"] == 1
+    assert profile["messages"] == 2
+    assert profile["tool_schema_count"] == 1
+    assert profile["tool_schema_tokens_estimated"] > 0
+    assert "read_file" not in json.dumps(profile)
+    assert profile["image_tokens_included"] is False
+
+
+def test_multimodal_and_native_tool_call_shapes_use_existing_estimator():
+    messages = [{"role": "user", "content": [{"type": "text", "text": "request"}, {"type": "image_url", "image_url": {"url": "private"}}]},
+                {"role": "assistant", "content": None, "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path":"private"}'}}]}]
+    assert context_profile(messages)["message_tokens_estimated"] == estimate_tokens(messages)
+    assert "private" not in json.dumps(context_profile(messages))
+
+
+def test_actual_agent_loop_emits_and_persists_profiles_with_fake_transport(monkeypatch):
+    from tests.test_fenced_example_not_executed_for_native_models import _patch_common, _run_loop
+    calls = []
+    _patch_common(monkeypatch, calls)
+    events = _run_loop(monkeypatch, 'gpt-4o', ['Here is an explanation only.'])
+    preparation = next(event for event in events if event.get('type') == 'agent_prep')
+    metrics = next(event['data'] for event in events if event.get('type') == 'metrics')
+    assert preparation['context_profile']['estimate_only'] is True
+    assert metrics['initial_context_profile'] == preparation['context_profile']
+    assert metrics['last_round_context_profile']['tool_schema_count'] > 0
+    assert calls == []

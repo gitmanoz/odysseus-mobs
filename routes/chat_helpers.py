@@ -27,13 +27,15 @@ logger = logging.getLogger(__name__)
 
 _CASUAL_OPENING_RE = re.compile(
     r"^\s*(?:h+i+|hey+|hello+|yo+|sup+|what'?s up|wass?up|hiya|howdy|"
-    r"lol|lmao|haha+|hehe+|thanks?|thank you|ty|idk|dunno|meh|bruh|bro)\b(?P<tail>.*)$",
+    r"lol|lmao|haha+|hehe+|thanks?|thank you|ty|idk|dunno|meh|bruh|bro|"
+    r"oi+|ol[aá]|bom dia|boa tarde|boa noite|obrigad[oa]|valeu)\b(?P<tail>.*)$",
     re.IGNORECASE,
 )
 _CASUAL_BLOCKLIST_RE = re.compile(
     r"\b(?:cookbook|serve|serving|launch|start|vllm|sglang|llama\.?cpp|ollama|"
     r"download|model|email|document|doc|note|calendar|task|search|web|research|"
-    r"file|folder|repo|git|settings?|endpoint|api|token|mcp)\b",
+    r"file|folder|repo|git|settings?|endpoint|api|token|mcp|"
+    r"arquivo|projeto|teste|modelo|pesquis\w*|execut\w*|instal\w*|alter\w*)\b",
     re.IGNORECASE,
 )
 
@@ -840,6 +842,10 @@ async def build_chat_context(
     _after_trim_messages = len(messages)
     _after_trim_tokens = estimate_tokens(messages)
     _context_trimmed = _after_trim_messages < _before_trim_messages or _after_trim_tokens < _before_trim_tokens
+
+    from src.mobs_persona_context import place_persona_context
+    persona_context = next((m for m in preface if '_mobs_persona_sources' in m), None)
+    messages = place_persona_context(messages, persona_context)
 
     return ChatContext(
         preface=preface,

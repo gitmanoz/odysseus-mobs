@@ -293,13 +293,33 @@ class _DegenerateStreamGuard:
         self.same_run = 0
         self.recent_tokens: List[str] = []
         self.total_chars = 0
+        self.recent_text = ""
+        self.in_code_fence = False
+        self.backticks = 0
 
     def check(self, text: str) -> Optional[str]:
         if not text:
             return None
         self.total_chars += len(text)
+        # Stream chunks may contain only one letter, so word-token counting
+        # alone misses a continuous "kkkk..." or "hahaha..." collapse.
+        # Keep this bounded and exclude fenced code literals.
+        outside = []
+        for char in text:
+            self.backticks = self.backticks + 1 if char == '`' else 0
+            if self.backticks == 3:
+                self.in_code_fence = not self.in_code_fence
+                self.backticks = 0
+                self.recent_text = ""
+                outside.clear()
+            if not self.in_code_fence:
+                outside.append(char)
+        self.recent_text = (self.recent_text + ''.join(outside))[-1024:]
+        laughter = re.search(r'(?:k{256,}|(?:ha){128,}|(?:he){128,}|(?:rs){128,})$',
+                             re.sub(r'\s+', '', self.recent_text), re.IGNORECASE)
+        reason = "continuous repetitive laughter" if laughter else None
         tokens = [t.lower() for t in _DEGENERATE_WORD_RE.findall(text) if len(t) >= 2]
-        if not tokens:
+        if not tokens and not reason:
             return None
         for token in tokens:
             if token == self.last_token:
@@ -311,7 +331,6 @@ class _DegenerateStreamGuard:
         if len(self.recent_tokens) > 96:
             self.recent_tokens = self.recent_tokens[-96:]
 
-        reason = None
         if self.same_run >= 28 and self.total_chars >= 100:
             reason = f"repeated '{self.last_token}' {self.same_run} times"
         elif len(self.recent_tokens) >= 72:
@@ -2325,6 +2344,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
     if provider == "ollama":
         _ollama_tool_calls: List[Dict] = []
         _harmony_router = _HarmonyStreamRouter()
+        _ollama_thinking_guard = _DegenerateStreamGuard(model)
         try:
             client = _get_http_client()
             async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
@@ -2344,9 +2364,17 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                     message = j.get("message") or {}
                     thinking = message.get("thinking") or ""
                     if thinking:
+                        _degenerate = _ollama_thinking_guard.check(thinking)
+                        if _degenerate:
+                            yield _degenerate
+                            return
                         yield _stream_delta_event(thinking, thinking=True)
                     content = message.get("content") or ""
                     if content:
+                        _degenerate = degenerate_guard.check(content)
+                        if _degenerate:
+                            yield _degenerate
+                            return
                         for part, is_thinking in _harmony_router.feed(content):
                             yield _stream_delta_event(part, thinking=is_thinking)
                     for tc in message.get("tool_calls") or []:

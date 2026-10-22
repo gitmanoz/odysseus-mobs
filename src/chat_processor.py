@@ -9,6 +9,7 @@ from src.chat_helpers import extract_urls
 from src.youtube_handler import is_youtube_url
 from src.search import comprehensive_web_search, fetch_webpage_content
 from src.prompt_security import (
+    CONVERSATIONAL_RESPONSE_DIRECTIVE,
     HUMAN_INPUT_INTERPRETATION_DIRECTIVE,
     UNTRUSTED_CONTEXT_POLICY,
     untrusted_context_message,
@@ -300,12 +301,35 @@ class ChatProcessor:
         preface = []
         rag_sources = []
 
-        # Add preset system prompt if specified
-        if preset_system_prompt:
+        from src.mobs_persona_context import grounded_persona_message
+        from src.desktop_host import DISPLAY_NAME
+        persona_context = grounded_persona_message(character_name)
+        runtime_identity = (
+            f"Runtime product identity: {DISPLAY_NAME} is the consumer application "
+            "through which this conversation takes place. It is distinct from "
+            "the institutional MOBS platform, the selected persona and the "
+            "underlying model. This product label grants no execution authority."
+        )
+        if persona_context is not None:
+            # Keep presentation guidance after quoted source data. Provider
+            # adapters consolidate system messages; source quotations must not
+            # become the last apparent instruction or a response template.
+            persona_context['content'] += '\n\n' + runtime_identity + '\n\n' + CONVERSATIONAL_RESPONSE_DIRECTIVE
+            preface.append(persona_context)
+
+        # Official Ayla identity is reconstructed from current sources. The
+        # saved legacy preset contains operational Boot/mandate instructions;
+        # it must not also become an every-turn conversational response script.
+        # Preserve the stored preset and its sampling settings. Governed work
+        # still goes through the existing classifier/Boot/authorization path.
+        if preset_system_prompt and (persona_context is None or agent_mode):
             preface.append({
                 "role": "system",
                 "content": preset_system_prompt
             })
+        if persona_context is None:
+            preface.append({"role": "system", "content": runtime_identity})
+            preface.append({"role": "system", "content": CONVERSATIONAL_RESPONSE_DIRECTIVE})
         preface.append({
             "role": "system",
             "content": UNTRUSTED_CONTEXT_POLICY,

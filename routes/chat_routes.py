@@ -923,8 +923,10 @@ def setup_chat_routes(
                 bool(body and isinstance(body.get("attachments"), list) and body["attachments"])
                 or bool(form_data.get("attachments"))
             )
+            from src.mobs_presentation import complete_textless_action
+            _decision_only = complete_textless_action(mobs_action, {**(body or {}), **dict(form_data)})
             message, session = coerce_message_and_session(
-                body, message, session, session_manager, allow_empty=_has_atts,
+                body, message, session, session_manager, allow_empty=_has_atts or _decision_only,
             )
             # Verify ownership AFTER coerce (which may resolve a default session)
             # but BEFORE loading. Prevents cross-user session hijack.
@@ -2076,6 +2078,29 @@ def setup_chat_routes(
     # GET /api/chat/resume — reconnect to a detached run that's still going
     # (e.g. after reopening a session whose agent kept running in the background)
     # ------------------------------------------------------------------ #
+    @router.get("/api/chat/institutional_state/{session_id}")
+    def institutional_state(request: Request, session_id: str,
+                            promotion_id: str | None = None, promotion_digest: str | None = None):
+        # Repository revalidation is blocking I/O. FastAPI runs a synchronous
+        # route in its existing worker pool, preserving responsiveness without
+        # changing the observational contract or the verification itself.
+        _verify_session_owner(request, session_id)
+        from src.tool_security import owner_is_admin_or_single_user
+        if not owner_is_admin_or_single_user(effective_user(request)):
+            raise HTTPException(403, "MOBS workspace access is not authorized")
+        from src.mobs_presentation import session_presentation
+        from fastapi.responses import JSONResponse
+        reference = None
+        if promotion_id is not None or promotion_digest is not None:
+            if (not re.fullmatch(r"[0-9a-f]{32}", promotion_id or "") or
+                    not re.fullmatch(r"[0-9a-f]{64}", promotion_digest or "")):
+                raise HTTPException(400, "Invalid artifact preview reference")
+            reference = (promotion_id, promotion_digest)
+        presentation = (session_presentation(session_id, request) if reference is None else
+                        session_presentation(session_id, request, reference))
+        return JSONResponse(presentation,
+                            headers={"Cache-Control": "no-store"})
+
     @router.get("/api/chat/resume/{session_id}")
     async def chat_resume(request: Request, session_id: str) -> StreamingResponse:
         _verify_session_owner(request, session_id)

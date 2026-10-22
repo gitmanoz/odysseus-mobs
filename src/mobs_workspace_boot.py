@@ -18,11 +18,24 @@ _ROOT_ENV_KEYS = ("MOBS_INSTITUTIONAL_ROOT", "MOBS_WORKSPACE_PATH", "MOBS_WORKSP
 # Intent-first is deliberately narrower than the Decision Tree classifier. It
 # decides only whether a human request should enter the governed *proposal*
 # path; the Index remains the authority that classifies that proposal.
+# Closed request forms rather than stems ("criada" is not "crie").
 _GOVERNED_ACTION_RE = re.compile(
-    r"\b(?:analise?|analisar|inspecione?|inspecionar|revise?|revisar|"
-    r"corrij\w*|conserte?\w*|implemente?\w*|adicione?\w*|atualiz\w*|remova?\w*|"
-    r"refatore?\w*|edite?\w*|crie?\w*|teste?\w*|valide?\w*|build\w*|"
-    r"fix(?:e|ar)?|implement\w*|add\w*|remove\w*|refactor\w*)\b",
+    r"\b(?:analise|analisar|inspecione|inspecionar|revise|revisar|"
+    r"corrija|corrige|corrigir|conserte|conserta|consertar|implemente|implementar|"
+    r"adicione|adiciona|adicionar|atualize|atualiza|atualizar|remova|remover|"
+    r"refatore|refatora|refatorar|edite|edita|editar|crie|cria|criar|"
+    r"teste|testa|testar|valide|validar|execute|executar|roda|rode|rodar|"
+    r"faça|faca|faz|fazer|build|fix|implement|add|remove|refactor)\b",
+    re.IGNORECASE,
+)
+_REQUEST_PREFIX_RE = re.compile(
+    r"^(?:(?:por favor|por gentileza|please|então|entao|agora)\s+)*"
+    r"(?:(?:ser[aá] que\s+)?(?:voc[eê]|voce|vc|tu)\s+)?"
+    r"(?:(?:can|could|would)\s+you\s+(?:please\s+)?|"
+    r"(?:pode|poderia|consegue|conseguiria)\s+(?:me\s+)?"
+    r"(?:(?:ajudar|ajuda)\s+(?:a\s+)?)?|"
+    r"(?:quero|queria|preciso|gostaria)\s+(?:(?:que\s+)(?:(?:voc[eê]|vc)\s+)?|de\s+)?|"
+    r"(?:me\s+)?(?:ajude|ajuda)\s+(?:a\s+)?|(?:vamos|bora)\s+)?",
     re.IGNORECASE,
 )
 _GOVERNED_SUBJECT_RE = re.compile(
@@ -66,8 +79,27 @@ def requests_governed_proposal(user_request: str) -> bool:
     or an execution mode. It merely enters the existing workspace-first
     proposal path, where those values are derived and verified independently.
     """
-    text = " ".join(str(user_request or "").split())
-    return bool(_GOVERNED_ACTION_RE.search(text) and _GOVERNED_SUBJECT_RE.search(text))
+    text = str(user_request or '')
+    # Quoted examples and code are evidence, not requests to execute them.
+    text = re.sub(r"""```.*?```|"[^"\n]*"|“[^”\n]*”|'[^'\n]*'""", ' ', text, flags=re.S)
+    for clause in re.split(r'[.;!?\n]+', text):
+        clause = re.sub(r'[,\s]+', ' ', clause).strip()
+        # Optional vocative/short conversational lead-in; it never changes persona.
+        clause = re.sub(r'^(?:ayla|assistente|por favor|por gentileza)\b\s*', '', clause, flags=re.I)
+        clause = re.sub(r'^(?:tarefa|objetivo|faz o seguinte|faça o seguinte)\s*:\s*', '', clause, flags=re.I)
+        prefix = _REQUEST_PREFIX_RE.match(clause)
+        candidate = clause[prefix.end():] if prefix else clause
+        action = _GOVERNED_ACTION_RE.match(candidate)
+        # Nouns at the start of a statement can share an imperative spelling:
+        # "teste do código" / "build do projeto". A nominal complement is not
+        # evidence of a request (the adverbial "de novo" is different).
+        if action and re.match(r"\s+(?:de|do|da|dos|das)\b(?!\s+novo\b)", candidate[action.end():], re.I):
+            continue
+        if action and any(subject.start() >= action.end()
+                          for subject in _GOVERNED_SUBJECT_RE.finditer(candidate)):
+            return True
+    return False
+
 
 
 def classify_request(user_request: str, index: str) -> str:

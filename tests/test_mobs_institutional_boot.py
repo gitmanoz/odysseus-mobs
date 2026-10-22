@@ -273,6 +273,27 @@ def test_failed_boot_never_calls_model_or_tools(mandate, monkeypatch):
     assert any('institutional_blocked' in c for c in chunks)
 
 
+@pytest.mark.parametrize('reply', ['Carregamento dos documentos concluído. Aguarde.',
+                                 'Executei pytest; todos os testes passaram.'])
+def test_explicit_governed_command_without_tool_call_is_blocked(mandate, tmp_path, monkeypatch, reply):
+    loop = loop_setup(monkeypatch)
+    mandate = shell_mandate(mandate, tmp_path, ['python -m pytest'])
+    mandate['mandate'] = 'Execute python -m pytest -q tests/test_probe.py'
+    calls = []
+    async def stream(*args, **kwargs):
+        calls.append(kwargs)
+        yield 'data: ' + json.dumps({'delta': reply}) + '\n\n'
+        yield 'data: [DONE]\n\n'
+    monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
+    monkeypatch.setattr(loop, 'execute_tool_block', lambda *a, **kw: pytest.fail('unexpected dispatch'))
+    chunks = run_governed(loop, mandate)
+    assert len(calls) == 1
+    assert any('no governed tool call' in chunk for chunk in chunks)
+    assert any('institutional_blocked' in chunk for chunk in chunks)
+    assert not any('institutional_verified' in chunk for chunk in chunks)
+    assert chunks.count('data: [DONE]\n\n') == 1
+
+
 def test_loop_blocks_smaller_runner_after_response_before_tool_dispatch(mandate, monkeypatch):
     loop = loop_setup(monkeypatch)
     serving = {'window': 100000}
@@ -344,6 +365,82 @@ def test_lost_context_fails_before_model(mandate, monkeypatch):
     monkeypatch.setattr(loop, 'stream_llm_with_fallback', forbidden)
     chunks = run_governed(loop, mandate)
     assert any('Institutional context lost' in c for c in chunks)
+
+
+@pytest.mark.parametrize('lost', ['protocol', 'request'])
+def test_lost_governed_execution_instructions_fail_before_model(mandate, monkeypatch, lost):
+    loop = loop_setup(monkeypatch)
+    import src.context_compactor as compactor
+    def reduce(messages, *args, **kwargs):
+        if lost == 'protocol':
+            return [m for m in messages if not m.get('_governed_tool_protocol')]
+        return [{**m, 'content': 'truncated request'} if m.get('role') == 'user' else m
+                for m in messages]
+    monkeypatch.setattr(compactor, 'trim_for_context', reduce)
+    def forbidden(*args, **kwargs):
+        pytest.fail('model ran after losing governed execution instructions')
+    monkeypatch.setattr(loop, 'stream_llm_with_fallback', forbidden)
+    chunks = run_governed(loop, mandate)
+    assert any(('Governed tool protocol lost' if lost == 'protocol' else 'Governed request lost')
+               in chunk for chunk in chunks)
+
+
+def test_governed_tool_selection_cannot_be_expanded_by_domain_hints(mandate, monkeypatch):
+    loop = loop_setup(monkeypatch)
+    original = loop._build_system_prompt
+    selected = []
+    def build(*args, **kwargs):
+        selected.append(set(kwargs['relevant_tools']))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(loop, '_build_system_prompt', build)
+    async def stream(candidates, messages, **kwargs):
+        assert all('_governed_tool_protocol' not in m for m in messages)
+        yield 'data: {"delta":"Available tools checked."}\n\n'
+        yield 'data: [DONE]\n\n'
+    monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
+    chunks = run_governed(loop, mandate)
+    assert selected == [set(mandate['allowed_tools'])]
+    assert any('institutional_verified' in chunk for chunk in chunks)
+
+
+@pytest.mark.parametrize('explicit', [False, True])
+def test_governed_request_fitting_real_window_survives_smaller_soft_budget(mandate, monkeypatch, explicit):
+    loop = loop_setup(monkeypatch)
+    from src.mobs_institutional_boot import InstitutionalContext
+    original = InstitutionalContext.message
+    def full_context(self):
+        message = original(self)
+        return {**message, 'content': message['content'] + '\n' + 'Reviewed context. ' * 4500}
+    monkeypatch.setattr(InstitutionalContext, 'message', full_context)
+    monkeypatch.setattr('src.model_context.get_context_length_known', lambda *a: (32768, True))
+    monkeypatch.setattr('src.context_budget.compute_input_token_budget', lambda *a, **kw: 20000)
+    if explicit:
+        monkeypatch.setattr(loop, 'get_setting', lambda key, default=None:
+                            20000 if key == 'agent_input_token_budget' else default)
+    request = 'Inspect the code and explain it without changing the approved scope.'
+    seen = []
+    async def stream(candidates, messages, **kwargs):
+        seen.extend(messages)
+        assert any(m.get('content') == request for m in messages)
+        assert any('fenced code block' in str(m.get('content')) for m in messages)
+        assert any(m.get('content', '').endswith('Reviewed context. ' * 4500) for m in messages)
+        assert loop.estimate_tokens(messages) + 2048 <= 32768
+        yield 'data: {"delta":"Available tools checked."}\n\n'
+        yield 'data: [DONE]\n\n'
+    monkeypatch.setattr(loop, 'stream_llm_with_fallback', stream)
+    chunks = collect(loop.stream_agent_loop(
+        'http://localhost:11434/api/chat', 'test-model',
+        [{'role':'system', 'content':'Assistant guidance. ' * 250},
+         {'role':'user', 'content':request}],
+        mobs_execution=mandate, workspace=mandate['target']['path'],
+        owner=mandate['review_record']['reviewer'], max_rounds=1, context_length=32768))
+    if explicit:
+        assert not seen
+        assert any('configured input budget' in chunk for chunk in chunks)
+        assert any('institutional_blocked' in chunk for chunk in chunks)
+    else:
+        assert seen
+        assert any('institutional_verified' in chunk for chunk in chunks)
 
 
 def test_owner_denied_before_any_repository_read(mandate, monkeypatch):

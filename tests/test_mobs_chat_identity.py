@@ -66,6 +66,10 @@ def chat(projects, tmp_path, monkeypatch):
     monkeypatch.setattr("src.settings.get_setting", lambda key, default=None: default)
     monkeypatch.setattr(loop, "get_setting", lambda key, default=None: default)
     monkeypatch.setattr(loop, "get_mcp_manager", lambda: None)
+    # Model transport is synthetic; its serving window must be synthetic too.
+    # Never consult whichever real Ollama runner happens to be resident while
+    # exercising HTTP identity/authorization with this fixture.
+    monkeypatch.setattr("src.model_context.get_context_length_known", lambda *a: (32768, True))
     async def context(*args, **kwargs):
         return SimpleNamespace(messages=[{"role": "user", "content": kwargs["message"]}],
                                user="founder", preset=SimpleNamespace(temperature=None, max_tokens=1024, character_name=None),
@@ -145,6 +149,21 @@ def test_intent_first_conversation_stays_outside_mobs(chat):
     response = chat.post(message="Explique o que é uma função Python.")
     assert response.status_code == 200, response.text
     assert "mobs_" not in response.text
+    assert load_proposal("s") is None
+
+
+@pytest.mark.parametrize("message", [
+    "Não foi isso. A interface já foi criada na última build, eu só estou explicando.",
+    "Foi criada uma build nova?",
+    "Eu pedi para corrigir o código antes; agora estou explicando o resultado.",
+    "Não execute testes no projeto. Explique o comportamento.",
+])
+def test_conversational_correction_without_workspace_reaches_chat_not_proposal(chat, message):
+    response = chat.post(message=message, workspace="")
+    assert response.status_code == 200, response.text
+    assert "mobs_mandate_proposal" not in response.text
+    assert "mobs_clarification_required" not in response.text
+    assert chat.model_calls
     assert load_proposal("s") is None
 
 
