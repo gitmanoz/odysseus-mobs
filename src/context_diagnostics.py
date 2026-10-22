@@ -35,6 +35,19 @@ def context_profile(messages, tool_schemas=None):
             seen_system.add(content)
     schemas = tool_schemas or []
     schema_text = json.dumps(schemas, ensure_ascii=False, separators=(",", ":")) if schemas else ""
+    groups = {}
+    families = {'navigation': {'read_file', 'ls', 'grep', 'glob', 'get_workspace'},
+                'editing': {'write_file', 'edit_file', 'apply_patch'},
+                'execution': {'bash', 'python'},
+                'coordination': {'ask_user', 'update_plan', 'manage_memory'}}
+    for schema in schemas:
+        function = schema.get('function') if isinstance(schema, dict) else None
+        name = function.get('name') if isinstance(function, dict) else ''
+        if not isinstance(name, str): name = ''
+        family = next((key for key, names in families.items() if name in names), 'other')
+        group = groups.setdefault(family, {'count': 0, 'estimated_tokens': 0})
+        group['count'] += 1
+        group['estimated_tokens'] += int(len(json.dumps(schema, ensure_ascii=False, separators=(',', ':'))) * 0.3)
     return {
         "estimate_only": True,
         "messages": len(messages),
@@ -45,5 +58,6 @@ def context_profile(messages, tool_schemas=None):
         "duplicate_protected_messages": duplicate_protected,
         "tool_schema_count": len(schemas),
         "tool_schema_tokens_estimated": int(len(schema_text) * 0.3),
+        "tool_schema_groups": groups,
         "image_tokens_included": False,
     }

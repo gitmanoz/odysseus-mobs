@@ -76,3 +76,25 @@ def test_reopened_transcripts_keep_latest_request_and_isolate_synthetic_provider
     assert all('Outro projeto.' != m['content'] for m in requests[-1][1])
     assert [m['content'] for m in requests[2][1]] == ['Outro projeto.']
     engine.dispose()
+
+
+def test_long_saved_conversation_preserves_order_latest_turn_and_project_isolation(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from core.database import Base
+    import core.session_manager as sessions
+    engine=create_engine('sqlite:///'+str(tmp_path/'long.sqlite'))
+    Base.metadata.create_all(engine)
+    monkeypatch.setattr(sessions,'SessionLocal',sessionmaker(bind=engine))
+    manager=sessions.SessionManager()
+    for sid in ('project-A','project-B'):
+        manager.create_session(sid,sid,'http://synthetic.invalid','fixture',owner='fixture')
+    for i in range(300):
+        manager.add_message('project-A',sessions.ChatMessage(role='user' if i%2==0 else 'assistant',content=f'A-{i}'))
+    manager.add_message('project-B',sessions.ChatMessage(role='user',content='B-private'))
+    reopened=sessions.SessionManager()
+    context=reopened.get_session('project-A').get_context_messages()
+    assert [m['content'] for m in context]==[f'A-{i}' for i in range(300)]
+    assert reopened.get_session('project-B').get_context_messages()[0]['content']=='B-private'
+    assert all(m['content']!='B-private' for m in context)
+    engine.dispose()

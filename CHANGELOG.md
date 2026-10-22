@@ -16,6 +16,8 @@
 
 ### Added
 
+- Content-free schema-family cost diagnostics and offline comparisons of existing read/development tool sets, without changing runtime selection or protected context.
+
 - Build-time source fingerprints and package inventory manifests with required-component, source-drift and payload-integrity checks; the existing build invokes them without adding an installer or activation path.
 
 - Browse successful file-read snapshots already loaded in a conversation, with workspace isolation, bounded literal search, line navigation and optional mandate-baseline references. This does not enumerate unread files or introduce a read API.
@@ -36,6 +38,8 @@
 - Batch four fixed Git metadata-path queries while preserving before/after fingerprints, repository checks and restricted subprocess settings. One profiled multifile case reduced Git-helper invocations from 697 to 523 and call time from about 45 to 33 seconds; this is not a whole-suite or model-performance claim.
 
 ### Validation and limits
+
+- The local-roadmap regression selection passed 254 distinct cases, plus one real governed-read/dispatcher case with synthetic provider output. Long-session coverage persisted/reopened 300 messages; workflows used a deliberately failing baseline, a correct candidate and a misleading candidate. No inference, Computer Use or binary activation occurred.
 
 - The existing backup CLI was exercised with disposable SQLite WAL/configuration data through snapshot, verification and restore. No personal data, canonical package or active database was restored or replaced.
 

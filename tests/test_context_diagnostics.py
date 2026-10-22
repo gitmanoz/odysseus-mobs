@@ -83,3 +83,18 @@ def test_actual_agent_loop_emits_and_persists_profiles_with_fake_transport(monke
     assert metrics['initial_context_profile'] == preparation['context_profile']
     assert metrics['last_round_context_profile']['tool_schema_count'] > 0
     assert calls == []
+
+
+def test_schema_family_audit_preserves_input_and_keeps_unknown_names_private():
+    schemas=[{'function':{'name':name,'parameters':{'type':'object'}}} for name in ['read_file','write_file','bash','update_plan','PRIVATE_PLUGIN']]
+    before=deepcopy(schemas)
+    profile=context_profile([],schemas)
+    assert sum(g['count'] for g in profile['tool_schema_groups'].values())==5
+    assert set(profile['tool_schema_groups'])=={'navigation','editing','execution','coordination','other'}
+    assert schemas==before
+    assert 'PRIVATE_PLUGIN' not in json.dumps(profile)
+
+
+def test_unknown_schema_shapes_do_not_break_observation():
+    profile=context_profile([],[None,{'function':None},{'function':{'name':[]}}])
+    assert profile['tool_schema_groups']['other']['count']==3

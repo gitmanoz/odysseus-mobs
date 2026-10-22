@@ -25,6 +25,12 @@ export function recordStudioDiagnostics(message, metrics) {
     for (const [name, value] of Object.entries(profile.categories || {}).slice(0, 16)) {
       if (Number.isFinite(value?.estimated_tokens) && value.estimated_tokens >= 0) safe.categories[name] = { estimated_tokens: value.estimated_tokens, messages: Number.isFinite(value.messages) ? value.messages : 0 };
     }
+    safe.tool_schema_groups = {};
+    for (const name of ['navigation', 'editing', 'execution', 'coordination', 'other']) {
+      const value = profile.tool_schema_groups?.[name];
+      if (Number.isFinite(value?.count) && value.count >= 0 && Number.isFinite(value.estimated_tokens) && value.estimated_tokens >= 0)
+        safe.tool_schema_groups[name] = { count: value.count, estimated_tokens: value.estimated_tokens };
+    }
     data[key] = safe;
   }
   if (Object.keys(data).length) message.dataset.studioDiagnostics = JSON.stringify(data);
@@ -61,6 +67,9 @@ export function renderStudioDiagnostics(target, history) {
       if (profile.duplicate_system_messages) row('Revisão das repetições', 'Verifique origem e obrigatoriedade antes de propor mudanças. Nenhuma deduplicação automática ou remoção de autoridade foi autorizada.');
       const schemas = data.last_round_context_profile || profile;
       row('Schemas na última chamada observada', `${schemas.tool_schema_count || 0} · ~${schemas.tool_schema_tokens_estimated || 0} tokens`);
+      const toolFamilies = {navigation:'Navegação de código',editing:'Edição',execution:'Execução',coordination:'Coordenação',other:'Outras ferramentas'};
+      for (const [family, value] of Object.entries(schemas.tool_schema_groups || {})) row(toolFamilies[family] || 'Outras ferramentas', `${value.count} schemas · ~${value.estimated_tokens} tokens`);
+      row('Auditoria de seleção', 'Peso por família não demonstra irrelevância. Compare tarefa, ferramentas admitidas e chamadas efetivas antes de reduzir schemas; nenhuma autoridade foi removida.');
       const last = data.last_round_context_profile;
       if (last && Number.isFinite(last.message_tokens_estimated) && Number.isFinite(profile.message_tokens_estimated)) {
         const change = last.message_tokens_estimated - profile.message_tokens_estimated;
