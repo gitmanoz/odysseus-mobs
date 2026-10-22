@@ -3716,6 +3716,7 @@ def setup_email_routes():
             _assert_owns_account(account_id, owner)
         deleted = 0
         folders_checked = []
+        failed_folders = 0
         try:
             cfg = _get_email_config(account_id, owner=owner)
             own_addrs = [
@@ -3769,13 +3770,16 @@ def setup_email_routes():
                                 if copy_st == "OK":
                                     conn.uid("STORE", uid, "+FLAGS", "\\Deleted")
                                 else:
-                                    conn.uid("STORE", uid, "+FLAGS", "\\Deleted")
+                                    # Failed Trash copy must never become a permanent deletion.
+                                    raise RuntimeError("Reminder could not be copied to Trash")
                             deleted += 1
                         conn.expunge()
                     except Exception as e:
+                        failed_folders += 1
                         logger.warning(f"Skipped reminder cleanup in {folder_name!r}: {e}")
             _invalidate_list_cache(account_id)
-            return {"success": True, "deleted": deleted, "folders_checked": folders_checked}
+            return {"success": failed_folders == 0, "deleted": deleted, "folders_checked": folders_checked,
+                    "failed_folders": failed_folders}
         except Exception as e:
             logger.error(f"delete_odysseus_reminder_emails failed: {e}")
             return {"success": False, "error": "Mail operation failed"}

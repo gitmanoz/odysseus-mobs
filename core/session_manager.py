@@ -13,6 +13,7 @@ import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional
+from sqlalchemy import or_
 
 from .database import Session as DbSession, ChatMessage as DbChatMessage, Document as DbDocument, SessionLocal, utcnow_naive
 from .models import Session, ChatMessage
@@ -90,9 +91,19 @@ class SessionManager:
         """
         db = SessionLocal()
         try:
+            from .database import MobsExecution, MobsPromotion
+            pending_proposals = db.query(MobsExecution.session_id).filter(
+                MobsExecution.status.in_(("pending", "approved")))
+            pending_promotions = db.query(MobsPromotion.session_id).filter(
+                MobsPromotion.status.in_(("human_approval_required", "promotion_preauthorized",
+                                         "promotion_applying", "promotion_interrupted_or_uncertain")))
             db_sessions = db.query(DbSession).filter(
                 DbSession.archived == False,
-                DbSession.message_count > 0,
+                # A governed proposal can precede the first chat message.
+                # Loading its session metadata makes the persisted pending
+                # record discoverable; it does not resume or approve a run.
+                or_(DbSession.message_count > 0, DbSession.id.in_(pending_proposals),
+                    DbSession.id.in_(pending_promotions)),
             ).order_by(DbSession.last_accessed.desc()).limit(100).all()
 
             loaded_count = 0
@@ -289,6 +300,8 @@ class SessionManager:
 
     def truncate_messages(self, session_id: str, keep_count: int) -> bool:
         """Truncate session history, keeping only the first `keep_count` messages."""
+        if type(keep_count) is not int or keep_count < 0:
+            raise ValueError("keep_count must be a non-negative integer")
         session = self.get_session(session_id)
 
         if keep_count < 0:
@@ -704,11 +717,14 @@ class SessionManager:
 
                 # Delete empty sessions only if older than min_age_hours
                 if db_session.message_count == 0:
+                    # A denormalized zero is not proof of an empty conversation.
+                    if db.query(DbChatMessage.id).filter(DbChatMessage.session_id == db_session.id).first():
+                        continue
                     if db_session.created_at is not None:
                         created = db_session.created_at
                         if created.tzinfo is None:
                             created = created.replace(tzinfo=timezone.utc)
-                        if created > min_age:
+                        if created.astimezone(timezone.utc).replace(tzinfo=None) > min_age:
                             continue  # Too young to delete
                     if db_session.id in self.sessions:
                         del self.sessions[db_session.id]

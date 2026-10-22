@@ -368,6 +368,8 @@ def setup_upload_routes(upload_handler):
         if info:
             original_name = info.get("name", file_id)
         auth_mgr = getattr(request.app.state, "auth_manager", None)
+        if auth_mgr is None and os.getenv("AUTH_ENABLED", "true").lower() != "false":
+            raise HTTPException(503, "Upload ownership verification unavailable")
         auth_configured = bool(auth_mgr and auth_mgr.is_configured)
         current_user = effective_user(request)
         file_owner = info.get("owner") if info else None
@@ -457,6 +459,8 @@ def setup_upload_routes(upload_handler):
             raise HTTPException(400, "Invalid file ID")
         info = _load_upload_info(file_id)
         auth_mgr = getattr(request.app.state, "auth_manager", None)
+        if auth_mgr is None and os.getenv("AUTH_ENABLED", "true").lower() != "false":
+            raise HTTPException(503, "Upload ownership verification unavailable")
         auth_configured = bool(auth_mgr and auth_mgr.is_configured)
         current_user = effective_user(request)
         file_owner = info.get("owner") if info else None
@@ -503,6 +507,8 @@ def setup_upload_routes(upload_handler):
         if not info:
             raise HTTPException(404, "File not found")
         auth_mgr = getattr(request.app.state, "auth_manager", None)
+        if auth_mgr is None and os.getenv("AUTH_ENABLED", "true").lower() != "false":
+            raise HTTPException(503, "Upload ownership verification unavailable")
         auth_configured = bool(auth_mgr and auth_mgr.is_configured)
         current_user = effective_user(request)
         file_owner = info.get("owner")

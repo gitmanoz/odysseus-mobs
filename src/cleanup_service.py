@@ -118,7 +118,8 @@ async def cleanup_old_sessions(session_manager, owner: Optional[str] = None) -> 
                 preserved_count += 1
                 continue
 
-            if session.message_count >= CleanupConfig.MIN_MESSAGES_TO_KEEP:
+            actual_count = db.query(DbChatMessage).filter(DbChatMessage.session_id == session.id).count()
+            if max(session.message_count or 0, actual_count) >= CleanupConfig.MIN_MESSAGES_TO_KEEP:
                 preserved_count += 1
                 continue
 
@@ -176,7 +177,7 @@ async def get_cleanup_preview(owner: Optional[str] = None) -> Dict[str, Any]:
     estimated_space_freed = 0
     preserved_sessions = []
 
-    from src.database import SessionLocal, Session as DbSession
+    from src.database import SessionLocal, Session as DbSession, ChatMessage as DbChatMessage
     db = SessionLocal()
     try:
         archive_q = db.query(DbSession).filter(
@@ -220,13 +221,14 @@ async def get_cleanup_preview(owner: Optional[str] = None) -> Dict[str, Any]:
                 })
                 continue
 
-            if session.message_count >= CleanupConfig.MIN_MESSAGES_TO_KEEP:
+            actual_count = db.query(DbChatMessage).filter(DbChatMessage.session_id == session.id).count()
+            if max(session.message_count or 0, actual_count) >= CleanupConfig.MIN_MESSAGES_TO_KEEP:
                 preserved_sessions.append({
                     "id": session.id,
                     "name": session.name,
                     "reason": f"has {CleanupConfig.MIN_MESSAGES_TO_KEEP}+ messages",
                     "last_accessed": session.last_accessed.isoformat() if session.last_accessed else "Unknown",
-                    "message_count": session.message_count
+                    "message_count": max(session.message_count or 0, actual_count)
                 })
                 continue
 

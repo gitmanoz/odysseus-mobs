@@ -297,11 +297,15 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
         _verify_session_owner(request, session_id)
         try:
             body = await request.json()
-            keep_count = body.get("keep_count", 0)
+            keep_count = body.get("keep_count") if isinstance(body, dict) else None
+            if type(keep_count) is not int or keep_count < 0:
+                raise HTTPException(400, "keep_count must be an explicit non-negative integer")
             result = session_manager.truncate_messages(session_id, keep_count)
             return {"status": "ok", "kept": keep_count, "truncated": result}
         except KeyError:
             raise HTTPException(404, "Session not found")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Truncate error {session_id}: {e}")
             raise HTTPException(500, str(e))

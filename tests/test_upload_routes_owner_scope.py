@@ -130,6 +130,16 @@ def test_download_file_denies_anonymous_when_auth_is_configured(tmp_path, monkey
     assert exc.value.status_code == 403
 
 
+@pytest.mark.parametrize('operation', ['download_file', 'get_vision_text', 'put_vision_text'])
+def test_download_file_missing_auth_manager_never_opens_other_owner_file(tmp_path, monkeypatch, operation):
+    monkeypatch.setenv('AUTH_ENABLED', 'true')
+    handler, _, bob_id, _ = _make_upload_store(tmp_path, monkeypatch)
+    download_file = _upload_endpoints(handler, monkeypatch)[operation]
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(download_file(_Request(user='alice', auth_manager=None), bob_id))
+    assert exc.value.status_code == 503
+
+
 def test_download_file_denies_cross_owner_without_leaking_file(tmp_path, monkeypatch):
     handler, _alice_id, bob_id, _upload_dir = _make_upload_store(tmp_path, monkeypatch)
     download_file = _upload_endpoints(handler, monkeypatch)["download_file"]
@@ -316,6 +326,7 @@ def test_put_vision_text_allows_same_owner_to_write_cache(tmp_path, monkeypatch)
 
 
 def test_download_file_survives_corrupted_uploads_json(tmp_path, monkeypatch):
+    monkeypatch.setenv('AUTH_ENABLED', 'false')  # Explicit standalone mode, not a missing guard.
     # A truncated/corrupt uploads.json must not 500 the download endpoint —
     # metadata simply becomes unavailable and the file is still served.
     handler, alice_id, _bob_id, upload_dir = _make_upload_store(tmp_path, monkeypatch)
@@ -340,5 +351,5 @@ def test_put_vision_text_returns_400_on_malformed_json(tmp_path, monkeypatch):
             raise json.JSONDecodeError("Expecting value", "not json", 0)
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(put_vision_text(_BadJsonRequest(), alice_id))
+        asyncio.run(put_vision_text(_BadJsonRequest(user='alice', auth_manager=_AuthManager()), alice_id))
     assert exc.value.status_code == 400
