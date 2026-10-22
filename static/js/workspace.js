@@ -34,6 +34,12 @@ function _isChatMode() {
 }
 
 export function syncWorkspaceIndicator(path) {
+  const primary = document.getElementById('product-workspace-btn');
+  if (primary) {
+    const label = primary.querySelector('span');
+    if (label) label.textContent = path ? _basename(path) : 'Projeto';
+    primary.title = path ? `Workspace: ${path}. Clique para inspecionar ou selecionar.` : 'Selecionar projeto ou workspace';
+  }
   const chat = _isChatMode();
   const pill = document.getElementById('workspace-indicator-btn');
   const name = document.getElementById('workspace-indicator-name');
@@ -58,9 +64,12 @@ export function applyMode(_mode) {
 }
 
 export function setWorkspace(path) {
+  if (window.studioShell && !window.studioShell.canChangeWorkspace(path || '')) return false;
   if (path) Storage.set(KEYS.WORKSPACE, path);
   else Storage.remove(KEYS.WORKSPACE);
   syncWorkspaceIndicator(path || '');
+  document.dispatchEvent(new CustomEvent('studio-workspace-changed', { detail: { path: path || '' } }));
+  return true;
 }
 
 /**
@@ -75,8 +84,7 @@ export async function vetAndSetWorkspace(path) {
     if (!res.ok) return { ok: false, path: null };
     const data = await res.json();
     if (data.ok && data.path) {
-      setWorkspace(data.path);
-      return { ok: true, path: data.path };
+      return { ok: setWorkspace(data.path) !== false, path: data.path };
     }
     return { ok: false, path: null };
   } catch (e) {
@@ -86,7 +94,7 @@ export async function vetAndSetWorkspace(path) {
 
 export function clearWorkspace() {
   setWorkspace('');
-  if (uiModule && uiModule.showToast) uiModule.showToast('Workspace cleared');
+  if (uiModule && uiModule.showToast) uiModule.showToast('Seleção de workspace removida');
 }
 
 async function _load(path) {
@@ -114,10 +122,10 @@ function _render(data) {
     rows += `<div class="workspace-row" data-path="${encodeURIComponent(d.path)}">${_FOLDER_SVG}<span>${uiModule.esc(d.name)}</span></div>`;
   }
   if (data.truncated) {
-    rows += '<div class="workspace-empty">Too many folders to list. Type or paste a path above to jump in.</div>';
+    rows += '<div class="workspace-empty">Há muitas pastas. Digite um caminho acima para navegar.</div>';
   }
-  if (!data.dirs.length && !data.parent) rows = '<div class="workspace-empty">No subfolders</div>';
-  body.innerHTML = rows || '<div class="workspace-empty">No subfolders</div>';
+  if (!data.dirs.length && !data.parent) rows = '<div class="workspace-empty">Nenhuma subpasta</div>';
+  body.innerHTML = rows || '<div class="workspace-empty">Nenhuma subpasta</div>';
   body.querySelectorAll('.workspace-row').forEach((row) => {
     row.addEventListener('click', () => _navigate(decodeURIComponent(row.dataset.path)));
   });
@@ -126,7 +134,7 @@ function _render(data) {
   const useBtn = _modal.querySelector('#workspace-use');
   if (useBtn) {
     useBtn.disabled = data.selectable === false;
-    useBtn.title = data.selectable === false ? 'This folder cannot be used as a workspace' : '';
+    useBtn.title = data.selectable === false ? 'Esta pasta não pode ser usada como workspace' : '';
   }
 }
 
@@ -134,7 +142,7 @@ async function _navigate(path) {
   try {
     _render(await _load(path));
   } catch (e) {
-    if (uiModule && uiModule.showError) uiModule.showError('Could not open folder');
+    if (uiModule && uiModule.showError) uiModule.showError('Não foi possível abrir a pasta');
   }
 }
 
@@ -147,20 +155,28 @@ function _getModal() {
   _modal.innerHTML = `
     <div class="modal-content">
       <div class="modal-header">
-        <h4><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Select workspace</h4>
-        <button class="close-btn" id="workspace-close" aria-label="Close">✖</button>
+        <h4><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Selecionar workspace</h4>
+        <button type="button" class="workspace-tip-toggle" id="workspace-tip-toggle" aria-expanded="false" aria-controls="workspace-tip" aria-label="Entender o workspace">?</button>
+        <button class="close-btn" id="workspace-close" aria-label="Fechar">✖</button>
       </div>
+      <p id="workspace-tip" class="workspace-tip" role="note" hidden><strong>Seu workspace</strong><br>Define a pasta da tarefa. Selecionar uma pasta não concede permissões nem aprova um mandato.</p>
       <input type="text" class="styled-prompt-input workspace-cur" id="workspace-cur-path"
              spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off"
-             placeholder="Type or paste a folder path, then press Enter" />
-      <p class="muted workspace-note">File tools are <strong>confined</strong> to this folder. Shell commands start here but are <strong>not sandboxed</strong> and can reach outside it. A workspace scopes the tools; it is not a security boundary.</p>
+             placeholder="Digite ou cole o caminho e pressione Enter" />
+      <p class="muted workspace-note">Esta pasta define o contexto da tarefa; não concede permissões. Ferramentas de arquivos ficam limitadas a ela. Comandos do shell comum não têm isolamento e podem alcançar outras pastas. A execução governada mantém as garantias próprias da TEB.</p>
       <div class="modal-body workspace-body" id="workspace-body"></div>
       <div class="modal-footer workspace-footer">
-        <button type="button" class="confirm-btn confirm-btn-secondary" id="workspace-cancel">Cancel</button>
-        <button type="button" class="confirm-btn confirm-btn-primary" id="workspace-use">Use this folder</button>
+        <button type="button" class="confirm-btn confirm-btn-secondary" id="workspace-cancel">Cancelar</button>
+        <button type="button" class="confirm-btn confirm-btn-primary" id="workspace-use">Usar esta pasta</button>
       </div>
     </div>`;
   document.body.appendChild(_modal);
+  const tipToggle = _modal.querySelector('#workspace-tip-toggle');
+  tipToggle.addEventListener('click', () => {
+    const tip = _modal.querySelector('#workspace-tip');
+    tip.hidden = !tip.hidden;
+    tipToggle.setAttribute('aria-expanded', String(!tip.hidden));
+  });
   _modal.querySelector('#workspace-close').addEventListener('click', closeWorkspaceBrowser);
   _modal.querySelector('#workspace-cancel').addEventListener('click', closeWorkspaceBrowser);
   // Editable path bar: Enter navigates to a typed/pasted folder.
@@ -172,8 +188,8 @@ function _getModal() {
     }
   });
   _modal.querySelector('#workspace-use').addEventListener('click', () => {
-    setWorkspace(_curPath);
-    if (uiModule && uiModule.showToast) uiModule.showToast(`Workspace set: ${_basename(_curPath)}`);
+    if (!setWorkspace(_curPath)) return;
+    if (uiModule && uiModule.showToast) uiModule.showToast(`Workspace selecionado: ${_basename(_curPath)}`);
     closeWorkspaceBrowser();
   });
   const content = _modal.querySelector('.modal-content');
@@ -184,11 +200,15 @@ function _getModal() {
 
 export async function openWorkspaceBrowser() {
   const modal = _getModal();
+  const tips = document.getElementById('studio-tips');
+  modal.querySelector('#workspace-tip-toggle').hidden = !!tips && !tips.checked;
+  modal.querySelector('#workspace-tip').hidden = true;
+  modal.querySelector('#workspace-tip-toggle').setAttribute('aria-expanded', 'false');
   modal.style.display = 'flex';
   try {
     _render(await _load(getWorkspace() || ''));
   } catch (e) {
-    if (uiModule && uiModule.showError) uiModule.showError('Could not browse folders');
+    if (uiModule && uiModule.showError) uiModule.showError('Não foi possível listar as pastas');
   }
 }
 
@@ -202,7 +222,16 @@ export function initWorkspace() {
   const overflow = document.getElementById('overflow-workspace-btn');
   if (overflow) overflow.addEventListener('click', openWorkspaceBrowser);
   const pill = document.getElementById('workspace-indicator-btn');
-  if (pill) pill.addEventListener('click', clearWorkspace);
+  if (pill) {
+    pill.addEventListener('click', openWorkspaceBrowser);
+    pill.title = 'Inspecionar ou selecionar workspace';
+  }
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.textContent = 'Remover seleção';
+  clear.className = 'confirm-btn confirm-btn-secondary';
+  clear.addEventListener('click', () => { if (setWorkspace('')) closeWorkspaceBrowser(); });
+  _getModal().querySelector('.workspace-footer').prepend(clear);
 }
 
 export default { initWorkspace, openWorkspaceBrowser, getWorkspace, setWorkspace, vetAndSetWorkspace, clearWorkspace, syncWorkspaceIndicator, applyMode };

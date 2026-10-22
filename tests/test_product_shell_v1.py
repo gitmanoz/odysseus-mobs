@@ -44,11 +44,12 @@ def test_product_shell_reuses_existing_workspace_and_mobs_paths():
 def test_activity_is_derived_from_existing_stream_events():
     for event in ('tool_start', 'agent_step', 'mobs_mandate_proposal', 'mobs_promotion_applied', 'institutional_verified'):
         assert event in CHAT
-    assert "setProductActivity('executing', 'Executing tool')" in CHAT
-    assert "setProductActivity('awaiting-decision', 'Awaiting MOBS review')" in CHAT
+    assert "setProductActivity('executing', 'Executando ferramenta')" in CHAT
+    assert "setProductActivity('awaiting-decision', 'Aguardando revisão MOBS')" in CHAT
 
 
 def test_memory_and_skills_remain_available_and_graphite_is_default():
     assert 'id="tool-memory-btn"' in INDEX
     assert 'Skills' in INDEX
-    assert "DEFAULT_THEME = 'graphite'" in THEME
+    assert "DEFAULT_THEME = 'studio'" in THEME
+    assert 'graphite:' in THEME  # Existing palette remains selectable.

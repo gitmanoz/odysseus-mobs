@@ -1,0 +1,26 @@
+{
+  "status": "Candidate product identity for review; not final institutional approval",
+  "product": "MOBS Studio",
+  "institutional_identity": "MOBS unchanged",
+  "palette": {
+    "graphite": "#101113",
+    "champagne": "#C8B68A"
+  },
+  "ms_master": "studio-ms.svg",
+  "exports": [
+    "../icon.ico",
+    "../icons/icon-192.png",
+    "../icons/icon-512.png",
+    "../icons/icon-maskable-512.png"
+  ],
+  "woven_light": {
+    "file": "woven-light.png",
+    "sha256": "8c71aeeb3b036f3078c008bf1ad480be3704bff8086107e623e6f2507f7cfe18",
+    "tool": "Codex built-in image_gen",
+    "reference": "Existing workspace-v3.png concept; reference-only, not runtime evidence",
+    "prompt": "Use case: stylized-concept. Production image asset, not a UI mockup. The attached MOBS Studio V3 workspace is a STYLE REFERENCE for the small champagne gold woven-light strip above its workspace dialog. Produce ONLY that refined material atmosphere as a clean wide landscape banner: fine woven translucent champagne-gold fibers crossing in two slow sculptural folds, tiny thread highlights, dimensional depth, dark graphite #101113 backdrop, restrained noble matte gold #C8B68A, luminous localized crossing at the right, generous dark breathing space. High quality artistic materiality matching the reference. Absolutely no text, letters, logos, app interface, menus, icons, screenshots, frames, watermark or giant central object. Static decorative asset to be used episodically above project selection and in a welcome presentation. No coral, neon, blue, purple or procedural wireframe look.",
+    "usage": "Static welcome/project-discovery accent; no executed animation",
+    "financial_actions": "No subscription, API purchase, infrastructure rental or credit purchase"
+  },
+  "operational_compatibility": "Legacy data roots, IDs, auth, policies and integrations remain unchanged"
+}

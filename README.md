@@ -1,32 +1,16 @@
-<p align="center">
-  <img src="docs/odysseus-wordmark.png" alt="Odysseus" width="238">
-</p>
+<p align="center"><img src="static/brand/studio-wordmark.svg" alt="MOBS Studio" width="360"></p>
 
-<p align="center">
-  A self-hosted AI workspace for chat, agents, research, documents, email, notes, calendar, and local model workflows.
-</p>
+MOBS Studio é o ambiente consumidor de engenharia agêntica governado pelo MOBS. Reúne conversas, projetos, modelos, ferramentas e evidências em uma experiência de trabalho em camadas.
 
-<p align="center">
-  <a href="#quick-start">Quick Start</a> ·
-  <a href="docs/setup.md">Setup Guide</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="docs/product/PLATFORM_CAPABILITY_MAP.md">Capability Map</a> ·
-  <a href="ROADMAP.md">Roadmap</a>
-</p>
+**MOBS governa; Studio consome e executa.** A interface não concede permissões, não aprova mandatos e não retoma execuções por conta própria.
 
-<p align="center">
-  <a href="https://repology.org/project/odysseus-ai/versions"><img src="https://repology.org/badge/vertical-allrepos/odysseus-ai.svg" alt="Packaging status"></a>
-</p>
+O rebrand deste working tree está em revisão local. MS é uma assinatura candidata, não uma identidade institucional definitivamente aprovada.
 
-<p align="center">
-  <img src="docs/odysseus-browser.jpg" alt="Odysseus interface">
-</p>
-
----
+[Configuração](docs/setup.md) · [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) · [Roadmap](ROADMAP.md) · [Contribuições](CONTRIBUTING.md)
 
 ## Quick Start
 
-> The official consumer repository is [`gitmanoz/odysseus-mobs`](https://github.com/gitmanoz/odysseus-mobs). `dev` is its current primary development branch.
+Repositório consumidor oficial: [`gitmanoz/odysseus-mobs`](https://github.com/gitmanoz/odysseus-mobs), branch principal atual `dev`.
 
 ```bash
 git clone --branch dev https://github.com/gitmanoz/odysseus-mobs.git
@@ -35,43 +19,30 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Open `http://localhost:7000` when the containers are healthy. The first admin password is printed in `docker compose logs odysseus`.
+Abra `http://localhost:7000` quando os containers estiverem saudáveis. A senha inicial do administrador aparece em `docker compose logs odysseus`. Nomes técnicos legados são preservados para compatibilidade.
 
-Native installs, GPU notes, Windows/macOS instructions, HTTPS, and configuration live in the [setup guide](docs/setup.md).
+## Desktop Windows
 
-## Features
+Build: `build-windows-portable.ps1` com `Odysseus.spec`. Distribuição pública: `dist/MOBS Studio/MOBS Studio.exe`. Mantenha `_internal` ao lado do executável.
 
-- **Chat + Agents** — local/API models, tools, MCP, files, shell, skills, and memory.
-- **Cookbook** — hardware-aware model recommendations, downloads, and serving.
-- **Deep Research** — multi-step web research with source reading and report generation.
-- **Compare** — blind side-by-side model testing and synthesis.
-- **Documents** — writing-first editor with AI edits, suggestions, Markdown, HTML, CSV, and syntax highlighting.
-- **Email** — IMAP/SMTP inbox with triage, tags, summaries, reminders, and reply drafts.
-- **Notes, Tasks + Calendar** — reminders, todos, scheduled agent tasks, and CalDAV sync.
-- **Extras** — gallery/image editor, themes, uploads, web search, presets, sessions, and 2FA.
+Dados e identidade de instalação continuam em `%LOCALAPPDATA%\Odysseus`. O rebrand não migra nem apaga bancos, autenticação, configurações, políticas ou reviewer bindings.
 
-## Demo
+O provedor local precisa estar em execução. Ter um modelo instalado no Ollama não significa que seu servidor esteja atendendo. Conecte o endpoint pela configuração de modelos existente.
 
-A full hover-to-play tour lives on the landing page: [`docs/index.html`](docs/index.html).
+## Capacidades e estado
 
-## Contributing
+- Chat e Agent Loop: modelos locais/API, sessões, streaming, arquivos e ferramentas existentes.
+- Workspace e execução governada: baseline, mandato, validação privada e promoção controlada.
+- Perfis versionados: receitas Python e leitura tipada de identidade/status Git no escopo implementado.
+- Memory, Skills, MCP e integrações herdadas: superfícies contextuais e avançadas.
+- Consulta de pendências por sessão: não recupera execução durável após restart.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance. The [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) is the source of truth for capability coverage, evidence, ownership, and current state; [ROADMAP.md](ROADMAP.md) is the source of truth for the strategic order of materialization. Planned capabilities require a separate authorized implementation cycle.
+O [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) distingue capacidades disponíveis, parciais e futuras; o [Roadmap](ROADMAP.md) define a ordem de materialização. Visão futura não é funcionalidade já implementada.
 
-## Security
+## Segurança, origem e licença
 
-Odysseus is a self-hosted workspace with powerful local tools. Keep auth enabled, keep private data out of Git, and do not expose raw model/service ports publicly. Deployment details are in the [setup guide](docs/setup.md#security-notes).
+Mantenha autenticação habilitada nas instalações reais e não exponha portas de modelos diretamente à internet. Dados privados, credenciais e estado operacional local não entram no Git. [Notas de segurança](docs/setup.md#security-notes).
 
-## Star History
+Derivado do projeto [Odysseus](https://github.com/odysseus-dev/odysseus). Créditos, autoria e atribuições permanecem em [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) e [LICENSE](LICENSE).
 
-<a href="https://www.star-history.com/?repos=odysseus-dev%2Fodysseus&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=odysseus-dev/odysseus&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=odysseus-dev/odysseus&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=odysseus-dev/odysseus&type=date&legend=top-left" />
- </picture>
-</a>
-
-## License
-
-AGPL-3.0-or-later -- see [LICENSE](LICENSE) and [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md).
+**AGPL-3.0-or-later.** O rebrand público não modifica a licença nem a autoria da base original.

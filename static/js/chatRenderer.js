@@ -2,6 +2,7 @@
 // Extracted from chat.js — message rendering, sources, images, metrics
 
 import uiModule from './ui.js';
+import { renderStudioPlan, planFromToolEvent, toolResultPresentation, recordStudioDiagnostics } from './studioActivity.js';
 import markdownModule from './markdown.js';
 import { svgifyEmoji } from './markdown.js';
 import { addAITTSButton } from './tts-ai.js';
@@ -946,7 +947,9 @@ export function stripToolBlocks(text) {
 export function copyMessageText(msgElement) {
   const raw = msgElement.dataset.raw || msgElement.querySelector('.body')?.textContent || '';
   const { content } = markdownModule.extractThinkingBlocks(stripToolBlocks(raw));
-  const base = content || raw;
+  // An interrupted reasoning-only turn has no answer to copy. Falling back
+  // to raw here would expose the private block hidden by the renderer.
+  const base = content || '';
   const body = msgElement.querySelector('.body');
   const additions = Array.from(msgElement.querySelectorAll('[data-copy-content], pre'))
     .filter(node => !body?.contains(node))
@@ -1160,7 +1163,7 @@ function resolveDocumentPlaceholderLinks(text, metadata) {
 }
 
 // Jump-to-entity anchors — the agent emits links like
-//   [New Chat](#session-89effa28)
+//   [Nova conversa](#session-89effa28)
 //   [Notes](#document-abc123)
 //   [Reminder](#note-42)
 // and the chat-history click delegate turns them into navigation
@@ -1507,7 +1510,7 @@ export function showWelcomeScreen() {
   if (alreadyVisible) {
     return;
   }
-  // Entering the New Chat / welcome state: discard any stale draft left in the
+  // Entering the Nova conversa / welcome state: discard any stale draft left in the
   // composer from the previous session so the input starts empty (issue #1343).
   // Switching between existing sessions loads them directly and does NOT call
   // this, so genuine drafts are not erased. Reset the autosized height and fire
@@ -1565,7 +1568,7 @@ export function createMsgFooter(msgElement) {
 
   // Define all available actions: { id, icon, title, className, handler }
   const allActions = [
-    { id: 'copy', icon: COPY_ICON, title: 'Copy message', cls: 'footer-copy-btn', html: true, handler(e) {
+    { id: 'copy', icon: COPY_ICON, title: 'Copiar mensagem', cls: 'footer-copy-btn', html: true, handler(e) {
       e.stopPropagation();
       const btn = e.currentTarget;
       uiModule.copyToClipboard(copyMessageText(msgElement));
@@ -1592,7 +1595,7 @@ export function createMsgFooter(msgElement) {
       e.stopPropagation();
       if (window.chatModule?.forkFrom) window.chatModule.forkFrom(msgElement);
     }},
-    { id: 'delete', icon: '\u2715', title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', handler(e) {
+    { id: 'delete', icon: '\u2715', title: 'Excluir mensagem', cls: 'msg-action-btn msg-delete-btn', handler(e) {
       e.stopPropagation();
       if (window.chatModule?.deleteMessage) window.chatModule.deleteMessage(msgElement);
     }},
@@ -1633,7 +1636,7 @@ export function createMsgFooter(msgElement) {
     const moreBtn = document.createElement('button');
     moreBtn.className = 'msg-action-btn msg-more-btn';
     moreBtn.type = 'button';
-    moreBtn.title = 'More actions';
+    moreBtn.title = 'Mais ações';
     moreBtn.textContent = '\u00B7\u00B7\u00B7';
     moreBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1776,15 +1779,15 @@ export function createUserMsgFooter(msgElement) {
   actions.className = 'msg-actions';
 
   const allActions = [
-    { id: 'edit', icon: '\u270E', title: 'Edit message', cls: 'msg-action-btn', handler(e) {
+    { id: 'edit', icon: '\u270E', title: 'Editar mensagem', cls: 'msg-action-btn', handler(e) {
       e.stopPropagation();
       if (window.chatModule?.editUserMessage) window.chatModule.editUserMessage(msgElement);
     }},
-    { id: 'delete', icon: '\u2715', title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', handler(e) {
+    { id: 'delete', icon: '\u2715', title: 'Excluir mensagem', cls: 'msg-action-btn msg-delete-btn', handler(e) {
       e.stopPropagation();
       if (window.chatModule?.deleteMessage) window.chatModule.deleteMessage(msgElement);
     }},
-    { id: 'copy', icon: COPY_ICON, title: 'Copy message', cls: 'footer-copy-btn', html: true, handler(e) {
+    { id: 'copy', icon: COPY_ICON, title: 'Copiar mensagem', cls: 'footer-copy-btn', html: true, handler(e) {
       e.stopPropagation();
       const btn = e.currentTarget;
       uiModule.copyToClipboard(msgElement.querySelector('.body')?.textContent || '');
@@ -1824,7 +1827,7 @@ export function createUserMsgFooter(msgElement) {
     const moreBtn = document.createElement('button');
     moreBtn.className = 'msg-action-btn msg-more-btn';
     moreBtn.type = 'button';
-    moreBtn.title = 'More actions';
+    moreBtn.title = 'Mais ações';
     moreBtn.textContent = '\u00B7\u00B7\u00B7';
     moreBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1871,6 +1874,10 @@ export function createUserMsgFooter(msgElement) {
  * Display performance metrics for a message.
  */
 export function displayMetrics(messageElement, metrics) {
+  recordStudioDiagnostics(messageElement, metrics);
+  if (Number.isFinite(Number(metrics?.response_time)) && metrics?.response_time != null) {
+    messageElement.dataset.studioResponseSeconds = String(metrics.response_time);
+  }
   messageElement
     .querySelectorAll('.response-metrics, .metrics-divider, .ctx-divider, .ctx-ring')
     .forEach((el) => el.remove());
@@ -1916,7 +1923,7 @@ export function displayMetrics(messageElement, metrics) {
   if (!metricsLabel) return;
   metricsContainer.textContent = metricsLabel;
   metricsContainer.style.cursor = 'pointer';
-  metricsContainer.title = 'Click for details';
+  metricsContainer.title = 'Clique para ver detalhes';
   const metricsDivider = document.createElement('span');
   metricsDivider.className = 'metrics-divider';
   metricsDivider.textContent = ' | ';
@@ -2004,7 +2011,7 @@ export function displayMetrics(messageElement, metrics) {
     const ctxColor = ctxPct >= 85 ? 'var(--red, #e06c75)' : ctxPct >= 70 ? '#ff9900' : 'var(--green, #98c379)';
     ctxRing = document.createElement('span');
     ctxRing.className = 'ctx-ring';
-    ctxRing.title = `${ctxPct}% context used — click for details`;
+    ctxRing.title = `${ctxPct}% do contexto usado — clique para ver detalhes`;
     ctxRing.style.cursor = 'pointer';
     ctxRing.style.setProperty('--ctx-color', ctxColor);
     ctxRing.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14">
@@ -2057,7 +2064,7 @@ export function displayMetrics(messageElement, metrics) {
           compactMsg.className = 'msg msg-ai';
           const compactRole = document.createElement('div');
           compactRole.className = 'role';
-          compactRole.textContent = 'Odysseus';
+          compactRole.textContent = 'MOBS Studio';
           const compactBody = document.createElement('div');
           compactBody.className = 'body';
           compactBody.innerHTML = 'Compacting context <span class="compact-wave">▁▂▃▅▂▁</span>';
@@ -2400,6 +2407,8 @@ export function addMessage(role, content, modelName, metadata) {
           for (const ev of roundTools) {
             if (ev.ask_user) pendingAskUser = ev.ask_user;
             const ok = (ev.exit_code === 0 || ev.exit_code == null);
+            const toolPresentation = document.body.classList.contains('studio-shell') ? toolResultPresentation(ev) :
+              { failed: !ok, icon: ok ? '\u2713' : '\u2717', label: ok ? 'done' : 'failed' };
             let outHtml = '';
             if (ev.output && ev.output.trim()) {
               outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(ev.output)}</pre></details>`;
@@ -2431,12 +2440,15 @@ export function addMessage(role, content, modelName, metadata) {
               evDiffHtml = `<details class="agent-tool-output agent-tool-diff"><summary><span class="diff-file">${esc(d.file || 'diff')}</span> <span class="diff-summary-stats">${stat}</span></summary><pre class="diff-pre">${rows}</pre></details>`;
             }
             const node = document.createElement('div');
-            node.className = 'agent-thread-node' + (ok ? '' : ' error');
+            node.className = 'agent-thread-node' + (toolPresentation.failed ? ' error' : '');
+            if (ev.diff?.text && typeof ev.diff.file === 'string') node.dataset.studioDiffFile = ev.diff.file;
             // Hide the raw JSON command when a diff says it better (same as live).
             const evCmdHtml = (ev.command && !(ev.diff && ev.diff.text)) ? `<pre class="agent-thread-cmd">${esc(ev.command)}</pre>` : '';
-            node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${esc(ev.tool)}</span><span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${evCmdHtml}${outHtml}${evDiffHtml}</div>`;
+            node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolPresentation.icon}</span><span class="agent-thread-tool">${esc(ev.tool)}</span><span class="agent-thread-status">${toolPresentation.label}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${evCmdHtml}${outHtml}${evDiffHtml}</div>`;
             // Click handling is delegated globally \u2014 see chat.js init.
             threadWrap.appendChild(node);
+            const restoredPlan = planFromToolEvent(ev);
+            if (restoredPlan) renderStudioPlan(threadWrap, restoredPlan);
           }
           // Check if next round has text — extend line down to connect
           const nextTxt = (roundTexts[r + 1] || '').trim();
@@ -2503,7 +2515,7 @@ export function addMessage(role, content, modelName, metadata) {
     const isCompacted = metadata?.compacted;
     const replyModels = replyModelPair(modelName, metadata);
     const resolvedModel = replyModels.actualModel || replyModels.requestedModel;
-    var _roleText = role === 'user' ? 'You' : (isSlash || isCompacted) ? 'Odysseus' : modelRouteLabel(replyModels.requestedModel, resolvedModel);
+    var _roleText = role === 'user' ? 'Você' : (isSlash || isCompacted) ? 'MOBS Studio' : modelRouteLabel(replyModels.requestedModel, resolvedModel);
     if (role === 'assistant' && (metadata?.research || metadata?.research_clarification)) {
       _roleText += ' (Research)';
     }
@@ -2511,6 +2523,7 @@ export function addMessage(role, content, modelName, metadata) {
       _roleText = metadata.group_model;
     } else if (metadata?.character_name && role !== 'user' && !isSlash && !isCompacted) {
       _roleText = metadata.character_name;
+      r.dataset.personaInitial = Array.from(String(metadata.character_name).trim())[0]?.toUpperCase() || '';
     }
     r.textContent = _roleText;
     if (role !== 'user') {

@@ -465,10 +465,12 @@ export function processWithThinking(text) {
   const doneOnly = /^\s*\[DONE\]\s*$/i.test(visibleContent);
   const hadTrailingDone = !doneOnly && /(?:^|\n)\s*\[DONE\]\s*$/i.test(visibleContent);
 
-  // Add thinking sections (collapsed by default)
-  thinkingBlocks.forEach((block, index) => {
-    html += createThinkingSection(block, index, thinkingTime);
-  });
+  // Model deliberation is not evidence of work. Keep it out of the rendered
+  // message, including after reopening a persisted conversation. Tool traces
+  // and evidence continue to use their own collapsibles outside this path.
+  if (thinkingBlocks.length && !visibleContent) {
+    html += '<p class="model-response-status" role="status">O modelo não forneceu uma resposta final.</p>';
+  }
 
   // Add the actual content
   if (doneOnly) {

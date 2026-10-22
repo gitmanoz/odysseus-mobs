@@ -6,6 +6,22 @@
 // ES6 module — IIFE removed
 
 import Storage from './storage.js';
+import { renderStudioPlan, toolResultPresentation, recordStudioDiagnostics, formatElapsed } from './studioActivity.js';
+
+// Providers use both string and object error envelopes. Keep the factual
+// detail visible without treating upstream text as UI markup or authority.
+export function streamErrorMessage(payload) {
+  const detail = typeof payload.text === 'string' ? payload.text :
+    typeof payload.error === 'string' ? payload.error :
+    typeof payload.error?.message === 'string' ? payload.error.message :
+    typeof payload.detail === 'string' ? payload.detail : '';
+  const status = Number(payload.status || 0);
+  const summary = status === 503 ? 'Modelo indisponível. Verifique se o Ollama ou o provedor está em execução.' :
+    status === 504 ? 'O modelo excedeu o tempo de resposta.' :
+    status === 401 || status === 403 ? 'O provedor recusou o acesso ao modelo.' :
+    'Não foi possível concluir a resposta do modelo.';
+  return `${summary}${detail ? `\n${detail}` : status ? ` (HTTP ${status})` : ''}`;
+}
 import uiModule from './ui.js';
 import sessionModule from './sessions.js';
 import chatRenderer from './chatRenderer.js?v=20260722emailfastindex1';
@@ -26,6 +42,11 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
   const RESEARCH_TIMEOUT_MS = 360000;
   const DEFAULT_TIMEOUT_MS = 120000;
+
+  export function chatResponseTimeoutMs(research, agent, mobsAction) {
+    const governedExecution = mobsAction === 'approve' || mobsAction === 'validate_promotion';
+    return research || agent || governedExecution ? RESEARCH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+  }
   const RESEARCH_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
 
   let API_BASE = '';
@@ -50,6 +71,31 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
   // authority hashes, approval markers, or baselines.
   let _mobsAction = null;
 
+  export function clearPreparedMobsAction() {
+    _mobsAction = null;
+    document.dispatchEvent(new CustomEvent('studio-action-prepared', { detail: null }));
+  }
+
+  export function stageMobsAction(action) {
+    if (isStreaming || _sendInFlight) return false;
+    if (window.studioShell && !window.studioShell.canStageMobsAction(action)) {
+      uiModule.showToast('Consulte o estado atual antes de preparar esta decisão.', 5000);
+      window.studioShell.refresh();
+      return false;
+    }
+    _mobsAction = { ...action, session: sessionModule.getCurrentSessionId() };
+    document.dispatchEvent(new CustomEvent('studio-action-prepared', { detail: _mobsAction }));
+    return true;
+  }
+
+  export function hasTextlessMobsAction() {
+    const a = _mobsAction;
+    if (!a || !a.session || a.session !== sessionModule.getCurrentSessionId()) return false;
+    if (a.action === 'promote') return !!(a.promotionId && a.promotionDigest);
+    return ['review', 'approve', 'cancel'].includes(a.action) &&
+      !!(a.proposalId && a.proposalDigest && a.authoritySnapshot);
+  }
+
   // This is a presentational projection of existing stream evidence only. It
   // never controls runtime state, permissions, or MOBS decisions.
   function setProductActivity(state, label) {
@@ -58,6 +104,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     if (!activity || !text) return;
     activity.dataset.state = state;
     text.textContent = label;
+    activity.title = label;
+    activity.setAttribute('aria-label', label);
+    document.dispatchEvent(new CustomEvent('studio-activity', { detail: { state, label } }));
   }
 
   function _fmtContextNumber(n) {
@@ -277,7 +326,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       const pct = Number(data.context_percent || 0);
       _renderContextHeaderRing(pill, pct);
       _renderCompactMenuContextIcon(pct);
-      pill.title = `${_fmtContextNumber(data.used_tokens)} / ${_fmtContextNumber(data.context_length)} tokens · ${String(data.model || '').split('/').pop()}`;
+      pill.title = `${_fmtContextNumber(data.used_tokens)} / ${_fmtContextNumber(data.context_length)} tokens · ${String(data.model || '').split('/').pop()}${data.context_known === false ? ' · limite conservador; contexto servido ainda não verificado' : ''}`;
       pill.classList.remove('warn', 'danger');
       const colorClass = _contextColorClass(pct);
       if (colorClass) pill.classList.add(colorClass);
@@ -401,6 +450,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     let label = _modelRouteLabel(req, actual);
     if (opts.suffix) label += ' (' + opts.suffix + ')';
     if (opts.characterName) label = opts.characterName;
+    if (opts.characterName) roleEl.dataset.personaInitial = Array.from(String(opts.characterName).trim())[0]?.toUpperCase() || '';
+    else delete roleEl.dataset.personaInitial;
     roleEl.textContent = label + ' ';
     _applyModelColor(roleEl, actual || req);
     if (req && actual && !_sameModelName(req, actual)) {
@@ -730,8 +781,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       const workspace = (Storage.KEYS && Storage.get(Storage.KEYS.WORKSPACE, '')) || '';
       if (!workspace) { uiModule.showToast('Select the target workspace before preparing MOBS.', 5000); return; }
       if (!event.shiftKey) {
-        _mobsAction = { action: 'propose', session: sessionModule.getCurrentSessionId() };
-        setProductActivity('awaiting-decision', 'Engineering task ready');
+        if (!stageMobsAction({ action: 'propose' })) return;
+        setProductActivity('awaiting-decision', 'Tarefa de engenharia preparada');
         uiModule.showToast('MOBS workspace-first mode ready. Send the task to build a governed proposal.', 5000);
         return;
       }
@@ -741,9 +792,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       if (!['read_only', 'development'].includes(profile)) return;
       const projectProfile = window.prompt('Project capability profile: generic, python, or godot', 'generic');
       if (!projectProfile) return;
-      _mobsAction = { action: 'propose', category, profile, projectProfile,
-        session: sessionModule.getCurrentSessionId() };
-      setProductActivity('awaiting-decision', 'Engineering task ready');
+      if (!stageMobsAction({ action: 'propose', category, profile, projectProfile })) return;
+      setProductActivity('awaiting-decision', 'Tarefa de engenharia preparada');
       uiModule.showToast('Advanced MOBS proposal configured. Send the task to request review.', 5000);
     });
   }
@@ -762,14 +812,18 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     for (const action of [reviewed ? 'approve' : 'review', 'cancel']) {
       const button = document.createElement('button');
       button.type = 'button';
+      button.dataset.studioMobsAction = action;
+      button.dataset.studioProposalId = proposal.proposal_id;
+      button.dataset.studioProposalDigest = proposal.proposal_digest;
+      button.dataset.studioSnapshot = proposal.authority_snapshot;
       button.textContent = action === 'review' ? 'Confirm authority snapshot review' :
         action === 'approve' ? 'Approve this mandate for execution' : 'Cancel this proposal';
       button.addEventListener('click', () => {
         if (sessionModule.getCurrentSessionId() !== presentedSession) return;
         if (!window.confirm(action === 'review' ? 'Confirm you read the displayed authorities and find this snapshot consistent?' :
           action === 'approve' ? 'Approve exactly the displayed objective and permissions?' : 'Cancel exactly this proposal?')) return;
-        _mobsAction = { action, session: presentedSession, proposalId: proposal.proposal_id,
-          proposalDigest: proposal.proposal_digest, authoritySnapshot: proposal.authority_snapshot };
+        if (!stageMobsAction({ action, session: presentedSession, proposalId: proposal.proposal_id,
+          proposalDigest: proposal.proposal_digest, authoritySnapshot: proposal.authority_snapshot })) return;
         uiModule.showToast('Exact MOBS action staged. Press Send to submit.', 5000);
       });
       card.appendChild(button);
@@ -791,11 +845,14 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     if (needsExactValidation) {
       const validate = document.createElement('button');
       validate.type = 'button';
+      validate.dataset.studioMobsAction = 'validate_promotion';
+      validate.dataset.studioPromotionId = promotion.id;
+      validate.dataset.studioPromotionDigest = promotion.artifact_digest;
       validate.textContent = selfDevelopmentPreauthorized ? 'Validate and promote sealed change' : 'Validate sealed change';
       validate.addEventListener('click', () => {
         if (sessionModule.getCurrentSessionId() !== presentedSession) return;
-        _mobsAction = { action: 'validate_promotion', session: presentedSession,
-          promotionId: promotion.id, promotionDigest: promotion.artifact_digest };
+        if (!stageMobsAction({ action: 'validate_promotion', session: presentedSession,
+          promotionId: promotion.id, promotionDigest: promotion.artifact_digest })) return;
         uiModule.showToast(selfDevelopmentPreauthorized
           ? 'Enter an approved test command, then press Send. A successful validation applies the exact sealed change.'
           : 'Enter an approved test command, then press Send. Validation does not approve promotion.', 7000);
@@ -805,6 +862,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     if (selfDevelopmentPreauthorized) return;
     const button = document.createElement('button');
     button.textContent = needsExactValidation ? 'Validate before approval' : 'Approve exact promotion';
+    button.dataset.studioMobsAction = 'promote';
+    button.dataset.studioPromotionId = promotion.id;
+    button.dataset.studioPromotionDigest = promotion.artifact_digest;
     if (needsExactValidation) {
       button.disabled = true;
       button.dataset.mobsPromotionDigest = promotion.artifact_digest;
@@ -812,8 +872,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     button.addEventListener('click', () => {
       if (sessionModule.getCurrentSessionId() !== presentedSession) return;
       if (!window.confirm(`Apply exactly the sealed changes: ${description}?`)) return;
-      _mobsAction = { action: 'promote', session: presentedSession, promotionId: promotion.id,
-        promotionDigest: promotion.artifact_digest };
+      if (!stageMobsAction({ action: 'promote', session: presentedSession, promotionId: promotion.id,
+        promotionDigest: promotion.artifact_digest })) return;
       uiModule.showToast('Exact promotion approval staged. Press Send to submit.', 5000);
     });
     card.appendChild(button);
@@ -844,13 +904,13 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
         const hasQueuedText = !!(msgInput && msgInput.value && msgInput.value.trim());
         submitBtn.innerHTML = hasQueuedText && icons ? icons.send : _stopSvg;
         submitBtn.dataset.phase = hasQueuedText ? 'queue' : 'processing';
-        submitBtn.title = hasQueuedText ? 'Queue message' : 'Stop generation';
+        submitBtn.title = hasQueuedText ? 'Colocar mensagem na fila' : 'Interromper geração';
         submitBtn.classList.remove('anim-launch');
         void submitBtn.offsetWidth;
         submitBtn.classList.add('anim-land');
         submitBtn.addEventListener('animationend', () => submitBtn.classList.remove('anim-land'), { once: true });
       }, 300);
-      submitBtn.title = 'Stop generation';
+      submitBtn.title = 'Interromper geração';
       submitBtn.dataset.mode = 'streaming';
       submitBtn.dataset.phase = 'processing';
       isStreaming = true;
@@ -869,7 +929,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       } else {
         var icons = window._odysseusBtnIcons;
         submitBtn.innerHTML = icons ? icons.send : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
-        submitBtn.title = 'Send message';
+        submitBtn.title = 'Enviar mensagem';
         submitBtn.classList.remove('mic-mode', 'newchat-mode');
       }
     }
@@ -888,7 +948,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
   let _queuedPromoteTimer = null;
   let _queuedRequestSeq = 0;
   let _queuedBubbleHost = null;
-  let _pendingApprovedPlan = '';
+  let _pendingApprovedPlan = null;
 
   function _extractPlanText(text) {
     const raw = String(text || '').trim();
@@ -905,21 +965,23 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     return stripped;
   }
 
-  function _getStoredPlan() {
-    try { return localStorage.getItem(PLAN_STORAGE_KEY) || ''; } catch (_) { return ''; }
+  function _getStoredPlan(planSession) {
+    if (!planSession) return '';
+    try { return localStorage.getItem(`${PLAN_STORAGE_KEY}:${planSession}`) || ''; } catch (_) { return ''; }
   }
 
-	  function _setStoredPlan(plan) {
+	  function _setStoredPlan(plan, planSession) {
 	    const text = _extractPlanText(plan);
-	    if (!text) return;
-	    try { localStorage.setItem(PLAN_STORAGE_KEY, text); } catch (_) {}
+	    if (!text || !planSession) return;
+	    try { localStorage.setItem(`${PLAN_STORAGE_KEY}:${planSession}`, text); } catch (_) {}
 	  }
 
-	  function _clearStoredPlan() {
-	    try { localStorage.removeItem(PLAN_STORAGE_KEY); } catch (_) {}
+	  function _clearStoredPlan(planSession) {
+	    if (!planSession) return;
+	    try { localStorage.removeItem(`${PLAN_STORAGE_KEY}:${planSession}`); } catch (_) {}
 	  }
 
-	  function _attachPlanActions(target, plan) {
+	  function _attachPlanActions(target, plan, planSession) {
 	    if (!target || !String(plan || '').trim() || target.querySelector('.plan-inline-actions')) return;
 	    const actions = document.createElement('div');
 	    actions.className = 'plan-inline-actions';
@@ -930,15 +992,18 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 	      </button>
 	      <button type="button" class="plan-inline-clear">Clear</button>`;
 	    actions.querySelector('.plan-inline-execute')?.addEventListener('click', () => {
-	      const approved = _getStoredPlan() || _extractPlanText(plan);
+	      if (!planSession || sessionModule.getCurrentSessionId() !== planSession || !target.isConnected) return;
+	      // Execute this displayed proposal, never a newer or unrelated cached plan.
+	      const approved = _extractPlanText(plan);
 	      if (!approved.trim()) return;
-	      _pendingApprovedPlan = approved;
+	      _pendingApprovedPlan = { session: planSession, plan: approved };
 	      if (window.__odysseusSetPlanMode) window.__odysseusSetPlanMode(false);
 	      if (window.__odysseusSetChatMode) window.__odysseusSetChatMode('agent');
-	      _setComposerAndSend('Execute the approved plan.');
+	      _setComposerAndSend('Execute the approved plan.', planSession);
 	    });
 	    actions.querySelector('.plan-inline-clear')?.addEventListener('click', () => {
-	      _clearStoredPlan();
+	      if (sessionModule.getCurrentSessionId() !== planSession) return;
+	      if (_getStoredPlan(planSession) === _extractPlanText(plan)) _clearStoredPlan(planSession);
 	      actions.remove();
 	    });
 	    (target.querySelector('.body') || target).appendChild(actions);
@@ -988,13 +1053,18 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     return item;
   }
 
-  function _setComposerAndSend(message) {
+  function _setComposerAndSend(message, expectedSession = null) {
+    if (expectedSession && sessionModule.getCurrentSessionId() !== expectedSession) return false;
     const input = uiModule.el('message');
     if (!input) return false;
     input.value = message;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     if (uiModule.autoResize) uiModule.autoResize(input);
     setTimeout(() => {
+      if (expectedSession && sessionModule.getCurrentSessionId() !== expectedSession) {
+        if (_pendingApprovedPlan?.session === expectedSession) _pendingApprovedPlan = null;
+        return;
+      }
       handleChatSubmit({ preventDefault() {} }).catch(err => {
         console.error('queued send failed', err);
         try { uiModule.showError && uiModule.showError('Queued send failed: ' + (err?.message || err)); } catch (_) {}
@@ -1082,6 +1152,10 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
    */
   export async function handleChatSubmit(e) {
     e.preventDefault();
+    if (sessionModule.isSessionLoading?.()) {
+      uiModule.showError('A conversa ainda está carregando. Aguarde antes de enviar; seu texto foi preservado.');
+      return;
+    }
     // Cancel research clarification timeout if active
     if (window._researchTimeoutTimer) {
       clearTimeout(window._researchTimeoutTimer);
@@ -1277,9 +1351,10 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
     const el = uiModule.el;
     const msg = el('message').value;
+    const submitOriginSession = sessionModule.getCurrentSessionId();
     // Allow empty text when a regen carries over the original message's
     // attachment ids — a photo-only message still has something to send.
-    if (!msg.trim() && !fileHandlerModule.getPendingCount() && !(_pendingRegenAttachments && _pendingRegenAttachments.length)) { _releaseSendFlag(); return; }
+    if (!msg.trim() && !hasTextlessMobsAction() && !fileHandlerModule.getPendingCount() && !(_pendingRegenAttachments && _pendingRegenAttachments.length)) { _releaseSendFlag(); return; }
 
     // --- Slash commands: execute directly without AI (no session needed) ---
     if (isCommand(msg.trim())) {
@@ -1298,6 +1373,12 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
     if (!isIncognitoForSend) {
       await _adoptOpenedSessionBeforeAutoCreate();
+    }
+    if (submitOriginSession && sessionModule.getCurrentSessionId() !== submitOriginSession) {
+      if (_pendingApprovedPlan?.session === submitOriginSession) _pendingApprovedPlan = null;
+      _releaseSendFlag();
+      uiModule.showToast('A conversa mudou durante a preparação. Confira o rascunho antes de enviar novamente.', 5000);
+      return;
     }
 
     const selectedRouteForSend = (() => {
@@ -1417,17 +1498,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     }
 
 
+    const sendSessionId = sessionModule.getCurrentSessionId();
     const messageInput = el('message');
     const originalBtnText = submitBtn ? submitBtn.innerHTML : '';
-
-    // Re-enable the textarea now that we've handed off to the stream: the
-    // user wants to compose the next message while the AI is still talking.
-    // The `isStreaming` flag is the re-click guard for the send button.
-    if (messageInput) messageInput.disabled = false;
-    updateSubmitButton('streaming', submitBtn);
-    setProductActivity('understanding', 'Understanding request');
-    if (submitBtn) submitBtn.classList.remove('send-pending');
-    _sendInFlight = false;
 
     try {
       const pendingSwitch = window.__odysseusModelSwitchPromise;
@@ -1437,7 +1510,20 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     } catch (_) {}
 
     // Capture session ID for background stream detection
-    const streamSessionId = sessionModule.getCurrentSessionId();
+    if (sessionModule.getCurrentSessionId() !== sendSessionId) {
+      if (_pendingApprovedPlan?.session === sendSessionId) _pendingApprovedPlan = null;
+      _releaseSendFlag();
+      uiModule.showToast('A conversa mudou durante a preparação. Nenhuma solicitação ao modelo foi enviada.', 5000);
+      return;
+    }
+    // Keep the pending-send latch through model preparation. Only now hand
+    // off to the stream and allow composing the next message.
+    if (messageInput) messageInput.disabled = false;
+    updateSubmitButton('streaming', submitBtn);
+    setProductActivity('understanding', 'Compreendendo solicitação');
+    if (submitBtn) submitBtn.classList.remove('send-pending');
+    _sendInFlight = false;
+    const streamSessionId = sendSessionId;
     _streamSessionId = streamSessionId;
     const streamQuery = msg;
     _touchStreamActivity(streamSessionId);
@@ -1459,6 +1545,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     let holder = null;
     let finalMeta = null;
     let spinner = null;
+    let abortCtrl = null;
+    let _isAgent = false;
+    let streamingTTS = false;
     let timedOut = false;
     let processingProbeTimer = null;
     let processingProbeAbort = null;
@@ -1476,9 +1565,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
     const scheduleFirstTokenWaitMessages = () => {
       clearFirstTokenWaitTimers();
       const steps = [
-        [20000, 'Still waiting for first token'],
-        [60000, 'Large local model is pre-filling context'],
-        [120000, 'Still working - no tokens yet from the model'],
+        [20000, 'Aguardando resposta do modelo'],
+        [60000, 'O modelo ainda não enviou conteúdo'],
+        [120000, 'Processamento em andamento; o modelo ainda não enviou tokens'],
       ];
       firstTokenWaitTimers = steps.map(([ms, text]) => setTimeout(() => {
         if (!accumulated && spinner && spinner.element && !(abortCtrl && abortCtrl.signal.aborted)) {
@@ -1581,24 +1670,36 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       }
 
       let ids = [];
+      if (sessionModule.getCurrentSessionId() !== streamSessionId) throw new Error('A conversa mudou antes do envio dos anexos.');
       try {
         _sendPerf.mark('upload_begin');
-        ids = await fileHandlerModule.uploadPending({ sessionId: sessionModule.getCurrentSessionId() });
+        ids = await fileHandlerModule.uploadPending({ sessionId: streamSessionId });
         _sendPerf.mark('upload_done');
       } catch(e) {
         console.error('upload failed', e);
         _sendPerf.mark('upload_failed');
       }
       if (_pendingAttachInfo && !ids.length && !(_pendingRegenAttachments && _pendingRegenAttachments.length)) {
+        if (_pendingApprovedPlan?.session === streamSessionId) _pendingApprovedPlan = null;
         if (_userMsgEl && _userMsgEl.parentNode) _userMsgEl.remove();
-        if (fileHandlerModule.wasLastUploadCancelled && !fileHandlerModule.wasLastUploadCancelled()) {
-          uiModule.showError && uiModule.showError('Upload failed. Attachment kept so you can retry.');
+        if (sessionModule.getCurrentSessionId() === streamSessionId) {
+          // The optimistic bubble and composer were cleared before upload.
+          // Restore only into an empty composer belonging to this request.
+          if (!messageInput.value) {
+            messageInput.value = msg;
+            messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+            if (uiModule.autoResize) uiModule.autoResize(messageInput);
+          }
+          const cancelled = !!fileHandlerModule.wasLastUploadCancelled?.();
+          setProductActivity(cancelled ? 'idle' : 'failed', cancelled ? 'Envio cancelado' : 'Falha ao enviar anexo');
+          if (!cancelled) uiModule.showError?.('Não foi possível enviar o anexo. Confira o rascunho e tente novamente.');
         }
         updateSubmitButton('idle', submitBtn);
         _releaseSendFlag();
         return;
       }
 
+      if (sessionModule.getCurrentSessionId() !== streamSessionId) throw new Error('A conversa mudou durante a preparação dos anexos. Nenhuma solicitação ao modelo foi enviada.');
       // Carry over the original message's file-ids on a regenerate so the new
       // send still references the same photos / docs (and picks up the user's
       // edited OCR text via the server-side .vision cache). Always CONSUME the
@@ -1765,6 +1866,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 	      let isAgentMode = (toggleState.mode || 'chat') === 'agent';
       const isIncognito = isIncognitoForSend;
 	      const workspaceAgentIntent = !isIncognito && /\b(fix|debug|implement|change|update|refactor|patch|review|test|run|execute|start|launch|build|lint|typecheck|benchmark|eval|terminal[- ]bench|tbench|repo|repository|codebase|project|app|server|api|frontend|backend|bug|issue|pr|file|folder|directory|source|logs?|trace|stacktrace|traceback|docker|container|tmux|terminal|shell|git|branch|commit|diff|pytest|process|port|endpoint|computer|machine|laptop|device|system)\b/i.test(String(msg || ''));
+	      if (_pendingApprovedPlan?.session !== streamSessionId) _pendingApprovedPlan = null;
 	      if (isPlanMode || _pendingApprovedPlan) {
 	        isAgentMode = true;
 	      }
@@ -1779,8 +1881,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 	      fd.append('mode', isAgentMode ? 'agent' : 'chat');
 	      fd.append('plan_mode', isPlanMode ? 'true' : 'false');
 	      if (!isPlanMode && _pendingApprovedPlan) {
-	        fd.append('approved_plan', _pendingApprovedPlan.slice(0, 8192));
-	        _pendingApprovedPlan = '';
+	        fd.append('approved_plan', _pendingApprovedPlan.plan.slice(0, 8192));
+	        _pendingApprovedPlan = null;
 	      }
 	      if (el('web-toggle').checked) {
 	        if (!isAgentMode) {
@@ -1810,7 +1912,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
         fd.append('workspace', _ws);
       }
       if (_mobsAction) {
-        if (_mobsAction.session && _mobsAction.session !== sessionModule.getCurrentSessionId()) {
+        if (_mobsAction.session && _mobsAction.session !== streamSessionId) {
           _mobsAction = null;
           throw new Error('MOBS action belongs to another session. Select the proposal again.');
         }
@@ -1823,22 +1925,22 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
         if (_mobsAction.category) fd.append('mobs_category', _mobsAction.category);
         if (_mobsAction.profile) fd.append('mobs_profile', _mobsAction.profile);
         if (_mobsAction.projectProfile) fd.append('mobs_project_profile', _mobsAction.projectProfile);
-        _mobsAction = null;
+        clearPreparedMobsAction();
       }
       if (presetsModule.getSelectedPreset()) {
         fd.append('preset_id', presetsModule.getSelectedPreset());
       }
 
 
-      const abortCtrl = new AbortController();
+      abortCtrl = new AbortController();
       abortCtrl._reason = '';
       currentAbort = abortCtrl;
 
 	      const _tState = Storage.loadToggleState();
-	      const _isAgent = (_tState.mode || 'chat') === 'agent' || !!_tState.plan_mode || workspaceAgentIntent;
+	      _isAgent = (_tState.mode || 'chat') === 'agent' || !!_tState.plan_mode || workspaceAgentIntent;
 
-      // Timeout: 6 min for research and agent mode, 3 min otherwise
-      const timeoutMs = el('research-toggle').checked || _isAgent ? RESEARCH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+      // An explicit MOBS approval can start the Agent Loop from ordinary chat.
+      const timeoutMs = chatResponseTimeoutMs(el('research-toggle').checked, _isAgent, fd.get('mobs_action'));
       timeoutId = setTimeout(() => {
         if (!abortCtrl.signal.aborted) {
           timedOut = true;
@@ -1878,7 +1980,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       
       const modelName = _bestKnownStreamModel(selectedRouteForSend) || null;
 
-      let loadingText = 'Initializing...';
+      let loadingText = 'Inicializando…';
 
       if (el('web-toggle').checked && !_isAgent) {
         const _searchLabel = searchModule ? searchModule.getProviderLabel() : 'web';
@@ -1889,7 +1991,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       } else if (el('research-toggle').checked) {
         loadingText = 'Deep research mode active...';
       } else {
-        loadingText = 'Processing request...';
+        loadingText = 'Processando solicitação…';
       }
 
       var roleLabel = _modelRouteLabel(modelName, modelName);
@@ -1903,7 +2005,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       holder.style.position = 'relative';
       
       // Create spinner
-      spinner = spinnerModule.create('Initializing', 'right', 'wave');
+      spinner = spinnerModule.create('Inicializando', 'right', 'wave');
       currentSpinner = spinner;
       const bodyDiv = holder.querySelector('.body');
       bodyDiv.appendChild(spinner.createElement());
@@ -1917,7 +2019,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
         spinner.updateMessage('Researching');
         setTimeout(() => spinner.updateMessage('Analyzing sources'), 1500);
       } else {
-        spinner.updateMessage('Processing request');
+        spinner.updateMessage('Preparando resposta');
         scheduleFirstTokenWaitMessages();
       }
       
@@ -1960,6 +2062,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       _sendPerf.report('headers_received');
       
       if (!res.ok) {
+        setProductActivity('failed', 'Resposta não concluída');
         clearResponseTimeout();
         if (res.status === 404) {
           // Session was deleted (e.g. by AI) — reload and go to welcome
@@ -1967,13 +2070,14 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
           if (sessionModule) await sessionModule.loadSessions();
           return;
         }
-        let errText = `Error ${res.status}`;
+        let errText = streamErrorMessage({status: res.status});
         try {
           const errBody = await res.text();
-          // Parse nested JSON error if present
-          const m = errBody.match(/"message"\s*:\s*"([^"]+)"/);
-          if (m) errText = m[1].replace(/\\"/g, '"');
-          else if (errBody.length < 200) errText = errBody;
+          try {
+            errText = streamErrorMessage({...JSON.parse(errBody), status: res.status});
+          } catch (_) {
+            if (errBody.length < 2000) errText = streamErrorMessage({status: res.status, text: errBody});
+          }
         } catch {}
         // Auto-switch to chat mode for tool-related errors
         if (errText.includes('tool') || errText.includes('auto')) {
@@ -2011,7 +2115,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       let isThinking = false;
       let thinkingStartTime = null;
       // Streaming TTS: synthesize sentence-by-sentence during streaming
-      const streamingTTS = !!(window.aiTTSManager && window.aiTTSManager.autoPlay && window.aiTTSManager.available);
+      streamingTTS = !!(window.aiTTSManager && window.aiTTSManager.autoPlay && window.aiTTSManager.available);
       if (streamingTTS) window.aiTTSManager.streamingStart();
       // Multi-bubble agent tracking
       let roundHolder = holder;       // Current AI text bubble (changes per round)
@@ -2424,11 +2528,21 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
               // Handle SSE error events (e.g. HTTP 404 from provider)
               if (_nextIsError || json.status >= 400) {
                 _nextIsError = false;
-                const errMsg = json.text || json.error?.message || `Error ${json.status || 'unknown'}`;
+                const errMsg = streamErrorMessage(json);
                 console.error('Stream error:', errMsg);
-                if (spinner && spinner.element) spinner.destroy();
-                typewriterInto(roundHolder.querySelector('.body'), errMsg);
-                break;
+                if (_isBg) {
+                  const failedStream = _backgroundStreams.get(streamSessionId);
+                  if (failedStream) failedStream.status = 'error';
+                  sessionModule.clearStreaming?.(streamSessionId);
+                } else {
+                  setProductActivity('failed', 'Resposta não concluída');
+                  if (spinner && spinner.element) spinner.destroy();
+                  typewriterInto(roundHolder.querySelector('.body'), errMsg);
+                }
+                // A structured provider error is terminal, not an incomplete
+                // response eligible for automatic connection recovery.
+                try { await reader.cancel(); } catch (_) {}
+                return;
               }
               if (json.delta || json.type === 'agent_prep' || json.type === 'generated_image' || json.type === 'tool_start' || json.type === 'tool_output' || json.type === 'tool_progress' || json.type === 'agent_step' || json.type === 'loop_breaker_triggered' || json.type === 'intent_nudge_exhausted' || json.type === 'doc_stream_open' || json.type === 'doc_stream_delta' || json.type === 'research_progress') {
                 clearResponseTimeout();
@@ -2442,8 +2556,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
               }
               if (json.type === 'agent_prep') {
                 if (!_isBg) {
+                  recordStudioDiagnostics(roundHolder || holder, { initial_context_profile: json.context_profile, agent_prep_breakdown: json.data });
                   _cancelThinkingTimer();
-                  _replaceThinkingSpinner('Preparing agent');
+                  _replaceThinkingSpinner('Preparando contexto');
                 }
                 continue;
               }
@@ -2571,21 +2686,18 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                   thinkingStartTime = Date.now();
                   if (spinner && spinner.element) spinner.destroy();
 
-                  // Create a live thinking box — starts expanded so content streams visibly
+                  // Model deliberation is not an operational event. Show only
+                  // a compact factual preparation status; tools keep their own UI.
                   var thinkBody = roundHolder.querySelector('.body');
                   var thinkContent = _ensureStreamLayout(thinkBody);
                   thinkContent.style.minHeight = '';
                   _liveThinkDomId = 'live-think-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
                   thinkContent.innerHTML = `
                     <div class="thinking-section">
-                      <div class="thinking-header" data-thinking-id="${_liveThinkDomId}">
-                        <div class="thinking-header-left"><span class="live-think-header-text">Thinking\u2026</span></div>
+                      <div class="thinking-header" role="status">
+                        <div class="thinking-header-left"><span class="live-think-header-text">Preparando resposta\u2026</span></div>
                         <span class="live-think-spinner-slot" style="flex-shrink:0;margin-left:auto;"></span>
                         <span class="live-think-timer" style="font-size:11px;opacity:0.4;font-variant-numeric:tabular-nums;margin-left:6px;margin-right:5px;"></span>
-                        <span class="thinking-toggle live-think-toggle expanded" id="${_liveThinkDomId}-toggle"></span>
-                      </div>
-                      <div class="thinking-content expanded" id="${_liveThinkDomId}">
-                        <div class="thinking-content-inner live-think-inner"></div>
                       </div>
                     </div>`;
                   _liveThinkSection = thinkContent.querySelector('.thinking-section');
@@ -2606,7 +2718,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                   }
                   _thinkTimerRAF = requestAnimationFrame(_tickThinkTimer);
                   // Whirlpool spinner
-                  if (_liveThinkSpinnerSlot) {
+                  if (_liveThinkSpinnerSlot && !document.body.classList.contains('studio-shell')) {
                     var _wp = spinnerModule.createWhirlpool(12);
                     _wp.element.style.margin = '0';
                     _wp.element.style.width = '12px';
@@ -2624,7 +2736,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                       .replace(/<channel\|>/gi, '');
                     thinkText = thinkText.replace(/^\s*Thinking(?:\s+Process)?:\s*/i, '');
                     _liveThinkTokenCount = _estimateThinkingTokens(thinkText);
-                    _liveThinkInner.innerHTML = markdownModule.mdToHtml(thinkText);
+                    // Never put model deliberation in the DOM, even collapsed.
                     if (_liveThinkTimerEl) {
                       var _elapsedLive = thinkingStartTime ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : '';
                       _liveThinkTimerEl.textContent = _formatThinkStats(_elapsedLive, _liveThinkTokenCount);
@@ -2673,7 +2785,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                     accumulated = accumulated.replace(/<think>/i, '<think time="' + elapsed + '">');
                     roundText = roundText.replace(/<think>/i, '<think time="' + elapsed + '">');
                   }
-                  if (_liveThinkHeader) _liveThinkHeader.textContent = 'View thinking process';
+                  if (_liveThinkHeader) _liveThinkHeader.textContent = 'Preparação concluída';
                   if (_liveThinkSpinnerSlot) _liveThinkSpinnerSlot.remove();
                   // Move timer to right side of header
                   if (_liveThinkTimerEl && elapsed) {
@@ -3083,7 +3195,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.type === 'tool_start') {
                 if (_isBg) continue;
-                setProductActivity('executing', 'Executing tool');
+                setProductActivity('executing', 'Executando ferramenta');
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 // Force-close thinking if still open — tools are real content, not thinking
@@ -3091,7 +3203,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                   isThinking = false;
                   cancelAnimationFrame(_thinkTimerRAF);
                   var _elapsed2 = thinkingStartTime ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : null;
-                  if (_liveThinkHeader) _liveThinkHeader.textContent = 'View thinking process';
+                  if (_liveThinkHeader) _liveThinkHeader.textContent = 'Preparação concluída';
                   if (_liveThinkTimerEl) _liveThinkTimerEl.textContent = _elapsed2 ? _formatThinkStats(_elapsed2, _liveThinkTokenCount) : '';
                   if (_liveThinkSpinnerSlot) _liveThinkSpinnerSlot.remove();
                   // Assign stable IDs
@@ -3167,7 +3279,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                 currentToolBubble = node;
                 // Animate the wave
                 const waveEl = node.querySelector('.agent-thread-wave');
-                if (waveEl) {
+                const studioToolTiming = document.body.classList.contains('studio-shell');
+                if (waveEl && studioToolTiming) waveEl.textContent = '…';
+                if (waveEl && !studioToolTiming) {
                   const waveFrames = ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▇', '▆▅▄', '▅▄▃', '▄▃▂'];
                   let waveIdx = 0;
                   node._waveInterval = setInterval(() => {
@@ -3192,9 +3306,11 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                     else hdr2.appendChild(el2);
                   }
                   const s = (Date.now() - node._startTime) / 1000;
-                  // Hundredths so it visibly counts sub-second (1.00, 1.05, …).
-                  el2.textContent = s < 60 ? `${s.toFixed(2)}s` : `${Math.floor(s / 60)}m ${(s % 60).toFixed(2).padStart(5, '0')}s`;
-                }, 50);
+                  // Studio uses readable seconds instead of repainting every
+                  // 50 ms and waking all history observers for hundredths.
+                  el2.textContent = studioToolTiming ? formatElapsed(s) :
+                    s < 60 ? `${s.toFixed(2)}s` : `${Math.floor(s / 60)}m ${(s % 60).toFixed(2).padStart(5, '0')}s`;
+                }, studioToolTiming ? 1000 : 50);
                 uiModule.scrollHistory();
 
               } else if (json.type === 'tool_progress') {
@@ -3258,6 +3374,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                     currentToolBubble._elapsedTicker = null;
                   }
                   const ok = (json.exit_code === 0 || json.exit_code == null);
+                  const toolPresentation = document.body.classList.contains('studio-shell') ? toolResultPresentation(json) :
+                    { failed: !ok, icon: ok ? '\u2713' : '\u2717', label: ok ? 'done' : 'failed' };
                   const cmd = json.command || '';
                   let outHtml = '';
                   if (json.output && json.output.trim()) {
@@ -3296,8 +3414,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                   // click again. Click handling is delegated (see init at
                   // bottom of file) so no per-node listener needed.
                   const _wasOpen = currentToolBubble.classList.contains('open');
-                  currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_wasOpen ? ' open' : '');
-                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${esc(json.tool)}</span><span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
+                  currentToolBubble.className = 'agent-thread-node' + (toolPresentation.failed ? ' error' : '') + (_wasOpen ? ' open' : '');
+                  if (json.diff?.text && typeof json.diff.file === 'string') currentToolBubble.dataset.studioDiffFile = json.diff.file;
+                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolPresentation.icon}</span><span class="agent-thread-tool">${esc(json.tool)}</span><span class="agent-thread-status">${toolPresentation.label}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
                   // Reset so thinking spinner between tools says "Thinking" not the old tool's label
                   _lastToolName = '';
                   uiModule.scrollHistory();
@@ -3428,50 +3547,60 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.type === 'mobs_mandate_proposal') {
                 if (_isBg) continue;
-                setProductActivity('awaiting-decision', 'Awaiting MOBS review');
+                if (holder && !accumulated.trim()) holder.remove();
+                setProductActivity('awaiting-decision', 'Aguardando revisão MOBS');
                 const p = json.data || {};
                 const e = p.authority_evidence || {};
                 const source = e.source || {};
                 const authorities = Object.entries(e.authorities || {}).map(([path, hash]) => `${path}: ${hash}`).join('\n');
                 const documents = Object.entries(e.documents || {}).map(([path, content]) => `--- ${path} ---\n${content}`).join('\n\n');
-                const card = addMessage('assistant', 'MOBS mandate proposal — review evidence below before confirming.');
+                const card = addMessage('assistant', 'Proposta MOBS preparada. A revisão institucional ainda está pendente.');
                 const evidence = document.createElement('pre');
                 // The renderer includes semantic dynamic card content in Copy,
                 // while action controls remain deliberately excluded.
                 evidence.dataset.copyContent = 'true';
                 evidence.style.whiteSpace = 'pre-wrap';
                 evidence.textContent = `Proposal: ${p.proposal_id}\nVersion: ${p.proposal_digest}\nSnapshot: ${p.authority_snapshot}\n\nObjective: ${p.objective || ''}\nScope: ${p.scope || ''}\nProject profile: ${p.project_profile || ''} v${p.capability_profile_version || ''}\nPaths: ${(p.allowed_paths || []).join(', ')}\nReadable: ${(p.allowed_read_paths || []).join(', ')}\nWritable: ${(p.allowed_write_paths || []).join(', ')}\nCreatable: ${(p.allowed_create_paths || []).join(', ')}\nTools: ${(p.allowed_tools || []).join(', ')}\nOperations: ${(p.allowed_operations || []).join(', ')}\nCommands: ${(p.allowed_commands || []).join(', ')}\nExclusions: ${p.exclusions || ''}\nLimits: ${JSON.stringify(p.limits || {})}\nAuthority review: ${p.authority_review || 'pending'}\n\nAuthority snapshot\nSource: ${source.path || ''}\nBranch: ${source.branch || ''}\nCommit: ${source.head || ''}\nWorking tree: ${source.working_tree_status || '(clean)'}\nFingerprint: ${source.working_tree_sha256 || ''}\n\nAuthority hashes\n${authorities}\n\nAuthority contents\n${documents}`;
-                if (card) card.appendChild(evidence);
+                if (card) {
+                  const disclosure = document.createElement('details');
+                  disclosure.className = 'studio-inline-proposal';
+                  const heading = document.createElement('summary');
+                  heading.textContent = 'Ver proposta e autoridades integrais';
+                  disclosure.appendChild(heading);
+                  disclosure.appendChild(evidence);
+                  card.appendChild(disclosure);
+                }
                 mobsActionButtons(card, p, false);
 
               } else if (json.type === 'mobs_clarification_required') {
                 if (_isBg) continue;
-                setProductActivity('awaiting-decision', 'Needs clarification');
+                if (holder && !accumulated.trim()) holder.remove();
+                setProductActivity('awaiting-decision', 'Esclarecimento necessário');
                 const detail = (json.data && json.data.message) || 'The task could not be classified safely.';
                 addMessage('assistant', `MOBS needs clarification before it can build a mandate. ${detail}`);
 
               } else if (json.type === 'mobs_authority_reviewed') {
                 if (_isBg) continue;
-                setProductActivity('awaiting-decision', 'Awaiting mandate approval');
+                setProductActivity('awaiting-decision', 'Aguardando aprovação do mandato');
                 const reviewed = json.data || {};
                 const card = addMessage('assistant', `Authority snapshot reviewed: ${reviewed.authority_snapshot}. Proposal: ${reviewed.proposal_id}; version: ${reviewed.proposal_digest}. Mandate approval is still required.`);
                 mobsActionButtons(card, reviewed, true);
 
               } else if (json.type === 'mobs_mandate_cancelled') {
                 if (_isBg) continue;
-                setProductActivity('complete', 'Mandate cancelled');
+                setProductActivity('complete', 'Mandato cancelado');
                 addMessage('assistant', 'MOBS mandate cancelled.');
 
               } else if (json.type === 'mobs_promotion_applied') {
                 if (_isBg) continue;
-                setProductActivity('complete', 'Promotion verified');
+                setProductActivity('complete', 'Promoção verificada');
                 const applied = json.data || {};
                 addMessage('assistant', `MOBS promotion verified: ${Array.isArray(applied.effects)
                   ? applied.effects.map(item => item.path).join(', ') : applied.path || ''}`);
 
               } else if (json.type === 'mobs_promotion_validated') {
                 if (_isBg) continue;
-                setProductActivity('awaiting-decision', 'Awaiting promotion approval');
+                setProductActivity('awaiting-decision', 'Aguardando aprovação da promoção');
                 const validation = (json.data || {}).validation || {};
                 document.querySelectorAll('button[data-mobs-promotion-digest]').forEach((button) => {
                   if (button.dataset.mobsPromotionDigest === validation.artifact_digest) {
@@ -3484,8 +3613,8 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
               } else if (typeof json.type === 'string' && json.type.startsWith('institutional_')) {
                 if (_isBg) continue;
                 if (json.type === 'institutional_verified') setProductActivity('complete', 'Contexto e baseline verificados');
-                else if (json.type === 'institutional_blocked') setProductActivity('failed', 'Execution blocked');
-                else setProductActivity('investigating', 'Checking institutional evidence');
+                else if (json.type === 'institutional_blocked') setProductActivity('failed', 'Execução bloqueada');
+                else setProductActivity('investigating', 'Verificando evidências institucionais');
                 if (json.type === 'institutional_command' && json.data && json.data.promotion) {
                   mobsPromotionButton(json.data.promotion);
                 }
@@ -3502,11 +3631,12 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                 // Agent wrote back to the plan (ticked a step / revised). Update
                 // the stored plan + live-refresh the docked plan window.
                 const _pu = (json.data && json.data.plan) ? json.data.plan : '';
-                if (_pu) _setStoredPlan(_pu);
+                if (_pu) _setStoredPlan(_pu, streamSessionId);
+                if (_pu) renderStudioPlan(lastToolThread || roundHolder, _pu);
 
               } else if (json.type === 'agent_step') {
                 if (_isBg) continue;
-                setProductActivity('investigating', 'Investigating');
+                setProductActivity('investigating', 'Investigando');
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 _renderStream();
@@ -3620,13 +3750,13 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
               } else if (json.error) {
                 // --- Backend error (timeout, connection issue, etc.) ---
-                setProductActivity('failed', 'Response failed');
+                setProductActivity('failed', 'Resposta não concluída');
                 console.error('Stream error from backend:', json.error);
                 if (_isBg) continue;
                 if (spinner && spinner.element) spinner.destroy();
                 const errDiv = document.createElement('div');
                 errDiv.style.cssText = 'color: var(--color-error); font-style: italic; padding: 4px 0;';
-                errDiv.textContent = `[Error: ${json.error}]`;
+                errDiv.textContent = streamErrorMessage(json);
                 roundHolder.querySelector('.body').appendChild(errDiv);
                 uiModule.scrollHistory();
               }
@@ -3644,7 +3774,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       _renderStream();
       const _productActivity = document.getElementById('product-agent-activity');
       if (_productActivity && !['awaiting-decision', 'failed'].includes(_productActivity.dataset.state)) {
-        setProductActivity('complete', 'Response complete');
+        setProductActivity('complete', 'Resposta concluída');
       }
       if (spinner && spinner.element) { try { spinner.destroy(); } catch (_) {} spinner = null; }
       _cancelThinkingTimer();
@@ -3845,8 +3975,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 		        try {
 		          const _endToggles = Storage.loadToggleState();
 		          if (_endToggles.plan_mode && accumulated) {
-		            _setStoredPlan(accumulated);
-		            _attachPlanActions(footerTarget, accumulated);
+		            _setStoredPlan(accumulated, streamSessionId);
+		            _attachPlanActions(footerTarget, accumulated, streamSessionId);
+		            renderStudioPlan(footerTarget, _extractPlanText(accumulated));
 		          }
 		        } catch (_) {}
 	        if (addAITTSButton && accumulated && window.aiTTSManager?._provider !== 'disabled' && window.aiTTSManager?.available) {
@@ -3952,6 +4083,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
           }
         }
       } else {
+        setProductActivity('failed', 'Resposta não concluída');
         // Stop streaming TTS on any error/abort
         if (streamingTTS && window.aiTTSManager) window.aiTTSManager.stop();
 
@@ -4113,6 +4245,10 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
         }
       }
     } finally {
+      // All exit paths, including HTTP errors before the reader starts, settle
+      // this message. Never leave an orphan spinner or a false streaming state.
+      if (spinner) { try { spinner.destroy(); } catch (_) {} spinner = null; }
+      holder?.classList.remove('streaming');
       clearResponseTimeout();
       clearProcessingProbe();
       clearFirstTokenWaitTimers();
@@ -4133,6 +4269,10 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
       const _isBgFinally = (sessionModule.getCurrentSessionId() !== streamSessionId) || _backgroundStreams.has(streamSessionId);
 
       if (!_isBgFinally) {
+        const activity = document.getElementById('product-agent-activity');
+        if (activity && ['understanding', 'investigating', 'executing', 'validating'].includes(activity.dataset.state)) {
+          setProductActivity('failed', 'Resposta encerrada sem confirmação de conclusão');
+        }
         // Reset button to idle state
         updateSubmitButton('idle', submitBtn);
 
@@ -4190,7 +4330,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
             if (_box && sessionModule.getCurrentSessionId() === _timeoutSessionId) {
               var _timeoutMsg = document.createElement('div');
               _timeoutMsg.className = 'msg msg-ai';
-              _timeoutMsg.innerHTML = '<div class="role">Odysseus</div><div class="body" style="opacity:0.6;font-style:italic;">Research clarification timed out. Toggle research again to start over.</div>';
+              _timeoutMsg.innerHTML = '<div class="role">MOBS Studio</div><div class="body" style="opacity:0.6;font-style:italic;">Research clarification timed out. Toggle research again to start over.</div>';
               _box.appendChild(_timeoutMsg);
               uiModule.scrollHistory();
             }
@@ -6135,6 +6275,9 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
 
   // Public API
   const chatModule = {
+    stageMobsAction,
+    clearPreparedMobsAction,
+    hasTextlessMobsAction,
     init,
     initListeners,
     openAttachment,

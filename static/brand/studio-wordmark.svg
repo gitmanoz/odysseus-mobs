@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 96" role="img" aria-labelledby="title">
+  <title id="title">MOBS Studio — identidade de produto candidata</title>
+  <g fill="#C8B68A" transform="translate(8 16)">
+    <path d="M4 54V10h12l13 22 13-22h12v44H42V31L29 51 16 31v23Z"/>
+    <path d="M93 15c-6-4-12-6-19-6-12 0-19 6-19 15 0 10 8 13 17 15l7 2c4 1 5 2 5 4 0 3-3 4-8 4-6 0-12-2-18-6l-5 9c7 5 15 7 23 7 13 0 21-6 21-15 0-10-8-14-17-16l-7-2c-4-1-6-2-6-4 0-3 3-4 7-4 5 0 10 1 14 4Z"/>
+  </g>
+  <path d="M132 20v56" stroke="#44474C"/>
+  <text x="158" y="62" fill="#E6E8EB" font-family="system-ui,Segoe UI,sans-serif" font-size="39" font-weight="600" letter-spacing="-1">MOBS Studio</text>
+</svg>

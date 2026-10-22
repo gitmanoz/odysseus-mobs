@@ -1,4 +1,5 @@
 // static/js/spinner.js
+import { formatElapsed } from './studioActivity.js';
 
 /**
  * ASCII Spinner Module for AI thinking/processing status
@@ -27,6 +28,15 @@ class Spinner {
    * Create and return the spinner HTML element
    */
   createElement() {
+    if (this.animation === 'studio') {
+      const row = document.createElement('span'); row.className = 'ai-spinner studio-wait';
+      row.setAttribute('role', 'status');
+      this._msgSpan = document.createElement('span');
+      this._studioTime = document.createElement('span'); this._studioTime.className = 'studio-wait-time';
+      this._studioTime.setAttribute('aria-hidden', 'true');
+      row.append(this._msgSpan, this._studioTime); this.element = row;
+      this.updateDisplay(); return row;
+    }
     if (this.animation === 'sinewave') {
       return this._createSineWaveElement();
     }
@@ -248,6 +258,11 @@ class Spinner {
    */
   updateDisplay() {
     if (!this.element) return;
+    if (this.animation === 'studio') {
+      this._msgSpan.textContent = this.message;
+      this._studioTime.textContent = `· ${formatElapsed((Date.now() - (this._studioStarted || Date.now())) / 1000)}`;
+      return;
+    }
 
     const frame = this.frames[this.currentFrame % this.frames.length];
 
@@ -269,6 +284,11 @@ class Spinner {
   start(speed = 150) {
     if (this.isRunning) return;
     this.isRunning = true;
+    if (this.animation === 'studio') {
+      this._studioStarted = Date.now(); this.updateDisplay();
+      this.intervalId = setInterval(() => this.updateDisplay(), 1000);
+      return;
+    }
 
     if (this.animation === 'sinewave') {
       this._wavePrev = performance.now();
@@ -344,6 +364,7 @@ class Spinner {
  * Create a new spinner instance
  */
 export function create(message, style = "right", animation = "wave") {
+  if (animation === 'wave' && document.body?.classList.contains('studio-shell')) animation = 'studio';
   return new Spinner(message, style, animation);
 }
 

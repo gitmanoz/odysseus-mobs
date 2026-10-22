@@ -34,7 +34,7 @@ def node_available():
         pytest.skip("node binary not on PATH")
 
 
-def _extract_thinking_blocks(text: str) -> dict:
+def _extract_thinking_blocks(text: str, *, render=False):
     """Run markdown.js extractThinkingBlocks(text) under node."""
     script = textwrap.dedent(
         r"""
@@ -91,12 +91,15 @@ def _extract_thinking_blocks(text: str) -> dict:
         console.log(JSON.stringify({ out: mod.extractThinkingBlocks(input) }));
         """
     )
+    if render:
+        script = script.replace('mod.extractThinkingBlocks(input)', 'mod.processWithThinking(input)')
     result = subprocess.run(
         ["node", "--input-type=module", "-e", script, json.dumps(text)],
         cwd=_REPO,
         capture_output=True,
         timeout=15,
         text=True,
+        encoding='utf-8',
     )
     if result.returncode != 0:
         raise AssertionError(f"node failed:\nSTDERR:\n{result.stderr}\nSTDOUT:\n{result.stdout}")
@@ -148,10 +151,23 @@ def test_minimax_orphan_closing_tag_drops_leaked_reasoning(node_available):
 
 
 def test_thinking_only_message_yields_empty_content(node_available):
-    # The copy handler falls back to the raw text in this case so the button
-    # still copies something for turns interrupted mid-thinking.
+    # An interrupted reasoning-only turn has no visible answer to copy.
     out = _extract_thinking_blocks("<think>only reasoning, no reply yet</think>")
     assert out["content"] == ""
+
+
+def test_copy_never_falls_back_to_private_deliberation():
+    assert _copy_message_text('<think>private deliberation</think>', []) == ''
+
+
+def test_rendered_reasoning_is_not_exposed_even_when_reopening():
+    rendered = _extract_thinking_blocks('<think>PRIVATE REASONING</think>Resposta final.', render=True)
+    assert 'PRIVATE REASONING' not in rendered
+    assert 'thinking-section' not in rendered
+    assert 'Resposta final.' in rendered
+    interrupted = _extract_thinking_blocks('<think>PRIVATE REASONING</think>', render=True)
+    assert 'PRIVATE REASONING' not in interrupted
+    assert 'não forneceu uma resposta final' in interrupted
 
 
 def _function_body(text: str, marker: str) -> str:
@@ -192,6 +208,7 @@ def _copy_message_text(raw: str, additions: list[dict]) -> str:
         capture_output=True,
         timeout=15,
         text=True,
+        encoding='utf-8',
     )
     if result.returncode != 0:
         raise AssertionError(f"node failed:\\nSTDERR:\\n{result.stderr}\\nSTDOUT:\\n{result.stdout}")

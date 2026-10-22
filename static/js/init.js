@@ -1,4 +1,4 @@
-// Odysseus UI — Initialization Scripts
+// MOBS Studio UI — Initialization Scripts
 // ES6 module — extracted from index.html inline scripts
 
 import Storage from './storage.js';
@@ -222,14 +222,18 @@ document.addEventListener('DOMContentLoaded', markComposerUserEdited, { once: tr
   const iconRail = document.getElementById('icon-rail');
   if (sidebar && handle) {
 
-  const STORAGE_KEY = Storage.KEYS.SIDEBAR_WIDTH;
+  // The compact Studio composition has its own width preference. Preserve
+  // the legacy preference without letting it override the new default.
+  const studioSidebar = !!document.getElementById('studio-home');
+  const STORAGE_KEY = studioSidebar ? Storage.KEYS.STUDIO_SIDEBAR_WIDTH : Storage.KEYS.SIDEBAR_WIDTH;
+  const DEFAULT_WIDTH = studioSidebar ? 200 : 340;
   const MIN_WIDTH = 200;
   const MAX_WIDTH = 700;
   const COLLAPSE_THRESHOLD = 150;
 
   function getSavedWidth() {
-    const w = parseInt(Storage.get(STORAGE_KEY, '340'), 10);
-    return (w >= MIN_WIDTH && w <= MAX_WIDTH) ? w : 340;
+    const w = parseInt(Storage.get(STORAGE_KEY, String(DEFAULT_WIDTH)), 10);
+    return (w >= MIN_WIDTH && w <= MAX_WIDTH) ? w : DEFAULT_WIDTH;
   }
 
   // Restore saved width

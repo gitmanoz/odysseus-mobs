@@ -60,7 +60,7 @@ function _pickerModelKey(m) {
 }
 
 function _displayModelName(modelId) {
-  if (!modelId) return 'Select model';
+  if (!modelId) return 'Selecionar modelo';
   if (modelId === MOBS_AUTO_MODEL_ID) return MOBS_AUTO_DISPLAY;
   return modelId.split('/').pop();
 }
@@ -343,7 +343,7 @@ function _initModelPickerDropdown() {
       uiModule.showToast('Ollama models are ready');
     } catch (error) {
       button.disabled = false;
-      button.textContent = 'Use Ollama models';
+      button.textContent = 'Usar modelos do Ollama';
       uiModule.showError(error.message || 'Ollama could not be connected');
     }
   }
@@ -386,7 +386,7 @@ function _initModelPickerDropdown() {
         display: MOBS_AUTO_DISPLAY,
         url: coder.url,
         endpointId: coder.endpointId,
-        epName: 'Automatic routing',
+        epName: 'Roteamento automático',
         category: 'local',
         providerText: 'MOBS Auto automatic routing qwen2.5-coder',
         stale: false,
@@ -401,7 +401,7 @@ function _initModelPickerDropdown() {
     catch (_) { return false; }
   }
 
-  function _renderLoading(text = 'Loading models…') {
+  function _renderLoading(text = 'Carregando modelos…') {
     listEl.innerHTML = '';
     listEl.classList.remove('is-empty');
     listEl.classList.add('is-loading');
@@ -422,7 +422,7 @@ function _initModelPickerDropdown() {
     if (!window.modelsModule || typeof window.modelsModule.refreshModels !== 'function') return;
     const seq = ++_pickerLoadSeq;
     _pickerLoading = true;
-    if (showLoading) _renderLoading(force ? 'Refreshing models…' : 'Loading models…');
+    if (showLoading) _renderLoading(force ? 'Atualizando modelos…' : 'Carregando modelos…');
     try {
       await window.modelsModule.refreshModels(force);
       await _refreshLocalProbe();
@@ -455,17 +455,17 @@ function _initModelPickerDropdown() {
     const hasAnyModel = all.length > 0;
     listEl.classList.toggle('is-empty', !hasAnyModel);
     menu.classList.toggle('no-models', !hasAnyModel);
-    if (search) search.placeholder = hasAnyModel ? 'Search models…' : 'No models connected';
+    if (search) search.placeholder = hasAnyModel ? 'Buscar modelos…' : 'Nenhum modelo conectado';
     if (searchRow) searchRow.classList.toggle('searching', !!q);
     if (!hasAnyModel) {
       const empty = document.createElement('div');
       empty.className = 'model-picker-onboarding';
-      empty.innerHTML = '<strong>No model is connected</strong>'
-        + '<span>Add a local or cloud provider to start chatting. Your configuration is saved for this installation.</span>';
+      empty.innerHTML = '<strong>Nenhum modelo conectado</strong>'
+        + '<span>Conecte um provedor local ou remoto. A configuração fica salva nesta instalação.</span>';
       const ollama = _discoveredLocal[0] || null;
       if (ollama) {
         const names = (ollama.models || []).slice(0, 4).join(', ');
-        empty.querySelector('strong').textContent = 'Ollama models found';
+        empty.querySelector('strong').textContent = 'Modelos Ollama encontrados';
         empty.querySelector('span').textContent = names
           ? `Use the models already installed on this computer: ${names}`
           : 'Use the Ollama models already installed on this computer.';
@@ -473,7 +473,7 @@ function _initModelPickerDropdown() {
       const configure = document.createElement('button');
       configure.type = 'button';
       configure.className = 'model-picker-onboarding-btn';
-      configure.textContent = ollama ? 'Use Ollama models' : 'Configure models';
+      configure.textContent = ollama ? 'Usar modelos do Ollama' : 'Configurar modelos';
       configure.addEventListener('click', async (event) => {
         event.stopPropagation();
         if (ollama) await _connectDiscoveredOllama(configure);
@@ -503,7 +503,7 @@ function _initModelPickerDropdown() {
       favDot.type = 'button';
       favDot.className = 'mp-fav-dot' + (favs.includes(m.mid) ? ' active' : '');
       favDot.textContent = '●';
-      const _setFavState = (on) => { favDot.classList.toggle('active', on); favDot.title = on ? 'Remove from favorites' : 'Add to favorites'; favDot.setAttribute('aria-label', favDot.title); favDot.setAttribute('aria-pressed', on ? 'true' : 'false'); };
+      const _setFavState = (on) => { favDot.classList.toggle('active', on); favDot.title = on ? 'Remover dos favoritos' : 'Adicionar aos favoritos'; favDot.setAttribute('aria-label', favDot.title); favDot.setAttribute('aria-pressed', on ? 'true' : 'false'); };
       _setFavState(favs.includes(m.mid));
       favDot.addEventListener('click', (e) => { e.stopPropagation(); const nowFav = _toggleFavorite(m.mid); _setFavState(nowFav); });
       row.appendChild(favDot);
@@ -543,23 +543,27 @@ function _initModelPickerDropdown() {
   }
 
   async function _pick(m) {
+    if (window.studioShell && !window.studioShell.canChangeModel()) return;
     _defaultPendingSeq++;
-    try { window.__odysseusLastPickedRoute = { model: m.mid || '', endpoint_url: m.url || '', endpoint_id: m.endpointId || '', display: m.display || m.mid || '', picked_at: Date.now() }; } catch (_) {}
+    const rememberRoute = () => {
+      try { window.__odysseusLastPickedRoute = { model: m.mid || '', endpoint_url: m.url || '', endpoint_id: m.endpointId || '', display: m.display || m.mid || '', picked_at: Date.now() }; } catch (_) {}
+      if (m && m.mid) _pushRecent(_pickerModelKey(m) || m.mid);
+      try { document.dispatchEvent(new CustomEvent('odysseus:model-picked', { detail: m })); } catch {}
+    };
     let switchDone = null;
     const switchPromise = new Promise(resolve => { switchDone = resolve; });
     try { window.__odysseusModelSwitchPromise = switchPromise; } catch (_) {}
     const finishSwitch = () => { try { if (switchDone) switchDone(); if (window.__odysseusModelSwitchPromise === switchPromise) delete window.__odysseusModelSwitchPromise; } catch (_) {} };
     const currentSessionId = _deps.getCurrentSessionId();
     const _pendingChat = _deps.getPendingChat();
-    if (m && m.mid) _pushRecent(_pickerModelKey(m) || m.mid);
-    try { document.dispatchEvent(new CustomEvent('odysseus:model-picked', { detail: m })); } catch {}
     if (document.activeElement) document.activeElement.blur();
     _close();
     if (window.innerWidth >= 768) { const _ta = document.getElementById('message'); if (_ta) setTimeout(() => _ta.focus(), 50); }
     if (!currentSessionId && _pendingChat) {
       _deps.setPendingChat({ url: m.url, modelId: m.mid, endpointId: m.endpointId, source: 'manual' });
+      rememberRoute();
       updateModelPicker();
-      uiModule.showToast(`Using ${m.display}`);
+      uiModule.showToast(`Usando ${m.display}`);
       finishSwitch();
       return;
     } else if (!currentSessionId) {
@@ -568,20 +572,20 @@ function _initModelPickerDropdown() {
     } else {
       const sessions = _deps.getSessions();
       const s = sessions.find(x => x.id === currentSessionId);
-      if (s) { s.model = m.mid; s.endpoint_url = m.url; s.endpoint_id = m.endpointId || s.endpoint_id || ''; }
-      updateModelPicker();
       const fd = new FormData();
       fd.append('model', m.mid);
       fd.append('endpoint_url', m.url);
       if (m.endpointId) fd.append('endpoint_id', m.endpointId);
       try {
         const res = await fetch(`${API_BASE}/api/session/${currentSessionId}`, { method: 'PATCH', body: fd });
-        if (!res.ok) { uiModule.showError('Failed to set model'); finishSwitch(); return; }
-      } catch (e) { uiModule.showError('Failed to set model: ' + e); finishSwitch(); return; }
+        if (!res.ok) { uiModule.showError('Não foi possível selecionar o modelo'); finishSwitch(); return; }
+        if (s) { s.model = m.mid; s.endpoint_url = m.url; s.endpoint_id = m.endpointId || s.endpoint_id || ''; }
+      } catch (e) { uiModule.showError('Não foi possível selecionar o modelo: ' + e); finishSwitch(); return; }
     }
     updateModelPicker();
+    rememberRoute();
     if (window.refreshChatContextHeader) window.refreshChatContextHeader('model-pick');
-    uiModule.showToast(`Using ${m.display}`);
+    uiModule.showToast(`Usando ${m.display}`);
     finishSwitch();
   }
 
@@ -591,7 +595,7 @@ function _initModelPickerDropdown() {
     if (menu.classList.contains('hidden') || menu.classList.contains('closing')) {
       menu.classList.remove('closing', 'hidden');
       const hasCache = _hasModelCache();
-      if (hasCache) _populate(''); else _renderLoading('Loading models…');
+      if (hasCache) _populate(''); else _renderLoading('Carregando modelos…');
       if (window.modelsModule && window.modelsModule.refreshModels) {
         _refreshPickerModels({ force: hasCache, showLoading: !hasCache }).then(() => { if (!menu.classList.contains('hidden')) _populate(search.value || ''); updateModelPicker(); }).catch(() => {});
       }
@@ -654,7 +658,7 @@ export function updateModelPicker() {
   const hasConfiguredModel = cachedItems.some(item => !item.offline
     && ((item.models || []).length || (item.models_extra || []).length));
   const displayName = modelId ? _displayModelName(modelId)
-    : (hasConfiguredModel ? 'Select model' : 'Set up model');
+    : (hasConfiguredModel ? 'Selecionar modelo' : 'Configurar modelo');
   label.title = modelId === MOBS_AUTO_MODEL_ID ? MOBS_AUTO_DISPLAY : (modelId || '');
   const logo = modelId && modelId !== MOBS_AUTO_MODEL_ID ? providerLogo(modelId) : null;
   if (logo) label.innerHTML = '<span class="model-picker-logo">' + logo + '</span> ' + displayName;

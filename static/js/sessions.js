@@ -5,7 +5,7 @@ import Storage from './storage.js';
 import uiModule, { autoResize, styledPrompt } from './ui.js';
 import chatRenderer from './chatRenderer.js?v=20260722ctxheader1';
 import { providerLogo } from './providers.js';
-import { initModelPicker, updateModelPicker } from './modelPicker.js?v=20260722ctxheader1';
+import { initModelPicker, updateModelPicker } from './modelPicker.js';
 import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
 
@@ -14,6 +14,7 @@ const API_BASE = window.location.origin;
 let sessions = [];
 let currentSessionId = null;
 let _sessionNavToken = 0;
+let _sessionLoadingToken = null;
 let _skipAutoSelect = false;
 let _suppressNextSessionLoading = false;
 let _rootFreshChatApplied = false;
@@ -26,6 +27,11 @@ const SIDEBAR_MAX_VISIBLE = 10;
 const FOLDER_MAX_VISIBLE = 5;
 let _showAllSessions = false;
 let _expandedFolders = {};  // folderName -> true if "show more" clicked
+let _studioNavigation = { names: [], collapsed: {} };
+let _studioNavigationLoaded = false, _studioNavigationSaving = false;
+let _studioDraggingSession = null;
+const _studioMovingSessions = new Set();
+const _isStudioNavigation = () => !!document.getElementById('studio-home');
 let _sortMode = Storage.get('odysseus-session-sort') || 'active'; // default to last active
 const DATE_SECTION_COLLAPSE_KEY = 'ody-session-date-section-collapsed';
 let _autoCreateInProgress = false; // guard against recursive auto-create
@@ -286,7 +292,7 @@ function _deselectCurrentSession(sid) {
   if (currentSessionId !== sid) return;
   currentSessionId = null;
   uiModule.el('chat-history').innerHTML = '';
-  uiModule.el('current-meta').textContent = 'Odysseus Chat';
+  uiModule.el('current-meta').textContent = 'MOBS Studio';
   Storage.remove('lastSessionId');
   history.replaceState(null, '', window.location.pathname);
   if (window.chatModule && window.chatModule.showWelcomeScreen) {
@@ -360,20 +366,80 @@ function saveFolderOrder(order) {
 
 /** Get all unique folder names from current sessions. */
 function getFolderNames() {
-  const names = new Set();
+  const names = new Set(_isStudioNavigation() ? _studioNavigation.names : []);
   sessions.forEach(s => { if (s.folder) names.add(s.folder); });
   return Array.from(names).sort();
 }
 
 /** Move a session to a folder via the API. */
 async function moveToFolder(sessionId, folderName) {
-  const fd = new FormData();
-  fd.append('folder', folderName || '');
-  await fetch(`${API_BASE}/api/session/${sessionId}`, { method: 'PATCH', body: fd });
-  // Update local data
-  const s = sessions.find(x => x.id === sessionId);
-  if (s) s.folder = folderName || null;
-  renderSessionList();
+  if (_studioMovingSessions.has(sessionId)) return false;
+  _studioMovingSessions.add(sessionId);
+  try {
+    const fd = new FormData();
+    fd.append('folder', folderName || '');
+    const response = await fetch(`${API_BASE}/api/session/${encodeURIComponent(sessionId)}`, { method: 'PATCH', body: fd });
+    if (!response.ok) throw new Error('Não foi possível mover a conversa.');
+    const s = sessions.find(x => x.id === sessionId);
+    if (s) s.folder = folderName || null;
+    renderSessionList();
+    return true;
+  } catch (error) { uiModule.showError(error.message); return false; }
+  finally { _studioMovingSessions.delete(sessionId); }
+}
+
+async function setSessionPinned(s, important) {
+  if (s._pinPending) return false;
+  s._pinPending = true;
+  try {
+    const fd = new FormData(); fd.append('important', important);
+    const response = await fetch(`${API_BASE}/api/session/${encodeURIComponent(s.id)}/important`, { method: 'POST', body: fd });
+    if (!response.ok) throw new Error('Não foi possível atualizar a fixação.');
+    s.is_important = important;
+    renderSessionList();
+    return true;
+  } catch (error) { uiModule.showError(error.message); return false; }
+  finally { delete s._pinPending; }
+}
+
+async function renameSession(s, name) {
+  try {
+    const fd = new FormData(); fd.append('name', name);
+    const response = await fetch(`${API_BASE}/api/session/${encodeURIComponent(s.id)}`, { method: 'PATCH', body: fd });
+    if (!response.ok) throw new Error('Não foi possível renomear a conversa.');
+    s.name = name;
+    uiModule.showToast('Conversa renomeada');
+    return true;
+  } catch (error) { uiModule.showError(error.message); return false; }
+}
+
+async function loadStudioNavigation() {
+  if (!_isStudioNavigation() || _studioNavigationLoaded) return;
+  try {
+    const response = await fetch('/api/prefs/studio-project-navigation', { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('Preferências indisponíveis');
+    const { value } = await response.json();
+    _studioNavigation = {
+      names: Array.isArray(value?.names) ? [...new Set(value.names.filter(n => typeof n === 'string' && n.trim() && n.length <= 120))].slice(0, 100) : [],
+      collapsed: value?.collapsed && typeof value.collapsed === 'object' ? value.collapsed : {},
+    };
+    _studioNavigationLoaded = true;
+  } catch (_) { /* Existing persisted session folders remain usable. */ }
+}
+
+async function saveStudioNavigation(next) {
+  if (_studioNavigationSaving) return false;
+  _studioNavigationSaving = true;
+  try {
+    // Never overwrite a preference that could not be read for this account.
+    if (!_studioNavigationLoaded) throw new Error('Projetos indisponíveis. Reabra a conversa e tente novamente.');
+    const response = await fetch('/api/prefs/studio-project-navigation', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: next }) });
+    if (!response.ok) throw new Error('Não foi possível salvar os projetos.');
+    _studioNavigation = next;
+    renderSessionList();
+    return true;
+  } catch (error) { uiModule.showError(error.message); return false; }
+  finally { _studioNavigationSaving = false; }
 }
 
 /** Build the "Move to folder" submenu for a session dropdown. */
@@ -384,7 +450,7 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
   moveItem.className = 'dropdown-item-compact';
   moveItem.style.position = 'relative';
   const _folderIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
-  moveItem.innerHTML = '<span class="dropdown-icon">' + _folderIcon + '</span><span>Move to folder</span>';
+  moveItem.innerHTML = '<span class="dropdown-icon">' + _folderIcon + '</span><span>' + (_isStudioNavigation() ? 'Mover para projeto' : 'Move to folder') + '</span>';
 
   const sub = document.createElement('div');
   sub.className = 'dropdown session-folder-submenu';
@@ -393,7 +459,7 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
   const noneOpt = document.createElement('div');
   noneOpt.className = 'dropdown-item-compact';
   if (!currentFolder) noneOpt.style.opacity = '0.5';
-  noneOpt.textContent = '(No folder)';
+  noneOpt.textContent = _isStudioNavigation() ? 'Retirar do projeto → Recentes' : '(No folder)';
   noneOpt.addEventListener('click', async (e) => {
     e.stopPropagation();
     await moveToFolder(sessionId, '');
@@ -424,16 +490,17 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
   const newOpt = document.createElement('div');
   newOpt.className = 'dropdown-item-compact';
   newOpt.style.color = 'var(--accent-primary)';
-  newOpt.textContent = '+ New Folder';
+  newOpt.textContent = _isStudioNavigation() ? '+ Novo projeto' : '+ New Folder';
   newOpt.addEventListener('click', async (e) => {
     e.stopPropagation();
-    const name = await styledPrompt('Name this folder:', {
-      title: 'New folder',
-      placeholder: 'e.g. Work, Research, Drafts',
-      confirmText: 'Create',
+    const name = await styledPrompt(_isStudioNavigation() ? 'Nome do projeto de conversas (não altera o workspace):' : 'Name this folder:', {
+      title: _isStudioNavigation() ? 'Novo projeto' : 'New folder',
+      placeholder: 'Ex.: MOBS, Last Sentinel',
+      confirmText: _isStudioNavigation() ? 'Criar' : 'Create',
     });
     if (!name || !name.trim()) return;
-    await moveToFolder(sessionId, name.trim());
+    if (name.trim().length > 120) { uiModule.showError('Use até 120 caracteres.'); return; }
+    if (!await moveToFolder(sessionId, name.trim())) return;
     // Auto-flip to By Folder view so the user immediately sees the
     // folder they just created — otherwise the new folder disappears
     // into the flat list and looks like the action did nothing.
@@ -482,6 +549,10 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
     }
   });
 
+  for (const item of sub.querySelectorAll('.dropdown-item-compact')) {
+    item.setAttribute('role', 'button'); item.tabIndex = 0;
+    item.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); } });
+  }
   sub.addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', () => { sub.style.display = 'none'; });
   document.body.appendChild(sub);
@@ -546,7 +617,7 @@ function createSessionItem(s) {
     icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
   }
   // Favorite bookmark replaces session-icon when important
-  if (s.is_important && !isOpenClaw) {
+  if (s.is_important && !isOpenClaw && !_isStudioNavigation()) {
     icon.className = 'session-icon session-fav';
     icon.title = 'Unfavorite';
     icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
@@ -567,8 +638,8 @@ function createSessionItem(s) {
   let chatTitle = s.name || '';
   if (_isFork) chatTitle = chatTitle.replace(/^Fork:\s*/, '').replace(/^\u2ADD\s*/, '');
   if (_isGroup) chatTitle = chatTitle.replace(/^\[GRP\]\s*/, '');
-  let label = chatTitle;
-  if (s.model) label += ' · ' + s.model.split('/').pop();
+  let label = _isStudioNavigation() ? (chatTitle.replace(/^Chat:\s*/, '') || 'Nova conversa') : chatTitle;
+  if (s.model && !_isStudioNavigation()) label += ' · ' + s.model.split('/').pop();
   if (s.archived) label += ' [archived]';
   span.textContent = label;
   span.title = (s.model ? s.model.split('/').pop() + ' · ' : '') + chatTitle;
@@ -590,11 +661,7 @@ function createSessionItem(s) {
       const commit = async () => {
         const newName = input.value.trim();
         if (newName && newName !== s.name) {
-          const fd = new FormData();
-          fd.append('name', newName);
-          await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'PATCH', body: fd });
-          s.name = newName;
-          uiModule.showToast('Renamed');
+          await renameSession(s, newName);
         }
         _forceSidebarOpen();
         renderSessionList();
@@ -602,6 +669,7 @@ function createSessionItem(s) {
       };
       input.addEventListener('blur', commit);
       input.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
         if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
         if (ev.key === 'Escape') { input.removeEventListener('blur', commit); _forceSidebarOpen(); renderSessionList(); _stopGuard(); }
       });
@@ -654,7 +722,7 @@ function createSessionItem(s) {
     if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
   }, { passive: true });
   div.addEventListener('click', (e) => {
-    if (e.target.closest('.item-drag-handle') || e.target.closest('.session-fav') || e.target.closest('.hamburger') || e.target.closest('.session-dropdown') || e.target.closest('.session-rename-input') || e.target.closest('.session-select-cb')) return;
+    if (e.target.closest('.item-drag-handle') || e.target.closest('.session-fav') || e.target.closest('.studio-session-pin') || e.target.closest('.hamburger') || e.target.closest('.session-dropdown') || e.target.closest('.session-rename-input') || e.target.closest('.session-select-cb')) return;
     if (_touchMoved || _longPressed) { _touchMoved = false; _longPressed = false; return; }
     // In select mode, toggle dot instead of navigating
     if (_selectMode) {
@@ -667,8 +735,10 @@ function createSessionItem(s) {
 
   // Create a dropdown menu button
   const menuBtn = document.createElement('button');
-  menuBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
-  menuBtn.title = 'Session actions';
+  menuBtn.innerHTML = _isStudioNavigation() ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>' : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+  menuBtn.title = 'Ações da conversa';
+  menuBtn.setAttribute('aria-label', `Ações: ${chatTitle || 'Nova conversa'}`);
+  menuBtn.type = 'button';
   menuBtn.className = 'hamburger session-menu-btn';
 
   // Create dropdown menu
@@ -684,7 +754,7 @@ function createSessionItem(s) {
 
   const renameItem = document.createElement('div');
   renameItem.className = 'dropdown-item-compact';
-  renameItem.innerHTML = _icon(_renameIcon) + '<span>Rename</span>';
+  renameItem.innerHTML = _icon(_renameIcon) + '<span>Renomear</span>';
 
   const archiveItem = document.createElement('div');
   archiveItem.className = 'dropdown-item-compact';
@@ -705,14 +775,10 @@ function createSessionItem(s) {
       : '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
     const starItem = document.createElement('div');
     starItem.className = 'dropdown-item-compact';
-    starItem.innerHTML = _icon(_favIcon) + '<span>' + (s.is_important ? 'Unfavorite' : 'Favorite') + '</span><span class="dropdown-shortcut">' + _mod + '+Alt+F</span>';
+    starItem.innerHTML = _icon(_favIcon) + '<span>' + (s.is_important ? 'Desafixar' : 'Fixar conversa') + '</span><span class="dropdown-shortcut">' + _mod + '+Alt+F</span>';
     starItem.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const newVal = !s.is_important;
-      const fd = new FormData();
-      fd.append('important', newVal);
-      await fetch(`${API_BASE}/api/session/${s.id}/important`, { method: 'POST', body: fd });
-      s.is_important = newVal;
+      await setSessionPinned(s, !s.is_important);
       dropdown.style.display = 'none';
       renderSessionList();
     });
@@ -752,7 +818,7 @@ function createSessionItem(s) {
       }
       uiModule.showToast('Chat copied to clipboard');
     } catch (e) {
-      console.error('Copy chat failed:', e);
+      console.error('Copiar conversa failed:', e);
       uiModule.showError('Failed to copy chat');
     }
   });
@@ -852,11 +918,7 @@ function createSessionItem(s) {
     const commit = async () => {
       const newName = input.value.trim();
       if (newName && newName !== s.name) {
-        const fd = new FormData();
-        fd.append('name', newName);
-        await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'PATCH', body: fd });
-        s.name = newName;
-        uiModule.showToast('Renamed');
+        await renameSession(s, newName);
       }
       _forceSidebarOpen();
       renderSessionList();
@@ -864,6 +926,7 @@ function createSessionItem(s) {
     };
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
       if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
       if (ev.key === 'Escape') { input.removeEventListener('blur', commit); _forceSidebarOpen(); renderSessionList(); _stopGuard(); }
     });
@@ -958,6 +1021,21 @@ function createSessionItem(s) {
     }
   }
 
+  if (_isStudioNavigation() && !isOpenClaw) {
+    const pin = document.createElement('button');
+    pin.type = 'button'; pin.className = 'studio-session-pin';
+    pin.setAttribute('aria-label', `${s.is_important ? 'Desafixar' : 'Fixar'}: ${chatTitle || 'Nova conversa'}`);
+    pin.setAttribute('aria-pressed', String(!!s.is_important));
+    pin.title = s.is_important ? 'Desafixar conversa' : 'Fixar conversa';
+    pin.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3h8l-1 7 4 4v2H5v-2l4-4zM12 16v6"/></svg>';
+    pin.addEventListener('click', async e => { e.stopPropagation(); pin.disabled = true; await setSessionPinned(s, !s.is_important); pin.disabled = false; });
+    div.appendChild(pin);
+    enableStudioRowDrag(div, s.id);
+  }
+  for (const item of dropdown.querySelectorAll('.dropdown-item-compact')) {
+    item.setAttribute('role', 'button'); item.tabIndex = 0;
+    item.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); } });
+  }
   div.appendChild(menuBtn);
   dropdown.addEventListener('click', (e) => e.stopPropagation());
   document.body.appendChild(dropdown);
@@ -1020,7 +1098,8 @@ function _toggleDateSection(kind, label) {
 function _createDateSectionHeader(label, kind = 'session') {
   const el = document.createElement('div');
   el.className = `date-section-header ${kind}-date-section-header`;
-  el.textContent = label;
+  const displayLabel = ({Today: 'Hoje', Yesterday: 'Ontem', Older: 'Mais antigas', Favorites: 'Favoritos'})[label] || label;
+  el.textContent = displayLabel;
   const collapsed = _isDateSectionCollapsed(kind, label);
   if (collapsed) el.classList.add('collapsed');
   el.dataset.dateSectionKind = kind;
@@ -1028,7 +1107,7 @@ function _createDateSectionHeader(label, kind = 'session') {
   el.tabIndex = 0;
   el.setAttribute('role', 'button');
   el.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-  el.title = collapsed ? `Show ${label}` : `Hide ${label}`;
+  el.title = collapsed ? `Mostrar ${displayLabel}` : `Recolher ${displayLabel}`;
   el.addEventListener('click', (e) => {
     e.stopPropagation();
     _toggleDateSection(kind, label);
@@ -1066,6 +1145,127 @@ function _appendFavoriteSessionItems(frag, items) {
   }
 }
 
+function studioSessionGroups(items, projectNames = []) {
+  const recent = (a, b) => String(b.last_message_at || b.updated_at || b.created_at || '').localeCompare(String(a.last_message_at || a.updated_at || a.created_at || ''));
+  const ordered = [...items].sort(recent);
+  const names = [...new Set([...projectNames, ...ordered.map(s => s.folder).filter(Boolean)])];
+  return {
+    pinned: ordered.filter(s => s.is_important),
+    projects: names.map(name => ({ name, sessions: ordered.filter(s => s.folder === name && !s.is_important) })),
+    recent: ordered.filter(s => !s.is_important && !s.folder),
+  };
+}
+
+function enableStudioRowDrag(row, sessionId) {
+  // Pointer input avoids native HTML drag/dataTransfer differences in WebViews.
+  // Touch keeps its normal scrolling; the same move action is in the menu.
+  let suppressClick = false;
+  row.draggable = false;
+  row.addEventListener('click', e => {
+    if (suppressClick) { e.preventDefault(); e.stopImmediatePropagation(); suppressClick = false; }
+  }, true);
+  row.addEventListener('pointerdown', start => {
+    if (start.button !== 0 || start.pointerType === 'touch' || start.target.closest('button,input,.session-rename-input') || _studioDraggingSession) return;
+    let dragging = false, target = null;
+    const pointer = start.pointerId;
+    const clearTarget = () => { target?.classList.remove('studio-drop-target'); target = null; };
+    const move = e => {
+      if (e.pointerId !== pointer) return;
+      if (!dragging && Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY) < 8) return;
+      dragging = true; _studioDraggingSession = sessionId;
+      row.classList.add('studio-dragging'); document.body.classList.add('studio-drag-active');
+      e.preventDefault();
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const next = under?.closest('.studio-project-folder, .studio-session-recent');
+      if (next !== target) { clearTarget(); target = next; target?.classList.add('studio-drop-target'); }
+    };
+    const finish = async e => {
+      if (e.pointerId !== pointer) return;
+      const destination = target;
+      const commit = e.type === 'pointerup' && dragging && destination && _studioDraggingSession === sessionId && sessions.some(s => s.id === sessionId);
+      clearTarget(); _studioDraggingSession = null;
+      row.classList.remove('studio-dragging'); document.body.classList.remove('studio-drag-active');
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', finish);
+      document.removeEventListener('pointercancel', finish);
+      if (row.hasPointerCapture?.(pointer)) row.releasePointerCapture(pointer);
+      if (dragging) { suppressClick = true; setTimeout(() => { suppressClick = false; }, 300); }
+      if (commit) await moveToFolder(sessionId, destination.dataset.folderName || '');
+    };
+    document.addEventListener('pointermove', move, { passive: false });
+    document.addEventListener('pointerup', finish);
+    document.addEventListener('pointercancel', finish);
+    row.setPointerCapture?.(pointer);
+  });
+}
+
+function renderStudioSessionGroups(list, items) {
+  const groups = studioSessionGroups(items, _studioNavigation.names);
+  const fragment = document.createDocumentFragment();
+  const addSection = (label, kind) => {
+    const section = document.createElement('section');
+    section.className = `studio-session-group studio-session-${kind}`;
+    const heading = document.createElement('h3'); heading.textContent = label;
+    section.appendChild(heading); fragment.appendChild(section);
+    return section;
+  };
+  const addRows = (parent, rows, key) => {
+    const expanded = _expandedFolders[`studio:${key}`];
+    const visible = expanded ? rows : rows.slice(0, SIDEBAR_MAX_VISIBLE);
+    if (!expanded) {
+      const active = rows.find(s => s.id === currentSessionId);
+      if (active && !visible.includes(active)) visible.push(active);
+    }
+    for (const s of visible) parent.appendChild(createSessionItem(s));
+    if (rows.length > SIDEBAR_MAX_VISIBLE) {
+      const more = document.createElement('button'); more.type = 'button'; more.className = 'session-show-more-btn';
+      more.textContent = expanded ? 'Mostrar menos' : `Mostrar mais (${rows.length - visible.length})`;
+      more.onclick = () => { _expandedFolders[`studio:${key}`] = !expanded; renderSessionList(); };
+      parent.appendChild(more);
+    }
+  };
+  const pinned = addSection('Fixados', 'pinned');
+  addRows(pinned, groups.pinned, 'pinned');
+  if (!groups.pinned.length) { const empty = document.createElement('p'); empty.className = 'studio-session-empty'; empty.textContent = 'Fixe uma conversa pelo ícone de pin.'; pinned.appendChild(empty); }
+  const projects = addSection('Projetos', 'projects');
+  const create = document.createElement('button'); create.type = 'button'; create.className = 'studio-project-create';
+  create.textContent = '+'; create.title = 'Novo projeto de conversas'; create.setAttribute('aria-label', 'Criar projeto de conversas');
+  create.onclick = async () => {
+    await loadStudioNavigation();
+    if (!_studioNavigationLoaded) { uiModule.showError('Não foi possível ler os projetos desta conta.'); return; }
+    const value = await styledPrompt('Nome do projeto de conversas. Esta organização não muda o workspace.', { title: 'Novo projeto', confirmText: 'Criar' });
+    const name = value?.trim();
+    if (!name) return;
+    if (name.length > 120 || groups.projects.length >= 100) { uiModule.showError('Use até 120 caracteres e no máximo 100 projetos.'); return; }
+    const names = [...new Set([..._studioNavigation.names, ...groups.projects.map(p => p.name), name])];
+    await saveStudioNavigation({ names, collapsed: { ..._studioNavigation.collapsed, [name]: false } });
+  };
+  projects.firstChild.appendChild(create);
+  for (const project of groups.projects) {
+    const container = document.createElement('div'); container.className = 'session-folder studio-project-folder';
+    container.dataset.folderName = project.name;
+    const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'studio-project-toggle';
+    const collapsed = _studioNavigation.collapsed[project.name] === true;
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.title = 'Agrupamento de conversas; não altera o workspace da tarefa.';
+    toggle.innerHTML = '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 7V5h6l2 2h10v13H3z"/></svg>';
+    const label = document.createElement('span'); label.textContent = project.name;
+    const chevron = document.createElement('span'); chevron.className = 'studio-project-chevron'; chevron.textContent = '›';
+    toggle.appendChild(label); toggle.appendChild(chevron);
+    toggle.onclick = () => saveStudioNavigation({ names: [...new Set([..._studioNavigation.names, ...groups.projects.map(p => p.name)])], collapsed: { ..._studioNavigation.collapsed, [project.name]: !collapsed } });
+    container.appendChild(toggle);
+    const content = document.createElement('div'); content.className = 'session-folder-content'; content.hidden = collapsed;
+    addRows(content, project.sessions, `project:${project.name}`);
+    if (!project.sessions.length) { const empty = document.createElement('p'); empty.className = 'studio-session-empty'; empty.textContent = 'Arraste uma conversa para cá ou use Mover para projeto.'; content.appendChild(empty); }
+    container.appendChild(content); projects.appendChild(container);
+  }
+  if (!groups.projects.length) { const empty = document.createElement('p'); empty.className = 'studio-session-empty'; empty.textContent = 'Crie um projeto para organizar conversas.'; projects.appendChild(empty); }
+  const recent = addSection('Recentes', 'recent');
+  addRows(recent, groups.recent, 'recent');
+  list.replaceChildren(fragment);
+  list.setAttribute('aria-label', 'Fixados, projetos e conversas recentes');
+}
+
 let _renderRAF = null;
 export function renderSessionList() {
   // Debounce rapid re-renders within the same frame
@@ -1075,6 +1275,7 @@ export function renderSessionList() {
 
 function _renderSessionListImpl() {
   _renderRAF = null;
+  if (_isStudioNavigation()) document.dispatchEvent(new CustomEvent('studio-session-metadata-changed'));
   const list = uiModule.el('session-list');
   if (!list) return;
 
@@ -1105,6 +1306,12 @@ function _renderSessionListImpl() {
   document.querySelectorAll('.session-dropdown, .folder-submenu').forEach(d => d.remove());
 
   const _frag = document.createDocumentFragment();
+
+  if (_isStudioNavigation()) {
+    renderStudioSessionGroups(list, orderedSessions);
+    _postRenderSessionList(list);
+    return;
+  }
 
   // ── Flat sort modes: ignore folders, show one ordered list. ──
   // Folders are only shown when _sortMode === 'group' (or null/empty
@@ -1685,11 +1892,12 @@ export async function loadSessions() {
       const res = await fetch(url);
       fetched = await res.json();
     }
+    await loadStudioNavigation();
     sessions = _normalizeSessionsList(fetched);
     renderSessionList();
 
     const sessionsSection = uiModule.el('sessions-section');
-    if (sessions.length === 0) {
+    if (sessions.length === 0 && !_isStudioNavigation()) {
       sessionsSection.classList.add('hidden');
     } else {
       sessionsSection.classList.remove('hidden');
@@ -1819,8 +2027,10 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
     window.compareModule.deactivate(true);
     return; // deactivate does a page reload
   }
+  const navToken = ++_sessionNavToken;
+  _sessionLoadingToken = navToken;
+  let historyLoaded = false;
   try {
-    const navToken = ++_sessionNavToken;
     const prevSessionId = currentSessionId;
     // Selecting a real persisted chat cancels any deferred "New Chat" model
     // pick. Otherwise the next send can materialize that pending chat instead
@@ -1837,10 +2047,11 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
       try { window.documentModule.clearSelection(); } catch {}
     }
     currentSessionId = id;
+    document.dispatchEvent(new CustomEvent('studio-session-selected', { detail: { session: id } }));
     try { window.__odysseusLastSelectedSessionId = id; } catch (_) {}
     // Identify Assistant / task-output sessions so we don't "trap" the user
     // there on return. Skipped from both `lastSessionId` persistence and the
-    // URL hash — the user complained that coming back to Odysseus kept
+    // URL hash — the user complained that coming back to MOBS Studio kept
     // landing them on the auto-firing task-log chat instead of their last
     // real conversation.
     const _meta = sessions.find(s => s.id === id);
@@ -1914,7 +2125,7 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
 
     const currentMetaEl = uiModule.el('current-meta');
     if (currentMetaEl) {
-      currentMetaEl.textContent = meta ? meta.name : 'Odysseus Chat';
+      currentMetaEl.textContent = meta ? meta.name : 'MOBS Studio';
     }
     // Update model picker visibility
     updateModelPicker();
@@ -2037,6 +2248,7 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
       }
     }
     uiModule.scrollHistoryInstant();
+    historyLoaded = true;
     if (!isOC && msgHistory.length) {
       _installHistoryPager(id, pageInfo, modelName);
     }
@@ -2108,19 +2320,26 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
     }
 
   } catch (error) {
+    if (navToken !== _sessionNavToken || currentSessionId !== id) return;
     console.error('Error in selectSession:', error);
     const chatHistory = uiModule.el('chat-history');
-    if (chatHistory?.querySelector('.session-loading-state')) {
+    if (chatHistory && !historyLoaded) {
       chatHistory.innerHTML = '';
       chatHistory.style.opacity = '1';
       chatHistory.classList.remove('no-animate');
       const msg = document.createElement('div');
       msg.className = 'msg msg-ai';
-      msg.innerHTML = `<div class="body">Failed to load this chat. ${uiModule.esc ? uiModule.esc(error.message || '') : ''}</div>`;
+      const body = document.createElement('div'); body.className = 'body';
+      body.textContent = `Não foi possível carregar esta conversa. ${error.message || ''}`;
+      msg.appendChild(body);
       chatHistory.appendChild(msg);
     }
     uiModule.showError('Failed to load session: ' + error.message);
   } finally {
+    if (_sessionLoadingToken === navToken) {
+      _sessionLoadingToken = null;
+      document.dispatchEvent(new CustomEvent('studio-history-ready', { detail: { session: id, loaded: historyLoaded } }));
+    }
     // Memory warmup must not block chat switching. The memories panel can load
     // on demand; this is only a delayed cache refresh when the foreground chat
     // is idle.
@@ -2203,6 +2422,7 @@ export function createDirectChat(url, modelId, endpointId, opts = {}) {
   _suppressNextSessionLoading = true;
   currentSessionId = null;
   try { window.__odysseusLastSelectedSessionId = ''; } catch (_) {}
+  document.dispatchEvent(new CustomEvent('studio-session-selected', { detail: { session: null } }));
   Storage.remove('lastSessionId');
   history.replaceState(null, '', window.location.pathname);
   document.querySelectorAll('.list-item.active-session, .session-item.active').forEach(el => {
@@ -2235,7 +2455,7 @@ export function createDirectChat(url, modelId, endpointId, opts = {}) {
   // Update current-meta header
   const metaEl = document.getElementById('current-meta');
   if (metaEl) {
-    metaEl.textContent = 'New Chat';
+    metaEl.textContent = 'Nova conversa';
   }
 
   // Enable input
@@ -2349,6 +2569,7 @@ export function preMaterializePendingSession() {
 
 export function hasPendingChat() { return !!_pendingChat; }
 export function getPendingChat() { return _pendingChat; }
+export function isSessionLoading() { return _sessionLoadingToken !== null; }
 // Getters for external access
 export function getCurrentSessionId() {
   return currentSessionId;
@@ -2429,6 +2650,9 @@ export async function deleteCurrentSessionFromTopMenu() {
 
 // Session list keyboard navigation: arrows to move, Delete to delete
 async function _onSessionListKeydown(e) {
+  // Embedded actions and title editors own their keys; they must not select
+  // or delete the surrounding conversation as a side effect.
+  if (e.target.closest('button,input,textarea,select,[contenteditable="true"]')) return;
   const item = e.target.closest('.list-item[data-session-id]');
   if (!item) return;
 
@@ -2478,6 +2702,7 @@ async function _onSessionListKeydown(e) {
 
 // Initialize drag sorting for sessions — uses the same dragSortModule as models
 export function initDragSort() {
+  if (_isStudioNavigation()) return; // Native row-to-project drops own this view.
   if (!window.dragSortModule) return;
   const list = uiModule.el('session-list');
   if (!list) return;
@@ -3637,6 +3862,7 @@ const sessionModule = {
   preMaterializePendingSession,
   hasPendingChat,
   getPendingChat,
+  isSessionLoading,
   getCurrentSessionId,
   getSessions,
   getCurrentModel,

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-visual">
-<title>Odysseus — Login</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4L16 22L6 22Z' fill='%23e06c75'/%3E%3Cpath d='M16 8L16 22L24 22Z' fill='%23e06c75' opacity='0.6'/%3E%3Cpath d='M4 24Q10 20 16 24Q22 28 28 24' stroke='%23e06c75' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>MOBS Studio — Entrar</title>
+<link rel="icon" type="image/svg+xml" href="/static/brand/studio-ms.svg">
 <link rel="manifest" href="/static/manifest.json">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <script nonce="{{CSP_NONCE}}">
@@ -62,10 +62,10 @@
     // login feels consistent with the rest of the app). Per-theme
     // bgEffectColor/Intensity defaults still apply so the random
     // pattern picks up theme-appropriate tinting.
-    var name = (t && t.name) || '';
+    var name = (t && t.name) || 'studio';
     // perlin-flow excluded — too visually intense for a login screen.
     var PATTERNS = ['dots','synapse','rain','constellations','petals','sparkles','embers'];
-    var pattern = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
+    var pattern = name === 'studio' || name === 'graphite' ? 'none' : PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
     var effColor = (t && t.bgEffectColor) || THEME_DEFAULT_EFFECT_COLOR[name] || '';
     var effInt = (t && t.bgEffectIntensity !== undefined)
       ? t.bgEffectIntensity
@@ -92,8 +92,8 @@
      localStorage — renders the login page in the same palette as the rest
      of the app instead of a different greys+offwhite scheme. */
   :root {
-    --bg: #282c34; --fg: #9cdef2; --panel: #111; --border: #355a66;
-    --red: #e06c75; --green: #50fa7b;
+    --bg: #101113; --fg: #e6e8eb; --panel: #181a1e; --border: #2d3036;
+    --red: #c8b68a; --green: #77b88f;
     --bg-effect-intensity: 1;
   }
   /* Background patterns — mirrors static/style.css "Background Patterns"
@@ -115,7 +115,7 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: 'Fira Code', monospace;
+    font-family: system-ui, 'Segoe UI', sans-serif;
     background: var(--bg); color: var(--fg);
     display: flex; justify-content: center; align-items: flex-start;
     min-height: 100vh; min-height: 100dvh;
@@ -137,7 +137,7 @@
     font-family: 'Fira Code', monospace;
     font-size: 2rem; font-weight: 600;
     letter-spacing: 0.04em;
-    /* Same gradient as the main app's welcome-screen "Odysseus" title
+    /* Same gradient as the main app's welcome-screen "MOBS Studio" title
        (static/style.css #welcome-screen .welcome-name) so the brand
        wordmark is consistent across login + first-launch screens. */
     background: linear-gradient(135deg, var(--brand-color, var(--red)), color-mix(in srgb, var(--brand-color, var(--red)) 60%, var(--fg)));
@@ -253,41 +253,41 @@
 <body>
 <main class="card">
   <h1 class="logo">
-    <svg class="logo-boat" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M16 4L16 22L6 22Z" fill="currentColor"/><path d="M16 8L16 22L24 22Z" fill="currentColor" opacity="0.6"/><path d="M4 24Q10 20 16 24Q22 28 28 24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg><span>Odysseus</span>
+    <img src="/static/brand/studio-ms.svg" width="50" height="34" alt="MS"><span>MOBS Studio</span>
   </h1>
   <p class="setup-note" id="setupNote" style="display:none"></p>
 
   <div class="error" id="error" role="alert" aria-live="assertive"></div>
 
   <form id="authForm" autocomplete="on">
-    <label for="username">Username</label>
+    <label for="username">Usuário</label>
     <div class="pw-wrapper">
       <input id="username" name="username" type="text" required autofocus autocomplete="username">
-      <label class="remember-toggle" id="rememberToggle" title="Remember me">
-        <input type="checkbox" class="remember-check" id="remember" checked aria-label="Remember me">
+      <label class="remember-toggle" id="rememberToggle" title="Lembrar usuário">
+        <input type="checkbox" class="remember-check" id="remember" checked aria-label="Lembrar usuário">
         <span class="remember-dot" aria-hidden="true"></span>
       </label>
     </div>
 
-    <label for="password">Password</label>
+    <label for="password">Senha</label>
     <div class="pw-wrapper">
       <input id="password" name="password" type="password" required autocomplete="current-password">
-      <button type="button" class="pw-toggle" id="pwToggle" tabindex="-1" aria-label="Show password">
+      <button type="button" class="pw-toggle" id="pwToggle" tabindex="-1" aria-label="Mostrar senha">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><line x1="8" y1="16" x2="16" y2="8"/><line x1="8" y1="8" x2="16" y2="16"/></svg>
       </button>
     </div>
 
     <div id="confirmGroup" style="display:none">
-      <label for="confirmPassword">Confirm Password</label>
+      <label for="confirmPassword">Confirmar senha</label>
       <div class="pw-wrapper">
         <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password">
-        <button type="button" class="pw-toggle" id="pwToggleConfirm" tabindex="-1" aria-label="Show password">
+        <button type="button" class="pw-toggle" id="pwToggleConfirm" tabindex="-1" aria-label="Mostrar senha">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><line x1="8" y1="16" x2="16" y2="8"/><line x1="8" y1="8" x2="16" y2="16"/></svg>
         </button>
       </div>
     </div>
 
-    <button type="submit" id="submitBtn">Sign In</button>
+    <button type="submit" id="submitBtn">Entrar</button>
   </form>
 
   <div class="toggle" id="toggleArea" style="display:none">
@@ -353,7 +353,7 @@
     } else {
       setupNote.style.display = 'none';
       confirmGroup.style.display = 'none';
-      submitBtn.textContent = 'Sign In';
+      submitBtn.textContent = 'Entrar';
       toggleArea.style.display = signupAllowed ? 'block' : 'none';
       toggleText.textContent = "Don't have an account? ";
       toggleLink.textContent = 'Sign up';
@@ -539,7 +539,7 @@
       const show = inp.type === 'password';
       inp.type = show ? 'text' : 'password';
       btn.innerHTML = show ? eyeOpen : eyeClosed;
-      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      btn.setAttribute('aria-label', show ? 'Ocultar senha' : 'Mostrar senha');
       inp.focus();
     });
   }

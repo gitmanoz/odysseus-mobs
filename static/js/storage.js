@@ -7,6 +7,7 @@ export const KEYS = {
   TOGGLES: 'odysseus-toggles',
   SIDEBAR_COLLAPSED: 'sidebar-collapsed',
   SIDEBAR_WIDTH: 'sidebar-width',
+  STUDIO_SIDEBAR_WIDTH: 'studio-sidebar-width',
   SIDEBAR_SIDE: 'sidebar-side',
   CURRENT_SESSION: 'currentSessionId',
   COMPARE_SAVE: 'compare-save-results',

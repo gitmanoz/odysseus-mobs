@@ -5,19 +5,20 @@
 import Storage from './js/storage.js';
 import uiModule from './js/ui.js';
 import workspaceModule from './js/workspace.js';
+import { initStudioShell } from './js/studioShell.js';
 import fileHandlerModule from './js/fileHandler.js';
 import modelsModule from './js/models.js?v=20260715startupcalm2';
 import ragModule from './js/rag.js';
 import presetsModule from './js/presets.js';
 import searchModule from './js/search.js';
-import chatModule from './js/chat.js?v=20260722ctxheader4';
+import chatModule from './js/chat.js';
 import compareModule from './js/compare/index.js?v=20260723compareicon2';
 import documentModule from './js/document.js?v=20260722emailfastindex1';
 import searchChatModule from './js/search-chat.js';
 import { makeWindowDraggable } from './js/windowDrag.js';
 import markdownModule from './js/markdown.js';
-import chatRenderer from './js/chatRenderer.js?v=20260722emailfastindex1';
-import sessionModule from './js/sessions.js?v=20260722ctxheader4';
+import chatRenderer from './js/chatRenderer.js';
+import sessionModule from './js/sessions.js';
 import memoryModule from './js/memory.js?v=20260722memoryloading1';
 import voiceRecorderModule from './js/voiceRecorder.js';
 import censorModule from './js/censor.js';
@@ -26,7 +27,7 @@ import tasksModule from './js/tasks.js?v=20260723tasksbulkfeedback1';
 import calendarModule from './js/calendar.js';
 import notesModule from './js/notes.js';
 import adminModule from './js/admin.js?v=20260716openrouter3';
-import settingsModule from './js/settings.js?v=20260722emailfastindex1';
+import settingsModule from './js/settings.js';
 // Eagerly bind unified minimize/restore behavior across all tool modals.
 import './js/modalManager.js?v=20260723compareicon2';
 // Desktop window tiling — drag a modal near an edge/corner to snap.
@@ -156,8 +157,8 @@ initForegroundActivityHeartbeat();
 
 function initRailHoverLabels() {
   const labels = {
-    'rail-search-btn': 'Search',
-    'rail-new-session': 'New',
+    'rail-search-btn': 'Buscar',
+    'rail-new-session': 'Nova conversa',
     'rail-delete-session': 'Delete',
     'rail-chats': 'Chat',
     'rail-documents': 'Docs',
@@ -172,7 +173,7 @@ function initRailHoverLabels() {
     'rail-notes': 'Notes',
     'rail-tasks': 'Tasks',
     'rail-theme': 'Theme',
-    'rail-settings': 'Settings',
+    'rail-settings': 'Configurações',
   };
   document.querySelectorAll('#icon-rail .icon-rail-btn').forEach(btn => {
     if (btn.querySelector('.rail-hover-label')) return;
@@ -509,7 +510,7 @@ function initializeEventListeners() {
       e.stopPropagation();
       exportMenu.classList.remove('open');
       const meta = sessionModule.getSessions().find(s => s.id === sessionModule.getCurrentSessionId());
-      const sessionName = meta ? meta.name : 'Odysseus Chat';
+      const sessionName = meta ? meta.name : 'MOBS Studio';
       const originalTitle = document.title;
       document.title = sessionName;
       const chatHistory = document.getElementById('chat-history');
@@ -1968,7 +1969,7 @@ function initializeEventListeners() {
     const isOpen = !document.body.classList.contains('product-shell-advanced');
     document.body.classList.toggle('product-shell-advanced', isOpen);
     productAdvancedBtn.setAttribute('aria-expanded', String(isOpen));
-    productAdvancedBtn.title = isOpen ? 'Hide advanced capabilities' : 'Show advanced capabilities';
+    productAdvancedBtn.title = isOpen ? 'Hide advanced capabilities' : 'Mostrar recursos avançados';
   });
 
   // Document editor toggle (special: uses module panel, not a checkbox)
@@ -2001,7 +2002,7 @@ function initializeEventListeners() {
         const st = loadToggleState(); st.doc = false; saveToggleState(st);
       } else {
         let sessionId = sessionModule.getCurrentSessionId();
-        // If there's a pending "New Chat", materialize it first
+        // If there's a pending "Nova conversa", materialize it first
         if (!sessionId && sessionModule.hasPendingChat && sessionModule.hasPendingChat()) {
           await sessionModule.materializePendingSession();
           sessionId = sessionModule.getCurrentSessionId();
@@ -2414,7 +2415,7 @@ function initializeEventListeners() {
 	        textarea.setAttribute('placeholder', 'Swipe to toggle plan');
 	        return;
 	      }
-	      textarea.setAttribute('placeholder', width < PLACEHOLDER_COMPACT_WIDTH ? 'Message...' : 'Message Odysseus...');
+	      textarea.setAttribute('placeholder', width < PLACEHOLDER_COMPACT_WIDTH ? 'Mensagem…' : 'Descreva a tarefa…');
 	    }
 
 	    if (_isMobile && textarea && !textarea._odysseusPlanPlaceholderHint) {
@@ -3418,7 +3419,7 @@ function initializeEventListeners() {
     });
   }
 
-  // Delete session button on icon rail
+  // Excluir conversa button on icon rail
   const railDelete = el('rail-delete-session');
   if (railDelete) {
     railDelete.addEventListener('click', async () => {
@@ -3828,10 +3829,14 @@ function startOdysseusApp() {
   const _railSettings = el('rail-settings');
   if (_railSettings) {
     _railSettings.addEventListener('click', () => {
+      if (document.body.classList.contains('studio-shell')) {
+        settingsModule.open();
+        return;
+      }
       const sidebar = document.getElementById('sidebar');
       if (sidebar) sidebar.classList.remove('hidden');
       syncRailSide();
-      // Scroll to bottom where settings typically are
+      // Ir ao final where settings typically are
       const sidebarInner = document.querySelector('.sidebar-inner');
       if (sidebarInner) sidebarInner.scrollTo({ top: sidebarInner.scrollHeight, behavior: 'smooth' });
     });
@@ -4004,7 +4009,7 @@ function startOdysseusApp() {
     }, true);
   }
 
-  const _sendIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  const _sendIcon = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M22 2 11 13"/></svg>';
   const _micIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
   const _stopIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
   const _newChatIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
@@ -4034,6 +4039,7 @@ function startOdysseusApp() {
       sendBtn.innerHTML = _stopIcon;
       sendBtn.title = 'Stop generation';
     }
+    sendBtn.setAttribute('aria-label', hasText ? 'Enfileirar mensagem' : 'Interromper geração');
     return true;
   }
 
@@ -4046,7 +4052,7 @@ function startOdysseusApp() {
     // Don't override if recording
     if (sendBtn.dataset.mode === 'recording') return;
     const prevMode = sendBtn.dataset.mode || '';
-    const hasText = messageInput && messageInput.value.trim().length > 0;
+    const hasText = (messageInput && messageInput.value.trim().length > 0) || chatModule.hasTextlessMobsAction();
     const hasFiles = _hasAttachments();
     let newMode;
     if (!hasText && !hasFiles && _isSttEnabled()) {
@@ -4059,7 +4065,16 @@ function startOdysseusApp() {
     } else if (!hasText && !hasFiles && !_isSttEnabled()) {
       clearTimeout(sendBtn._collapseTimer);
       // Group chat: always show send button, never newchat mode
-      if (groupModule && groupModule.isActive()) {
+      if (document.body.classList.contains('studio-shell')) {
+        // Studio keeps New conversation in the rail/sidebar. The composer
+        // remains a send affordance at rest, matching V3; empty submissions
+        // still pass through the existing text/action guard.
+        sendBtn.innerHTML = _sendIcon;
+        sendBtn.title = 'Enviar mensagem';
+        newMode = 'idle';
+        sendBtn.classList.remove('mic-mode', 'newchat-mode', 'newchat-expanded');
+        clearTimeout(sendBtn._expandTimer);
+      } else if (groupModule && groupModule.isActive()) {
         sendBtn.innerHTML = _sendIcon;
         sendBtn.title = 'Send to group';
         newMode = 'idle';
@@ -4070,14 +4085,14 @@ function startOdysseusApp() {
       if (isEmptySession) {
         // Already on new chat — show arrow in muted style (ready to type)
         sendBtn.innerHTML = _sendIcon;
-        sendBtn.title = 'Send message';
+        sendBtn.title = 'Enviar mensagem';
         newMode = 'idle';
         sendBtn.classList.add('newchat-mode'); // muted gray style
         sendBtn.classList.remove('mic-mode', 'newchat-expanded');
         clearTimeout(sendBtn._expandTimer);
       } else {
-        sendBtn.innerHTML = _newChatIcon + '<span class="send-btn-label">+ New</span>';
-        sendBtn.title = 'New chat';
+        sendBtn.innerHTML = _newChatIcon + '<span class="send-btn-label">+ Nova</span>';
+        sendBtn.title = 'Nova conversa';
         newMode = 'newchat';
         sendBtn.classList.add('newchat-mode');
         sendBtn.classList.remove('mic-mode');
@@ -4100,14 +4115,14 @@ function startOdysseusApp() {
         setTimeout(() => {
           if (sendBtn.dataset.mode !== 'send') return;
           sendBtn.innerHTML = _sendIcon;
-          sendBtn.title = 'Send message';
+          sendBtn.title = 'Enviar mensagem';
           sendBtn.classList.remove('mic-mode', 'newchat-mode', 'anim-spin-swap');
           sendBtn.classList.add('anim-spin');
           sendBtn.addEventListener('animationend', () => sendBtn.classList.remove('anim-spin'), { once: true });
         }, delay);
       } else {
         sendBtn.innerHTML = _sendIcon;
-        sendBtn.title = 'Send message';
+        sendBtn.title = 'Enviar mensagem';
         sendBtn.classList.remove('mic-mode', 'newchat-mode', 'newchat-expanded', 'anim-spin', 'anim-launch', 'anim-land');
       }
     }
@@ -4125,6 +4140,7 @@ function startOdysseusApp() {
       }
     }
     sendBtn.dataset.mode = newMode;
+    sendBtn.setAttribute('aria-label', newMode === 'newchat' ? 'Nova conversa' : newMode === 'mic' ? 'Gravar voz' : 'Enviar mensagem');
   }
 
   if (sendBtn) {
@@ -4137,7 +4153,7 @@ function startOdysseusApp() {
         return;
       }
 
-      const hasText = messageInput && messageInput.value.trim().length > 0;
+      const hasText = (messageInput && messageInput.value.trim().length > 0) || chatModule.hasTextlessMobsAction();
       const hasFiles = _hasAttachments();
 
       if (sendBtn.dataset.mode === 'streaming') {
@@ -4146,7 +4162,7 @@ function startOdysseusApp() {
         return;
       }
 
-      // New chat mode — empty input, no attachments, no STT
+      // Nova conversa mode — empty input, no attachments, no STT
       if (!hasText && !hasFiles && sendBtn.dataset.mode === 'newchat') {
         if (sessionModule) {
           const sessions = sessionModule.getSessions();
@@ -4681,6 +4697,8 @@ function startOdysseusApp() {
   }
   
 
+
+  initStudioShell({ chat: chatModule, sessions: sessionModule, workspace: workspaceModule, storage: Storage, ui: uiModule });
 
   if (window.hljs) {
     console.log('Highlighting all code blocks on page load');

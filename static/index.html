@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="en" data-theme-appearance="graphite">
+<html lang="pt-BR" data-theme-appearance="graphite">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content, viewport-fit=cover" />
-  <title>Odysseus Chat</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4L16 22L6 22Z' fill='%23e06c75'/%3E%3Cpath d='M16 8L16 22L24 22Z' fill='%23e06c75' opacity='0.6'/%3E%3Cpath d='M4 24Q10 20 16 24Q22 28 28 24' stroke='%23e06c75' stroke-width='2.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <title>MOBS Studio</title>
+  <link rel="icon" type="image/svg+xml" href="/static/brand/studio-ms.svg">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#101113">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <!-- Disable iOS / Android auto-linkifying of numbers (phone/date/address)
        in email bodies — was wrapping random digits in <a href="tel:..."> with
-       browser-default styling that didn't match the Odysseus theme. -->
+       browser-default styling that didn't match the MOBS Studio theme. -->
   <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <script nonce="{{CSP_NONCE}}">
@@ -42,7 +42,7 @@
         // Update favicon to match accent color
         var ac = c.red || '#e06c75';
         var fav = document.querySelector("link[rel='icon']");
-        if (fav) fav.href = 'data:image/svg+xml,' + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 4L16 22L6 22Z' fill='" + ac + "'/><path d='M16 8L16 22L24 22Z' fill='" + ac + "' opacity='0.6'/><path d='M4 24Q10 20 16 24Q22 28 28 24' stroke='" + ac + "' stroke-width='2.5' fill='none' stroke-linecap='round'/></svg>");
+        if (fav) fav.href = '/static/brand/studio-ms.svg';
         // Derive syntax highlighting colors from theme
         function h2hsl(hex) {
           hex = hex.replace('#','');
@@ -170,14 +170,14 @@
       apple.href = href;
       // Also customize the page title so the bookmark inherits a useful name.
       var titles = {
-        '/calendar': 'Calendar — Odysseus',
-        '/notes': 'Notes — Odysseus',
-        '/cookbook': 'Cookbook — Odysseus',
-        '/email': 'Email — Odysseus',
-        '/memory': 'Memory — Odysseus',
-        '/gallery': 'Gallery — Odysseus',
-        '/tasks': 'Tasks — Odysseus',
-        '/library': 'Library — Odysseus',
+        '/calendar': 'Calendar — MOBS Studio',
+        '/notes': 'Notes — MOBS Studio',
+        '/cookbook': 'Cookbook — MOBS Studio',
+        '/email': 'Email — MOBS Studio',
+        '/memory': 'Memory — MOBS Studio',
+        '/gallery': 'Gallery — MOBS Studio',
+        '/tasks': 'Tasks — MOBS Studio',
+        '/library': 'Library — MOBS Studio',
       };
       if (titles[path]) document.title = titles[path];
       // Per-route Android home-screen icon. We swap the <link rel="manifest">
@@ -187,8 +187,8 @@
       try {
         if (inner && typeof Blob !== 'undefined') {
           var pwa = {
-            name: (titles[path] || 'Odysseus'),
-            short_name: (titles[path] || 'Odysseus').split('—')[0].trim(),
+            name: (titles[path] || 'MOBS Studio'),
+            short_name: (titles[path] || 'MOBS Studio').split('—')[0].trim(),
             start_url: path,
             scope: '/',
             display: 'standalone',
@@ -251,42 +251,23 @@
   </script>
   <link rel="stylesheet" href="/static/style.css?v=20260723tasksbulkfeedback1">
   <link rel="modulepreload" href="/static/app.js?v=20260723tasksbulkfeedback1">
-  <link rel="modulepreload" href="/static/js/chat.js?v=20260722ctxheader4">
+  <link rel="modulepreload" href="/static/js/chat.js">
   <link rel="modulepreload" href="/static/js/ui.js">
-  <link rel="modulepreload" href="/static/js/sessions.js?v=20260722ctxheader4">
+  <link rel="modulepreload" href="/static/js/sessions.js">
   <link rel="modulepreload" href="/static/js/markdown.js">
 </head>
 <body class="product-shell-v1">
   <!-- Loading overlay — hides all flashing until app is ready -->
   <div id="app-loader" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#282c34);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;transition:opacity .3s">
-    <div id="loader-wave" style="color:color-mix(in srgb, #9cdef2 62%, var(--brand-color,var(--red,#e06c75)));font-family:monospace;font-size:11px;opacity:.5;position:relative;padding-top:10px;line-height:1;white-space:pre">▁▂▃</div>
+    <img src="/static/brand/studio-ms.svg" width="86" height="56" alt="MS">
+    <span style="font:600 20px/1.4 system-ui;color:var(--fg)">MOBS Studio</span>
+    <div id="loader-wave" role="status" style="font:13px/1.6 system-ui;color:var(--fg);opacity:.65">Preparando seu ambiente…</div>
   </div>
   <script nonce="{{CSP_NONCE}}">
   (function(){
     var el=document.getElementById('loader-wave');
     if(!el)return;
-    var frames=[
-      {wave:'▁▂▃',y:9},
-      {wave:'▂▃▄',y:7},
-      {wave:'▃▄▅',y:5},
-      {wave:'▄▅▆',y:3},
-      {wave:'▅▆▅',y:1},
-      {wave:'▆▅▄',y:3},
-      {wave:'▅▄▃',y:5},
-      {wave:'▄▃▂',y:7},
-      {wave:'▃▂▁',y:9}
-    ];
-    var i=0;
-    function render(){
-      var f=frames[i%frames.length];
-      el.innerHTML='<span style="position:absolute;left:50%;top:0;transform:translate(-50%,'+f.y+'px);font-size:1.24em;line-height:1">•</span><span>'+f.wave+'</span>';
-      i++;
-    }
-    render();
-    var iv=setInterval(function(){
-      if(!document.getElementById('app-loader')){clearInterval(iv);return}
-      render();
-    },150);
+    el.textContent='Preparando seu ambiente…';
     setTimeout(function(){var l=document.getElementById('app-loader');if(l){l.style.opacity='0';setTimeout(function(){l.remove()},300)}},5000);
   })();
   </script>
@@ -301,8 +282,8 @@
         <div class="memory-tabs">
           <button class="memory-tab active" data-memory-tab="browse"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.5-3 5.7V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.3C6.2 13.5 5 11.4 5 9a7 7 0 0 1 7-7z"/><line x1="10" y1="22" x2="14" y2="22"/></svg>Memories <span id="memory-count" class="memory-count" style="font-size:0.8em;opacity:0.6;font-weight:normal;margin-left:4px">0</span></button>
           <button class="memory-tab" data-memory-tab="skills"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Skills <span id="skills-count" class="memory-count" style="font-size:0.8em;opacity:0.6;font-weight:normal;margin-left:4px">0</span></button>
-          <button class="memory-tab" data-memory-tab="add"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Add</button>
-          <button class="memory-tab" data-memory-tab="settings"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
+          <button class="memory-tab" data-memory-tab="add"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Adicionar</button>
+          <button class="memory-tab" data-memory-tab="settings"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Configurações</button>
         </div>
         <!-- ── Browse tab ── -->
         <div class="memory-tab-panel" data-memory-panel="browse">
@@ -555,7 +536,7 @@
         <div class="theme-adv-group">
           <div class="theme-adv-group-label">Sidebar</div>
           <div class="theme-custom">
-            <div class="color-row"><label>Odysseus Logo</label><input type="color" id="adv-brandColor"><button class="color-reset-btn" data-reset-adv="brandColor" title="Reset this color" aria-label="Reset color">&#x21BA;</button></div>
+            <div class="color-row"><label>Assinatura MOBS Studio</label><input type="color" id="adv-brandColor"><button class="color-reset-btn" data-reset-adv="brandColor" title="Reset this color" aria-label="Reset color">&#x21BA;</button></div>
             <div class="color-row"><label title="Hamburger menu"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="vertical-align:-2px;"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></label><input type="color" id="adv-hamburgerColor"><button class="color-reset-btn" data-reset-adv="hamburgerColor" title="Reset this color" aria-label="Reset color">&#x21BA;</button></div>
           </div>
         </div>
@@ -695,7 +676,7 @@
         <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;opacity:0.6"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save / Share</h2>
         <div class="theme-save-row" id="theme-save-row">
           <input type="text" id="theme-save-name" placeholder="Theme name..." maxlength="32">
-          <button id="theme-save-go">Save</button>
+          <button id="theme-save-go">Salvar</button>
         </div>
         <div class="theme-save-error" id="theme-save-error"></div>
         <div class="theme-io-row" style="margin-top:6px;">
@@ -704,8 +685,8 @@
         </div>
         <textarea id="theme-import-area" class="theme-import-area hidden" placeholder="Paste theme JSON here..." rows="3"></textarea>
         <div class="theme-import-actions hidden" id="theme-import-actions">
-          <button id="theme-import-go" class="theme-io-btn">Apply</button>
-          <button id="theme-import-cancel" class="theme-io-btn">Cancel</button>
+          <button id="theme-import-go" class="theme-io-btn">Aplicar</button>
+          <button id="theme-import-cancel" class="theme-io-btn">Cancelar</button>
         </div>
       </div>
       <button id="theme-reset-btn">Reset to Default</button>
@@ -716,14 +697,19 @@
   <div id="mobile-backdrop"></div>
   <button id="mobile-menu-btn" aria-label="Toggle sidebar">&#x2630;</button>
 
-  <button class="hamburger-btn" id="hamburger-btn" title="Show sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+  <button class="hamburger-btn" id="hamburger-btn" title="Mostrar conversas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
   <!-- new session button removed — use + in send button instead -->
   <div class="icon-rail" id="icon-rail">
+    <button id="studio-home" type="button" title="Voltar à conversa · assinatura visual candidata" aria-label="MOBS Studio: voltar à conversa"><img src="/static/brand/studio-ms.svg" alt="MS" width="48" height="32"><span>MOBS<br>Studio</span></button>
+    <button id="studio-conversations" type="button" class="icon-rail-btn" title="Mostrar ou recolher conversas · Ctrl+B" aria-label="Mostrar ou recolher conversas"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
+    <button id="studio-projects" type="button" class="icon-rail-btn" title="Selecionar projeto" aria-label="Selecionar projeto"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10H3Z"/></svg></button>
+    <button id="studio-capabilities" type="button" class="icon-rail-btn" title="Capacidades existentes" aria-label="Mostrar capacidades existentes">⋯</button>
+    <button id="studio-help" type="button" class="icon-rail-btn" title="Orientação contextual" aria-label="Orientação contextual">?</button>
     <div class="rail-resize-handle" id="rail-resize-handle"></div>
     <!-- Static: core actions -->
-    <button class="icon-rail-btn" id="rail-search-btn" title="Search conversations (Ctrl+K)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><path d="M21 21l-4.35-4.35"/></svg></button>
-    <button class="icon-rail-btn rail-new-chat" id="rail-new-session" title="New chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-    <button class="icon-rail-btn" id="rail-delete-session" title="Delete session">&#x2715;</button>
+    <button class="icon-rail-btn" id="rail-search-btn" title="Buscar conversas (Ctrl+K)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><path d="M21 21l-4.35-4.35"/></svg></button>
+    <button class="icon-rail-btn rail-new-chat" id="rail-new-session" title="Nova conversa"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    <button class="icon-rail-btn" id="rail-delete-session" title="Excluir conversa">&#x2715;</button>
     <div class="rail-separator"></div>
     <!-- Dynamic contextual indicators (shown only while active) -->
     <button class="icon-rail-btn rail-dynamic" id="rail-chats" title="Chat ready" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
@@ -742,25 +728,25 @@
     <button class="icon-rail-btn" id="rail-theme" data-product-secondary title="Theme"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20 5 5 0 0 0 5-5 3 3 0 0 0-3-3h-2a3 3 0 0 1-3-3 5 5 0 0 1 5-5"/></svg></button>
     <div style="flex:1"></div>
     <!-- Static: bottom -->
-    <button class="icon-rail-btn" id="rail-settings" data-product-secondary title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    <button class="icon-rail-btn" id="rail-settings" data-product-secondary title="Configurações"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
   </div>
 
   <nav class="sidebar" id="sidebar" role="navigation" aria-label="Sidebar">
     <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
     <div class="sidebar-header">
       <button class="sidebar-hamburger" id="sidebar-toggle-btn" title="Toggle sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-      <div class="sidebar-brand" id="sidebar-brand-btn" style="cursor:pointer;" title="New chat">
-        <span class="sidebar-brand-title">Odysseus</span>
+      <div class="sidebar-brand" id="sidebar-brand-btn" style="cursor:pointer;" title="Nova conversa">
+        <span class="sidebar-brand-title">MOBS Studio</span>
       </div>
     </div>
     <div class="sidebar-inner">
-      <div class="list-item" id="sidebar-new-chat-btn" title="New chat">
+      <div class="list-item" id="sidebar-new-chat-btn" title="Nova conversa">
         <svg class="sidebar-action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position:relative;left:-2px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        <span class="grow" style="position:relative;left:-3px;">New Chat</span>
+        <span class="grow" style="position:relative;left:-3px;">Nova conversa</span>
       </div>
-      <div class="list-item" id="sidebar-search-btn" title="Search conversations (Ctrl+K)">
+      <div class="list-item" id="sidebar-search-btn" title="Buscar conversas (Ctrl+K)">
         <svg class="sidebar-action-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
-        <span class="grow" style="position:relative;left:-1px;">Search</span>
+        <span class="grow" style="position:relative;left:-1px;">Buscar</span>
       </div>
       <!-- Assistant sidebar entry removed — its log + settings live inside
            the Tasks modal (Activity + Settings tabs). The backend
@@ -769,13 +755,13 @@
 
       <div class="section" id="sessions-section">
         <div class="section-header-flex">
-          <span class="section-title" id="chats-section-title"><svg class="section-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span id="chats-section-label" class="section-title-label">Chats</span><span id="chats-notif-dot" class="sidebar-notif-dot" style="display:none"></span></span>
+          <span class="section-title" id="chats-section-title"><svg class="section-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span id="chats-section-label" class="section-title-label">Conversas</span><span id="chats-notif-dot" class="sidebar-notif-dot" style="display:none"></span></span>
           <div style="position:relative; display:inline-block; display:flex; gap:4px; align-items:center;">
-            <button type="button" class="section-header-btn list-item-plus-btn chats-manage-btn" id="chats-library-btn" title="Manage Chats (Library)">
+            <button type="button" class="section-header-btn list-item-plus-btn chats-manage-btn" id="chats-library-btn" title="Gerenciar conversas">
               <span aria-hidden="true" style="display:inline-block;width:13px;height:13px;"></span>
-              <span class="list-item-plus-label">manage</span>
+              <span class="list-item-plus-label">Gerenciar</span>
             </button>
-            <button type="button" class="section-header-btn" id="session-sort-btn" title="Sort sessions">
+            <button type="button" class="section-header-btn" id="session-sort-btn" title="Ordenar conversas">
               <svg class="sort-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="4" y1="6" x2="20" y2="6"/>
                 <line x1="4" y1="12" x2="14" y2="12"/>
@@ -818,7 +804,7 @@
       <!-- Hidden dropdown for session actions -->
       <div id="session-actions-dropdown" class="dropdown hidden">
         <div class="dropdown-item" id="rename-session-option">
-          <h4>Rename</h4>
+          <h4>Renomear</h4>
           <p>Change the session name</p>
         </div>
         <div class="dropdown-item" id="delete-session-option">
@@ -826,14 +812,14 @@
           <p>Remove this session permanently</p>
         </div>
         <div class="dropdown-item" id="memory-session-option">
-          <h4>Memory</h4>
+          <h4>Memória</h4>
           <p>Extract memories from this session</p>
         </div>
       </div>
 
       <div class="section" id="email-section" data-product-secondary>
         <div class="section-header-flex">
-          <span class="section-title" id="email-section-title" style="cursor:pointer;" title="Open email inbox"><svg class="section-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg><span>Email</span></span>
+          <span class="section-title" id="email-section-title" style="cursor:pointer;" title="Open email inbox"><svg class="section-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg><span>E-mail</span></span>
           <button type="button" class="section-header-btn list-item-plus-btn" id="email-compose-btn" title="Compose email">
             <svg class="list-item-plus-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             <span class="list-item-plus-label">new</span>
@@ -949,9 +935,9 @@
         </div>
       </div>
       <div class="product-shell-advanced-row">
-        <button type="button" class="list-item product-shell-advanced-btn" id="product-advanced-btn" aria-expanded="false" title="Show advanced capabilities">
+        <button type="button" class="list-item product-shell-advanced-btn" id="product-advanced-btn" aria-expanded="false" title="Mostrar recursos avançados">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 2.83l.06-.06A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span class="grow">Advanced</span>
+          <span class="grow">Avançado</span>
         </button>
       </div>
     </div>
@@ -961,7 +947,7 @@
         <span class="user-bar-name" id="user-bar-name">User</span>
       </div>
       <div class="user-bar-actions">
-        <button type="button" class="user-bar-btn" id="user-bar-settings" title="Settings" data-product-secondary>
+        <button type="button" class="user-bar-btn" id="user-bar-settings" title="Configurações" data-product-secondary>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
@@ -973,26 +959,26 @@
          never affects layout, but always present inside the main landmark
          (the sidebar that shows the visible brand is hidden off-canvas on
          mobile) so the page always exposes a single level-1 heading. -->
-    <h1 class="a11y-visually-hidden">Odysseus</h1>
+    <h1 class="a11y-visually-hidden">MOBS Studio</h1>
     <div class="chat-top-bar">
       <button type="button" class="incognito-indicator" id="incognito-indicator" title="Nobody mode active — click to deactivate" style="display:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><line x1="8" y1="16" x2="16" y2="8"/><line x1="8" y1="8" x2="16" y2="16"/></svg></button>
-      <div class="chat-meta-overlay"><span id="current-meta">Odysseus Chat</span><span id="current-meta-count" class="chat-meta-count" aria-hidden="true"></span><span id="session-cost-display" class="session-cost-display" style="display:none;"></span><button type="button" class="chat-context-pill" id="chat-context-pill" title="Chat context" hidden><span class="chat-context-dot"></span><span id="chat-context-pill-label">0%</span></button><span class="export-dropdown-wrap" id="export-dropdown-wrap"><button type="button" class="export-dl-btn" id="export-dl-btn" title="More"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button><div class="export-dropdown-menu" id="export-dropdown-menu"><div class="export-dropdown-item" id="export-rename-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></span><span>Rename</span></div><div class="export-dropdown-item" id="export-compact-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M7 12h10"/><path d="M10 17h4"/></svg></span><span class="export-compact-pill">Compact</span></div><div class="export-dropdown-item" id="export-copy-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span><span>Copy Chat</span></div><div class="export-dropdown-item" id="export-pdf-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15v-2h2a1.5 1.5 0 0 1 0 3H9z"/></svg></span><span>PDF</span></div><div class="export-dropdown-item" id="export-doc-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span><span>Save to Documents</span></div><div class="export-dropdown-item dropdown-item-danger" id="export-delete-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></span><span>Delete Chat</span></div></div></span></div>    </div>
+      <div class="chat-meta-overlay"><span id="current-meta">MOBS Studio</span><span id="current-meta-count" class="chat-meta-count" aria-hidden="true"></span><span id="session-cost-display" class="session-cost-display" style="display:none;"></span><button type="button" class="chat-context-pill" id="chat-context-pill" title="Chat context" hidden><span class="chat-context-dot"></span><span id="chat-context-pill-label">0%</span></button><span class="export-dropdown-wrap" id="export-dropdown-wrap"><button type="button" class="export-dl-btn" id="export-dl-btn" title="Mais opções"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button><div class="export-dropdown-menu" id="export-dropdown-menu"><div class="export-dropdown-item" id="export-rename-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></span><span>Renomear</span></div><div class="export-dropdown-item" id="export-compact-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M7 12h10"/><path d="M10 17h4"/></svg></span><span class="export-compact-pill">Compact</span></div><div class="export-dropdown-item" id="export-copy-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span><span>Copiar conversa</span></div><div class="export-dropdown-item" id="export-pdf-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15v-2h2a1.5 1.5 0 0 1 0 3H9z"/></svg></span><span>PDF</span></div><div class="export-dropdown-item" id="export-doc-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span><span>Salvar em Documentos</span></div><div class="export-dropdown-item dropdown-item-danger" id="export-delete-btn"><span class="dropdown-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></span><span>Excluir conversa</span></div></div></span></div>    </div>
       <div class="product-agent-activity" id="product-agent-activity" data-state="ready" aria-live="polite">
         <span class="product-agent-activity-dot" aria-hidden="true"></span>
-        <span id="product-agent-activity-label">Ready</span>
+        <span id="product-agent-activity-label">Pronto</span>
       </div>
     <div id="welcome-screen">
-      <div class="welcome-name"><svg class="welcome-boat" viewBox="0 0 32 32"><path d="M16 4L16 22L6 22Z" fill="currentColor"/><path d="M16 8L16 22L24 22Z" fill="currentColor" opacity="0.6"/><path d="M4 24Q10 20 16 24Q22 28 28 24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>Odysseus</div>
-      <div class="welcome-sub" id="welcome-sub">New chat ready.</div>
+      <div class="welcome-name"><img src="/static/brand/studio-ms.svg" alt="" width="92" height="60"><span>MOBS Studio</span></div>
+      <div class="welcome-sub" id="welcome-sub">Seu projeto. Uma conversa. Trabalho com evidências.</div>
       <div class="welcome-tip" id="welcome-tip"></div>
-      <button type="button" class="incognito-btn" id="incognito-btn" title="Enable Nobody mode — no memory, no history saved">
+      <button type="button" class="incognito-btn" id="incognito-btn" title="Conversa privada — sem memória ou histórico salvo">
         <svg class="eye-open" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
         </svg>
         <svg class="eye-blinded" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><line x1="8" y1="16" x2="16" y2="8"/><line x1="8" y1="8" x2="16" y2="16"/>
         </svg>
-        <span class="incognito-label">Nobody</span>
+        <span class="incognito-label">Privado</span>
       </button>
       <div id="welcome-setup" style="display:none"></div>
     </div>
@@ -1016,7 +1002,7 @@
       var tips = mobile ? phone : desktop;
       var el = document.getElementById('welcome-tip');
       if (el) {
-        el.textContent = 'Pick a model if you want, or just type.';
+        el.textContent = 'Selecione um projeto e descreva o que você quer fazer.';
       }
       fetch('/api/version').then(function(r){return r.json()}).then(function(d){
         if (d.version) window._appVersion = d.version;
@@ -1038,7 +1024,7 @@
     <div class="chat-input-bar">
       <div class="chat-input-top">
         <div id="message-ghost" class="ghost-text-overlay" aria-hidden="true"></div>
-        <textarea id="message" placeholder="Message Odysseus..." required autocomplete="off" aria-label="Message input" rows="1" autofocus></textarea>
+        <textarea id="message" placeholder="Descreva a tarefa…" required autocomplete="off" aria-label="Mensagem para o MOBS Studio" rows="1" autofocus></textarea>
         <div id="plan-mode-status" class="plan-mode-status" hidden>
           <span class="plan-mode-status-label">Plan mode</span>
           <button type="button" id="plan-mode-status-toggle" class="plan-mode-status-toggle" aria-label="Turn off plan mode" aria-pressed="true">
@@ -1047,16 +1033,16 @@
         </div>
         <!-- Model picker (inside chatbox, top-right) -->
         <div class="model-picker-wrap" id="model-picker-wrap">
-          <button type="button" class="model-picker-btn" id="model-picker-btn" title="Switch model"><span id="model-picker-label">Select model</span> <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg></button>
+          <button type="button" class="model-picker-btn" id="model-picker-btn" title="Selecionar modelo"><span id="model-picker-label">Selecionar modelo</span> <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg></button>
           <div class="model-picker-menu hidden" id="model-picker-menu">
             <div class="model-picker-search-row">
               <div class="model-picker-search-wrap">
-                <input type="text" id="model-picker-search" placeholder="Search models..." autocomplete="off" aria-label="Search models">
-                <button type="button" class="model-picker-refresh-btn" id="model-picker-refresh-btn" title="Refresh model picker" aria-label="Refresh model picker">
+                <input type="text" id="model-picker-search" placeholder="Buscar modelos…" autocomplete="off" aria-label="Buscar modelos">
+                <button type="button" class="model-picker-refresh-btn" id="model-picker-refresh-btn" title="Atualizar modelos" aria-label="Atualizar modelos">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 </button>
               </div>
-              <button type="button" class="model-picker-action-btn primary" id="model-picker-add-models-btn" title="Add model endpoints" aria-label="Add model endpoints">
+              <button type="button" class="model-picker-action-btn primary" id="model-picker-add-models-btn" title="Configurar modelos" aria-label="Configurar modelos">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
               </button>
             </div>
@@ -1091,13 +1077,13 @@
       <div id="pinned-tools-bar"></div>
       <div class="chat-input-bottom" style="visibility:hidden">
         <div class="chat-input-left">
-          <button type="button" class="input-icon-btn product-workspace-btn" id="product-workspace-btn" title="Select project or workspace" aria-label="Select project or workspace">
+          <button type="button" class="input-icon-btn product-workspace-btn" id="product-workspace-btn" title="Selecionar projeto ou workspace" aria-label="Selecionar projeto ou workspace">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-            <span>Project</span>
+            <span>Projeto</span>
           </button>
           <!-- Overflow menu (+) — contextual actions -->
           <div class="overflow-wrapper">
-            <button type="button" class="input-icon-btn overflow-plus-btn" id="overflow-plus-btn" title="More tools" aria-label="More tools" aria-haspopup="true">
+            <button type="button" class="input-icon-btn overflow-plus-btn" id="overflow-plus-btn" title="Ferramentas e recursos" aria-label="Ferramentas e recursos" aria-haspopup="true">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 15 12 9 18 15"/>
               </svg>
@@ -1208,8 +1194,8 @@
             <button type="button" class="mode-toggle-btn active" id="mode-agent-btn" aria-pressed="true" data-product-secondary>Agent</button>
             <button type="button" class="mode-toggle-btn" id="mode-chat-btn" aria-pressed="false" data-product-secondary>Chat</button>
           </div>
-          <button type="submit" form="chat-form" class="send-btn newchat-mode" data-mode="newchat" aria-label="New chat">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span class="send-btn-label">+ New</span>
+          <button type="submit" form="chat-form" class="send-btn newchat-mode" data-mode="newchat" aria-label="Nova conversa">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span class="send-btn-label">+ Nova</span>
           </button>
         </div>
       </div>
@@ -1297,7 +1283,7 @@
         </div>
         <div class="modal-footer">
           <div style="flex:1"></div>
-          <button type="button" id="cancel-custom-preset" style="margin-right:8px;display:none;">Cancel</button>
+          <button type="button" id="cancel-custom-preset" style="margin-right:8px;display:none;">Cancelar</button>
           <button type="button" id="save-custom-preset">Start</button>
         </div>
       </div>
@@ -1305,7 +1291,7 @@
 
 
   </main>
-  <button id="scroll-bottom-btn" class="scroll-nav-btn" title="Scroll to bottom">▼</button>
+  <button id="scroll-bottom-btn" class="scroll-nav-btn" title="Ir ao final">▼</button>
   <script nonce="{{CSP_NONCE}}">
   (function(){
     const container = document.getElementById('chat-history');
@@ -1385,8 +1371,8 @@
           />
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 8px;">
-          <button id="cancel-rename-session" style="padding: 6px 12px;">Cancel</button>
-          <button id="save-session-name" style="padding: 6px 12px; background: var(--fg); color: var(--bg);">Save</button>
+          <button id="cancel-rename-session" style="padding: 6px 12px;">Cancelar</button>
+          <button id="save-session-name" style="padding: 6px 12px; background: var(--fg); color: var(--bg);">Salvar</button>
         </div>
       </div>
     </div>
@@ -1408,31 +1394,31 @@
   <div id="settings-modal" class="modal hidden">
     <div class="modal-content settings-modal-content" role="dialog" aria-label="Settings">
       <div class="modal-header">
-        <h4><span style="vertical-align:-1px;margin-right:6px;font-size:15px">&#x2699;</span>Settings</h4>
+        <h4><span style="vertical-align:-1px;margin-right:6px;font-size:15px">&#x2699;</span>Configurações</h4>
         <button type="button" class="theme-opacity-wrap theme-opacity-toggle hidden" id="settings-opacity-wrap" title="Fade this window to preview the page behind it" aria-pressed="false">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
           <span class="theme-opacity-label">Peek</span>
         </button>
-        <button class="close-btn" aria-label="Close settings">✖</button>
+        <button class="close-btn" aria-label="Fechar configurações">✖</button>
       </div>
       <div class="settings-layout">
         <div class="settings-sidebar">
           <!-- Section 1: AI plumbing (Add Models → AI Defaults → Search) -->
           <button class="settings-nav-item active" data-settings-tab="services">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-            <span>Add Models</span>
+            <span>Adicionar modelos</span>
           </button>
           <button class="settings-nav-item" data-settings-tab="added-models">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>Added Models</span>
+            <span>Modelos conectados</span>
           </button>
           <button class="settings-nav-item" data-settings-tab="ai">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z"/></svg>
-            <span>AI Defaults</span>
+            <span>Padrões de IA</span>
           </button>
           <button class="settings-nav-item" data-settings-tab="search">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <span>Search</span>
+            <span>Buscar</span>
           </button>
           <div class="settings-sidebar-divider"></div>
           <!-- Section 2: Comms (Integrations → Email → Reminders).
@@ -1440,31 +1426,31 @@
                accounts the other two tabs depend on actually live. -->
           <button class="settings-nav-item" data-settings-tab="integrations">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            <span>Integrations</span>
+            <span>Integrações</span>
           </button>
           <button class="settings-nav-item" data-settings-tab="email">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-            <span>Email</span>
+            <span>E-mail</span>
           </button>
           <button class="settings-nav-item" data-settings-tab="reminders">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            <span>Reminders</span>
+            <span>Lembretes</span>
           </button>
           <div class="settings-sidebar-divider"></div>
           <!-- Section 3: UX (Appearance → Shortcuts) -->
           <button class="settings-nav-item" data-settings-tab="appearance">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a7 7 0 0 0 0 20 4 4 0 0 1 0-8 4 4 0 0 0 0-8"/></svg>
-            <span>Appearance</span>
+            <span>Aparência</span>
           </button>
           <button class="settings-nav-item" data-settings-tab="shortcuts">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
-            <span>Shortcuts</span>
+            <span>Atalhos</span>
           </button>
           <div class="settings-sidebar-divider"></div>
           <!-- Section 4: Account (sits at the bottom of the user section) -->
           <button class="settings-nav-item" data-settings-tab="account">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <span>Account</span>
+            <span>Conta</span>
           </button>
           <div class="settings-sidebar-divider admin-only"></div>
           <div class="settings-sidebar-label admin-only">Admin</div>
@@ -1661,7 +1647,7 @@
               <div class="settings-row" style="margin-top:4px">
                 <span id="set-email-style-msg" style="font-size:11px;"></span>
                 <button class="admin-btn-add" id="set-email-style-extract" style="margin-left:auto;display:inline-flex;align-items:center;gap:5px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0L14.59 8.41L23 12L14.59 15.59L12 24L9.41 15.59L1 12L9.41 8.41Z"/></svg>Extract from Sent (15 emails)</button>
-                <button class="admin-btn-add" id="set-email-style-save">Save</button>
+                <button class="admin-btn-add" id="set-email-style-save">Salvar</button>
               </div>
             </div>
           </div>
@@ -1743,7 +1729,7 @@
             <div class="admin-toggle-sub" style="margin-bottom:8px">Deep Research runtime settings. Default Model is picked in <a href="#" data-go-settings-tab="ai" style="color:var(--accent, var(--red));text-decoration:underline;font-weight:600;">AI Defaults →</a></div>
             <div class="settings-col">
               <div class="settings-row">
-                <label class="settings-label">Search</label>
+                <label class="settings-label">Buscar</label>
                 <span style="margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex-shrink:0;color:var(--fg);" id="set-researchSearch-logo"></span>
                 <select id="set-researchSearch" class="settings-select" style="width:358.5px;flex:0 0 auto;max-width:calc(100% - 24px);">
                   <option value="" data-search-logo="">Same as web search</option>
@@ -1788,17 +1774,17 @@
             <div class="vis-toggles">
               <label class="vis-row">
                 <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M8 12l2.5 2.5L16 9"/></svg></span>
-                <span class="vis-label">Odysseus <span class="vis-hint">Brand name</span></span>
+                <span class="vis-label">MOBS Studio <span class="vis-hint">Brand name</span></span>
                 <input type="checkbox" checked data-ui-key="sidebar-brand"><span class="vis-switch"></span>
               </label>
               <label class="vis-row">
                 <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><path d="M21 21l-4.35-4.35"/></svg></span>
-                <span class="vis-label">Search</span>
+                <span class="vis-label">Buscar</span>
                 <input type="checkbox" checked data-ui-key="sidebar-search"><span class="vis-switch"></span>
               </label>
               <label class="vis-row">
                 <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
-                <span class="vis-label">New Chat</span>
+                <span class="vis-label">Nova conversa</span>
                 <input type="checkbox" checked data-ui-key="sidebar-new-chat"><span class="vis-switch"></span>
               </label>
               <label class="vis-row">
@@ -1808,7 +1794,7 @@
               </label>
               <label class="vis-row">
                 <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
-                <span class="vis-label">Email</span>
+                <span class="vis-label">E-mail</span>
                 <input type="checkbox" checked data-ui-key="email-section"><span class="vis-switch"></span>
               </label>
               <label class="vis-row">
@@ -1986,7 +1972,7 @@
         <!-- ═══ ACCOUNT TAB ═══ -->
         <div data-settings-panel="account" class="hidden">
           <div class="admin-card">
-            <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Account</h2>
+            <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Conta</h2>
             <div style="display:flex;align-items:center;gap:10px;margin:12px 0 12px;">
               <div class="user-bar-avatar" id="settings-account-avatar" style="width:32px;height:32px;font-size:14px;"></div>
               <div style="flex:1;">
@@ -2050,14 +2036,14 @@
         <!-- ═══ REMINDERS TAB ═══ -->
         <div data-settings-panel="reminders" class="hidden">
           <div class="admin-card">
-            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>How you're reminded<span style="flex:1"></span><span id="set-reminder-test-msg" style="font-size:11px;font-weight:normal;"></span><button class="admin-btn-sm" id="set-reminder-test-btn" style="font-size:11px;font-weight:normal;display:inline-flex;align-items:center;gap:4px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Test</button></h2>
+            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>How you're reminded<span style="flex:1"></span><span id="set-reminder-test-msg" style="font-size:11px;font-weight:normal;"></span><button class="admin-btn-sm" id="set-reminder-test-btn" style="font-size:11px;font-weight:normal;display:inline-flex;align-items:center;gap:4px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Testar</button></h2>
             <div class="admin-toggle-sub" style="margin-bottom:8px">Controls how fired note reminders are delivered.</div>
             <div class="settings-col">
               <div class="settings-row">
                 <label class="settings-label">Channel</label>
                 <select id="set-reminder-channel" class="settings-select">
                   <option value="browser">Browser notification (default)</option>
-                  <option value="email" id="set-reminder-channel-email-opt">Email</option>
+                  <option value="email" id="set-reminder-channel-email-opt">E-mail</option>
                   <option value="ntfy" id="set-reminder-channel-ntfy-opt">ntfy</option>
                   <option value="webhook" id="set-reminder-channel-webhook-opt">Webhook</option>
                 </select>
@@ -2083,7 +2069,7 @@
                 <textarea id="set-reminder-webhook-template" class="settings-select" rows="3" style="font-family:inherit;resize:vertical;flex:1" placeholder='{"content": "{{title}}: {{message}}"}'></textarea>
               </div>
               <div id="set-reminder-channel-hint" style="font-size:11px;opacity:0.6;"></div>
-              <div style="font-size:11px;opacity:0.6;margin-top:4px;">Configure email account, ntfy server, etc. in <a href="#" id="set-reminders-open-integrations" style="color:var(--accent, var(--red));text-decoration:none;font-weight:600;">Integrations</a>.</div>
+              <div style="font-size:11px;opacity:0.6;margin-top:4px;">Configure email account, ntfy server, etc. in <a href="#" id="set-reminders-open-integrations" style="color:var(--accent, var(--red));text-decoration:none;font-weight:600;">Integrações</a>.</div>
             </div>
           </div>
           <div class="admin-card">
@@ -2104,7 +2090,7 @@
           </div>
           <div class="admin-card">
             <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Public App URL</h2>
-            <div class="admin-toggle-sub" style="margin-bottom:8px">Used to build clickable links back to Odysseus inside outgoing reminder / urgent-email emails (e.g. <code>https://chat.yourdomain.com</code>). Leave blank to omit links.</div>
+            <div class="admin-toggle-sub" style="margin-bottom:8px">Used to build clickable links back to MOBS Studio inside outgoing reminder / urgent-email emails (e.g. <code>https://chat.yourdomain.com</code>). Leave blank to omit links.</div>
             <div class="settings-col">
               <div class="settings-row">
                 <label class="settings-label">URL</label>
@@ -2160,43 +2146,43 @@
 
           <!-- ── Local card ─────────────────────────────────────────── -->
           <div class="admin-card">
-            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add Local Models <span style="opacity:0.45;font-weight:normal;font-size:0.82em">(Endpoint)</span>
+            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Adicionar modelos locais <span style="opacity:0.45;font-weight:normal;font-size:0.82em">(Endpoint)</span>
               <span style="flex:1"></span>
               <button class="admin-btn-sm" id="adm-epLocalTestBtn" style="font-size:11px;font-weight:normal;display:inline-flex;align-items:center;gap:4px;">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Test
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Testar
               </button>
               <div style="position:relative;display:inline-block;">
-                <button class="admin-btn-sm" id="adm-epLocalMoreBtn" title="More options" aria-haspopup="true" aria-expanded="false" style="font-size:11px;font-weight:normal;padding:4px 8px;line-height:1;">
+                <button class="admin-btn-sm" id="adm-epLocalMoreBtn" title="Mais opções" aria-haspopup="true" aria-expanded="false" style="font-size:11px;font-weight:normal;padding:4px 8px;line-height:1;">
                   <svg width="14" height="4" viewBox="0 0 14 4" fill="currentColor"><circle cx="2" cy="2" r="1.4"/><circle cx="7" cy="2" r="1.4"/><circle cx="12" cy="2" r="1.4"/></svg>
                 </button>
                 <div id="adm-epLocalMoreMenu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:50;min-width:170px;padding:4px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.22);flex-direction:column;gap:1px;">
-                  <button class="admin-btn-sm adm-more-item" id="adm-epDiscoverBtn" title="Scan your network for running model servers" style="background:none;border:0;border-radius:5px;padding:7px 9px;display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12px;font-weight:normal;color:var(--fg);cursor:pointer;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Scan network
+                  <button class="admin-btn-sm adm-more-item" id="adm-epDiscoverBtn" title="Procurar servidores de modelos na rede" style="background:none;border:0;border-radius:5px;padding:7px 9px;display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12px;font-weight:normal;color:var(--fg);cursor:pointer;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Procurar na rede
                   </button>
-                  <button class="admin-btn-sm adm-more-item" id="adm-epOllamaBtn" title="Fill the default Ollama endpoint" style="background:none;border:0;border-radius:5px;padding:7px 9px;display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12px;font-weight:normal;color:var(--fg);cursor:pointer;"><span class="adm-ollama-logo" style="display:inline-flex;width:13px;height:13px;"></span>Add Ollama</button>
-                  <button class="admin-btn-sm adm-more-item" id="adm-epLocalKeyBtn" title="Show / hide the API key field" aria-expanded="false" aria-controls="adm-epLocalApiKey-row" style="background:none;border:0;border-radius:5px;padding:7px 9px;display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12px;font-weight:normal;color:var(--fg);cursor:pointer;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/><path d="M15.5 7.5l3 3"/></svg>API key
+                  <button class="admin-btn-sm adm-more-item" id="adm-epOllamaBtn" title="Preencher o endpoint padrão do Ollama" style="background:none;border:0;border-radius:5px;padding:7px 9px;display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12px;font-weight:normal;color:var(--fg);cursor:pointer;"><span class="adm-ollama-logo" style="display:inline-flex;width:13px;height:13px;"></span>Adicionar Ollama</button>
+                  <button class="admin-btn-sm adm-more-item" id="adm-epLocalKeyBtn" title="Mostrar ou ocultar o campo de chave API" aria-expanded="false" aria-controls="adm-epLocalApiKey-row" style="background:none;border:0;border-radius:5px;padding:7px 9px;display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12px;font-weight:normal;color:var(--fg);cursor:pointer;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/><path d="M15.5 7.5l3 3"/></svg>Chave API
                   </button>
                 </div>
               </div>
             </h2>
-            <div class="admin-toggle-sub" style="margin:0 0 10px 2px;">Add a local model server (Ollama, llama.cpp, vLLM).</div>
+            <div class="admin-toggle-sub" style="margin:0 0 10px 2px;">Conecte um servidor local de modelos (Ollama, llama.cpp, vLLM).</div>
             <div class="adm-add-section">
               <div class="admin-model-form">
                 <div class="admin-model-form-row">
                   <div class="adm-fused-group" style="display:flex;flex:1 1 180px;min-width:0;">
                     <select id="adm-epLocalType" style="padding:5px;width:66px;flex-shrink:0;border-top-right-radius:0;border-bottom-right-radius:0;border-right:0;">
                       <option value="llm" selected>LLM</option>
-                      <option value="image">Image</option>
+                      <option value="image">Imagem</option>
                     </select>
-                    <input id="adm-epLocalUrl" type="text" placeholder="Paste endpoint URL, e.g. http://localhost:11434/v1" style="flex:1;min-width:0;border-top-left-radius:0;border-bottom-left-radius:0;">
+                    <input id="adm-epLocalUrl" type="text" placeholder="URL do endpoint, por exemplo http://localhost:11434/v1" style="flex:1;min-width:0;border-top-left-radius:0;border-bottom-left-radius:0;">
                   </div>
                   <button class="admin-btn-add" id="adm-epLocalAddBtn" style="min-width:55px;text-align:center;display:inline-flex;align-items:center;justify-content:center;gap:4px;flex-shrink:0;">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Adicionar
                   </button>
                 </div>
                 <div class="admin-model-form-row" id="adm-epLocalApiKey-row" style="display:none;">
-                  <input id="adm-epLocalApiKey" type="password" placeholder="API key (optional — for protected local endpoints)" autocomplete="off" style="flex:1">
+                  <input id="adm-epLocalApiKey" type="password" placeholder="Chave API (opcional para endpoints locais protegidos)" autocomplete="off" style="flex:1">
                 </div>
                 <div id="adm-epLocalMsg" class="adm-ep-inline-msg"></div>
               </div>
@@ -2205,14 +2191,14 @@
 
           <!-- ── API card ───────────────────────────────────────────── -->
           <div class="admin-card">
-            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><circle cx="11" cy="12" r="8"/><path d="M19 5v6"/><path d="M16 8h6"/><path d="M7 12h8"/></svg>Add API Models <span style="opacity:0.45;font-weight:normal;font-size:0.82em">(Endpoint)</span>
+            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><circle cx="11" cy="12" r="8"/><path d="M19 5v6"/><path d="M16 8h6"/><path d="M7 12h8"/></svg>Adicionar modelos por API <span style="opacity:0.45;font-weight:normal;font-size:0.82em">(Endpoint)</span>
               <span style="flex:1"></span>
               <button class="admin-btn-sm" id="adm-epApiTestBtn" style="font-size:11px;font-weight:normal;display:inline-flex;align-items:center;gap:4px;">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Test
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Testar
               </button>
-              <button class="admin-btn-sm hidden" id="adm-epApiCancelTestBtn" style="font-size:11px;font-weight:normal;">Cancel</button>
+              <button class="admin-btn-sm hidden" id="adm-epApiCancelTestBtn" style="font-size:11px;font-weight:normal;">Cancelar</button>
               <div style="position:relative;display:inline-block;">
-                <button class="admin-btn-sm" id="adm-epApiMoreBtn" title="More options" aria-haspopup="true" aria-expanded="false" style="font-size:11px;font-weight:normal;padding:4px 8px;line-height:1;">
+                <button class="admin-btn-sm" id="adm-epApiMoreBtn" title="Mais opções" aria-haspopup="true" aria-expanded="false" style="font-size:11px;font-weight:normal;padding:4px 8px;line-height:1;">
                   <svg width="14" height="4" viewBox="0 0 14 4" fill="currentColor"><circle cx="2" cy="2" r="1.4"/><circle cx="7" cy="2" r="1.4"/><circle cx="12" cy="2" r="1.4"/></svg>
                 </button>
                 <div id="adm-epApiMoreMenu" style="display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:50;min-width:200px;padding:4px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.22);flex-direction:column;gap:1px;">
@@ -2230,16 +2216,16 @@
                 </div>
               </div>
             </h2>
-            <div class="admin-toggle-sub" style="margin:0 0 10px 2px;">Connect a cloud provider (OpenAI, Anthropic, DeepSeek, OpenRouter, etc.).</div>
+            <div class="admin-toggle-sub" style="margin:0 0 10px 2px;">Conecte um provedor de modelos por API (OpenAI, Anthropic, DeepSeek, OpenRouter etc.).</div>
             <div class="adm-add-section">
               <div class="admin-model-form">
                 <div class="admin-model-form-row">
                   <div class="adm-provider-picker adm-provider-combo" id="adm-provider-picker" style="flex:1 1 220px;min-width:0;margin-bottom:0;">
-                    <button type="button" class="adm-provider-btn" id="adm-provider-btn" title="Pick provider" style="border-top-right-radius:0;border-bottom-right-radius:0;border-top-left-radius:6px;border-bottom-left-radius:6px;border-left:1px solid var(--border);border-right:1px solid var(--border);">
-                      <span class="adm-provider-current"><span class="adm-provider-logo"></span><span class="adm-provider-name">Provider</span></span>
+                    <button type="button" class="adm-provider-btn" id="adm-provider-btn" title="Selecionar provedor" style="border-top-right-radius:0;border-bottom-right-radius:0;border-top-left-radius:6px;border-bottom-left-radius:6px;border-left:1px solid var(--border);border-right:1px solid var(--border);">
+                      <span class="adm-provider-current"><span class="adm-provider-logo"></span><span class="adm-provider-name">Provedor</span></span>
                       <svg class="adm-provider-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
-                    <input id="adm-epUrl" type="text" placeholder="Base URL or pick provider" autocomplete="off" style="border-left:0;border-top-left-radius:0;border-bottom-left-radius:0;border-top-right-radius:6px;border-bottom-right-radius:6px;">
+                    <input id="adm-epUrl" type="text" placeholder="URL base ou selecione um provedor" autocomplete="off" style="border-left:0;border-top-left-radius:0;border-bottom-left-radius:0;border-top-right-radius:6px;border-bottom-right-radius:6px;">
                     <div class="adm-provider-menu hidden" id="adm-provider-menu"></div>
                   </div>
                 </div>
@@ -2271,10 +2257,10 @@
                 <div class="admin-model-form-row" id="adm-epApiKey-row">
                   <div style="position:relative;flex:1;display:flex;align-items:center;">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);opacity:0.55;pointer-events:none;"><path d="M21 2l-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/><path d="M15.5 7.5l3 3"/></svg>
-                    <input id="adm-epApiKey" type="password" placeholder="API key, e.g. sk-proj-AbCdEf…" autocomplete="off" style="flex:1;padding-left:28px;height:32px;box-sizing:border-box;">
+                    <input id="adm-epApiKey" type="password" placeholder="Chave API, por exemplo sk-proj-AbCdEf…" autocomplete="off" style="flex:1;padding-left:28px;height:32px;box-sizing:border-box;">
                   </div>
                   <button class="admin-btn-add" id="adm-epAddBtn" style="height:32px;min-width:55px;text-align:center;display:inline-flex;align-items:center;justify-content:center;gap:4px;flex-shrink:0;box-sizing:border-box;">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Add
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Adicionar
                   </button>
                 </div>
                 <div id="adm-epApiMsg" class="adm-ep-inline-msg"></div>
@@ -2317,7 +2303,7 @@
         <!-- ═══ INTEGRATIONS TAB ═══ -->
         <div data-settings-panel="integrations" class="hidden">
           <div class="admin-card">
-            <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Integrations</h2>
+            <h2><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Integrações</h2>
             <div class="admin-toggle-sub" style="margin-bottom:8px">All external service connections in one place.</div>
             <div id="unified-integrations-list"></div>
             <div id="unified-intg-form" style="display:none"></div>
@@ -2362,7 +2348,7 @@
               </svg>
               Terminal Logs
             </h2>
-            <div class="admin-toggle-sub settings-system-logs-toggle-sub">Live diagnostic logs and system output from the Odysseus process.</div>
+            <div class="admin-toggle-sub settings-system-logs-toggle-sub">Live diagnostic logs and system output from the MOBS Studio process.</div>
 
             <div class="settings-col settings-system-logs-col">
               <!-- Controls row -->

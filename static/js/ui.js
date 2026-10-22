@@ -513,6 +513,26 @@ export function scrollHistoryInstant() {
  */
 export function setAutoScroll(enabled) {
   autoScrollEnabled = enabled;
+  if (!enabled) {
+    if (_scrollRafId) cancelAnimationFrame(_scrollRafId);
+    _scrollRafId = null;
+    if (_scrollThrottleTimer) clearTimeout(_scrollThrottleTimer);
+    _scrollThrottleTimer = null;
+  }
+}
+
+/** Explicit navigation owns the history viewport until the user follows again. */
+export function scrollHistoryToMessage(message) {
+  const box = document.getElementById('chat-history');
+  if (!box || !message?.isConnected || !box.contains(message)) return false;
+  setAutoScroll(false);
+  _scrollBox = box;
+  const top = box.scrollTop + message.getBoundingClientRect().top - box.getBoundingClientRect().top - 24;
+  const previous = box.style.scrollBehavior;
+  box.style.scrollBehavior = 'auto';
+  box.scrollTop = Math.max(0, Math.min(top, box.scrollHeight - box.clientHeight));
+  box.style.scrollBehavior = previous;
+  return true;
 }
 
 /**
@@ -863,6 +883,7 @@ const uiModule = {
   styledPrompt,
   scrollHistory,
   scrollHistoryInstant,
+  scrollHistoryToMessage,
   setAutoScroll,
   getAutoScroll,
   autoResize,

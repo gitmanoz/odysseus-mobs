@@ -207,7 +207,7 @@ function _contextCensor(el) {
     // Found a label — censor value via multiple strategies
     let censored = false;
 
-    // A) Next text sibling node (e.g. <strong>Password</strong> value123)
+    // A) Next text sibling node (e.g. <strong>Senha</strong> value123)
     let sibling = elem.nextSibling;
     while (sibling && !censored) {
       if (sibling.nodeType === 3) { // text node

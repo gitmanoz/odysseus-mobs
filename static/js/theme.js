@@ -9,6 +9,13 @@ import { makeWindowDraggable } from './windowDrag.js';
 import { snapModalToZone } from './tileManager.js';
 
 export const THEMES = {
+  studio:     { bg:'#101113', fg:'#e6e8eb', panel:'#181a1e', border:'#2d3036', red:'#c8b68a',
+                appearance: 'graphite',
+                  advanced: { sidebarBg:'#15191b', userBubbleBg:'#202b38', aiBubbleBg:'#101113', bubbleBorder:'#2d3036',
+                            sidebarBg:'#181a1e', inputBg:'#1c1e23', inputBorder:'#747a85',
+                            sendBtnBg:'#efc368', sendBtnHover:'#f6d38c',
+                            brandColor:'#e6e8eb', brandMixTo:'#c8b68a',
+                            codeBg:'#16181c', codeFg:'#e6e8eb', toggleActive:'#efc368' } },
   graphite:   { bg:'#101113', fg:'#e6e8eb', panel:'#181a1e', border:'#2d3036', red:'#83bfc7',
                 appearance: 'graphite',
                 advanced: { userBubbleBg:'#22252b', aiBubbleBg:'#101113', bubbleBorder:'#2d3036',
@@ -38,7 +45,7 @@ export const THEMES = {
   cute:       { bg:'#fff0f5', fg:'#d4608a', panel:'#fff8fa', border:'#f0c0d0', red:'#ff6b9d' },
 };
 
-const DEFAULT_THEME = 'graphite';
+const DEFAULT_THEME = 'studio';
 const LS_KEY = 'odysseus-theme';
 const CUSTOM_THEMES_KEY = 'odysseus-custom-themes';
 
@@ -54,6 +61,7 @@ const MAX_CUSTOM_THEMES = 8;
 
 // Default background patterns for built-in themes
 const THEME_DEFAULT_PATTERN = {
+  studio:     'none',
   graphite:   'none',
   dark:       'none',
   light:      'dots',
@@ -192,7 +200,7 @@ const ADV_KEYS = [
   { key: 'aiBubbleBg',         css: '--ai-bubble-bg',      label: 'AI Chat Bubble',   group: 'Chat Bubbles' },
   { key: 'bubbleBorder',       css: '--bubble-border',     label: 'Border Chat Bubble', group: 'Chat Bubbles' },
   { key: 'sidebarBg',          css: '--sidebar-bg',        label: 'Sidebar Bg',       group: 'Sidebar' },
-  { key: 'brandColor',         css: '--brand-color',       label: 'Odysseus Logo',    group: 'Sidebar' },
+  { key: 'brandColor',         css: '--brand-color',       label: 'Assinatura MOBS Studio',    group: 'Sidebar' },
   { key: 'brandMixTo',         css: '--brand-mix-to',      label: 'Logo Gradient End', group: 'Sidebar' },
   { key: 'hamburgerColor',     css: '--hamburger-color',   label: 'Hamburger Menu',   group: 'Sidebar' },
   { key: 'inputBg',            css: '--input-bg',          label: 'Input Bg',         group: 'Chat Input / Prompt Area' },
@@ -346,7 +354,7 @@ function _updateFavicon(fg) {
   if (routeShape) {
     svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>${routeShape.split('__C__').join(fg)}</svg>`;
   } else {
-    svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 4L16 22L6 22Z' fill='${fg}'/><path d='M16 8L16 22L24 22Z' fill='${fg}' opacity='0.6'/><path d='M4 24Q10 20 16 24Q22 28 28 24' stroke='${fg}' stroke-width='2.5' fill='none' stroke-linecap='round'/></svg>`;
+    svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 64'><g fill='${fg}'><path d='M4 54V10h12l13 22 13-22h12v44H42V31L29 51 16 31v23Z'/><path d='M93 15c-6-4-12-6-19-6-12 0-19 6-19 15 0 10 8 13 17 15l7 2c4 1 5 2 5 4 0 3-3 4-8 4-6 0-12-2-18-6l-5 9c7 5 15 7 23 7 13 0 21-6 21-15 0-10-8-14-17-16l-7-2c-4-1-6-2-6-4 0-3 3-4 7-4 5 0 10 1 14 4Z'/></g></svg>`;
   }
   const href = 'data:image/svg+xml,' + encodeURIComponent(svg);
   let link = document.querySelector("link[rel='icon']");
@@ -719,7 +727,7 @@ export function initThemeUI() {
         sw.classList.add('active');
         syncPickers(colors);
         const ct = sw.dataset.custom ? customThemes[name] : null;
-        const f = ct && ct.font ? ct.font : (name === 'graphite' ? 'sans' : DEFAULT_FONT);
+        const f = ct && ct.font ? ct.font : (['graphite', 'studio'].includes(name) ? 'sans' : DEFAULT_FONT);
         const d = ct && ct.density ? ct.density : DEFAULT_DENSITY;
         const p = ct && ct.bgPattern ? ct.bgPattern : (THEME_DEFAULT_PATTERN[name] || 'none');
         const ec = ct && ct.bgEffectColor ? ct.bgEffectColor : (THEME_DEFAULT_EFFECT_COLOR[name] || '');
@@ -1102,7 +1110,7 @@ export function initThemeUI() {
   syncResetButtons();
 
   // Font, density, background pattern controls
-  const _initFont = (saved && saved.font) || (!saved ? 'sans' : DEFAULT_FONT);
+  const _initFont = (saved && saved.font) || (!saved || ['graphite', 'studio'].includes(saved.name) ? 'sans' : DEFAULT_FONT);
   const _initDensity = (saved && saved.density) || DEFAULT_DENSITY;
   const _initPattern = (saved && saved.bgPattern) || (saved && THEME_DEFAULT_PATTERN[saved.name]) || 'none';
   const _initEffectColor = (saved && saved.bgEffectColor) || (saved && THEME_DEFAULT_EFFECT_COLOR[saved.name]) || '';

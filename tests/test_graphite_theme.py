@@ -23,8 +23,10 @@ def _exercise():
     """ + hex_source + source + """
     applyColors(THEMES.graphite);
     const graphite = { appearance:document.documentElement.dataset.themeAppearance, values:{...values} };
+    applyColors(THEMES.studio);
+    const studio = { appearance:document.documentElement.dataset.themeAppearance, values:{...values} };
     applyColors(THEMES.cyberpunk);
-    console.log(JSON.stringify({graphite, reset:document.documentElement.dataset.themeAppearance,
+    console.log(JSON.stringify({graphite, studio, reset:document.documentElement.dataset.themeAppearance,
       legacy:values, names:Object.keys(THEMES), pattern:THEME_DEFAULT_PATTERN.graphite,
       defaultTheme:DEFAULT_THEME}));
     """
@@ -41,11 +43,12 @@ def test_graphite_applies_complete_palette_and_switch_resets_presentation():
     assert palette["--user-bubble-bg"] != palette["--ai-bubble-bg"]
     assert palette["--code-fg"] == palette["--fg"]
     assert result["pattern"] == "none"
-    assert result["defaultTheme"] == "graphite"
+    assert result["defaultTheme"] == "studio"
+    assert result["studio"]["values"]["--red"] == '#c8b68a'
     assert result["reset"] == ""
     assert result["legacy"]["--fg"] == "#0ff0fc"
     assert result["legacy"]["--code-fg"] == "#0ff0fc"
-    assert set(result["names"]) == {"graphite", "dark", "light", "midnight", "paper",
+    assert set(result["names"]) == {"studio", "graphite", "dark", "light", "midnight", "paper",
         "cyberpunk", "retrowave", "forest", "ocean", "ume", "copper", "terminal",
         "organs", "lavender", "gpt", "claude", "cute"}
 
@@ -67,9 +70,9 @@ def test_graphite_text_and_accent_have_readable_surface_contrast():
 def test_first_paint_matches_default_before_theme_module_loads():
     html = (ROOT / "static/index.html").read_text(encoding="utf-8")
     css = (ROOT / "static/style.css").read_text(encoding="utf-8")
-    assert '<html lang="en" data-theme-appearance="graphite">' in html
+    assert '<html lang="pt-BR" data-theme-appearance="graphite">' in html
     assert '<meta name="theme-color" content="#101113">' in html
     core = css.split(':root {', 1)[1].split('}', 1)[0]
-    for token, color in _exercise()["graphite"]["values"].items():
+    for token, color in _exercise()["studio"]["values"].items():
         if token in {"--bg", "--fg", "--panel", "--border", "--red"}:
             assert f'{token}: {color};' in core
