@@ -3,6 +3,7 @@
 
 import uiModule from './ui.js';
 import { renderStudioPlan, planFromToolEvent, toolResultPresentation, recordStudioDiagnostics } from './studioActivity.js';
+import { recordSourceSnapshot } from './studioSources.js';
 import markdownModule from './markdown.js';
 import { svgifyEmoji } from './markdown.js';
 import { addAITTSButton } from './tts-ai.js';
@@ -2442,6 +2443,7 @@ export function addMessage(role, content, modelName, metadata) {
             const node = document.createElement('div');
             node.className = 'agent-thread-node' + (toolPresentation.failed ? ' error' : '');
             if (ev.diff?.text && typeof ev.diff.file === 'string') node.dataset.studioDiffFile = ev.diff.file;
+            recordSourceSnapshot(node, ev);
             // Hide the raw JSON command when a diff says it better (same as live).
             const evCmdHtml = (ev.command && !(ev.diff && ev.diff.text)) ? `<pre class="agent-thread-cmd">${esc(ev.command)}</pre>` : '';
             node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolPresentation.icon}</span><span class="agent-thread-tool">${esc(ev.tool)}</span><span class="agent-thread-status">${toolPresentation.label}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${evCmdHtml}${outHtml}${evDiffHtml}</div>`;

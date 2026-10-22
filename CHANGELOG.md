@@ -16,6 +16,9 @@
 
 ### Added
 
+- Browse successful file-read snapshots already loaded in a conversation, with workspace isolation, bounded literal search, line navigation and optional mandate-baseline references. This does not enumerate unread files or introduce a read API.
+- Compare all files from one sealed candidate together or individually, with stale-reference guards; explain existing validation recipes without executing them.
+
 - Read-only Desktop build preflight and guards for open canonical executables and linked cleanup targets; engineering evidence provenance, failure inspection guidance and an offline readiness matrix.
 
 - Read-only presentation of reviewed proposals, sealed artifact previews and content-free context diagnostics.

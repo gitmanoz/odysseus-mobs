@@ -52,6 +52,20 @@ export function renderProjectScope(target, view) {
   const report = projectScopeReport(view);
   const body = document.createElement('pre'); body.textContent = report; target.appendChild(body);
   copyReport(target, 'Copiar escopo apresentado', report);
+  const recipes = document.createElement('details'), title = document.createElement('summary'); title.textContent = 'O que as receitas apresentadas verificam'; recipes.appendChild(title);
+  for (const recipe of validationRecipes(view)) paragraph(recipes, `${recipe.command}: ${recipe.meaning}`);
+  target.appendChild(recipes);
+}
+
+export function validationRecipes(view) {
+  return commands(view?.proposal?.allowed_commands).map(command => {
+    let meaning = 'Receita apresentada pelo servidor; finalidade não classificada aqui. Confira argv e escopo antes de solicitar execução.';
+    if (/^(?:python -m )?pytest(?:\s|$)/.test(command)) meaning = 'Executa testes selecionados. Retorno zero não prova cobertura completa nem ausência de defeitos.';
+    else if (/^python -m py_compile(?:\s|$)/.test(command)) meaning = 'Verifica compilação/sintaxe Python; não executa os testes de comportamento.';
+    else if (/^(?:python -m )?ruff(?:\s|$)/.test(command)) meaning = 'Verifica regras estáticas admitidas; não comprova o comportamento em execução.';
+    else if (['git_branch_current', 'git_head_current', 'git_status_current'].includes(command) || /^git (?:branch|rev-parse|status)(?:\s|$)/.test(command)) meaning = 'Consulta identidade/estado Git; não altera arquivos nem substitui teste.';
+    return { command, meaning };
+  });
 }
 
 export function reviewChecklist(view) {

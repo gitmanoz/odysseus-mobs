@@ -3,7 +3,8 @@ import { initMessageNavigation } from './studioMessageNavigation.js';
 import { foldLongCode } from './studioCodeDisclosure.js';
 import { studioColumns } from './studioColumns.js';
 import { refreshStudioActivity, renderStudioWorkSummary, renderStudioPlanIndex, renderStudioDiagnostics } from './studioActivity.js';
-import { sealedFilePreview } from './studioArtifactPreview.js';
+import { sealedArtifactPreview } from './studioArtifactPreview.js';
+import { renderSources } from './studioSources.js';
 import { renderProjectScope, renderEngineeringReview, renderTaskPreparation } from './studioEngineering.js';
 export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
   if (!document.getElementById('studio-home')) {
@@ -328,7 +329,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
               file.path !== effects[index].path || file.effect !== effects[index].effect ||
               !['before', 'after', 'diff'].every(key => typeof file[key] === 'string'))) throw new Error('Invalid preview');
         preview.replaceChildren();
-        for (const file of p.files) preview.appendChild(sealedFilePreview(file));
+        preview.appendChild(sealedArtifactPreview(p.files, digest, sameReference));
         limitation.textContent = 'Conteúdo selado desta referência. Consultar não valida, aprova ou aplica alterações.';
       } catch (_) {
         if (current()) preview.textContent = 'Comparação indisponível. A referência pode estar obsoleta, alterada, ser binária ou exceder o limite de leitura. Nenhuma alteração foi aplicada.';
@@ -404,7 +405,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     const selector = el('studio-selection');
     const options = [['proposal', 'Proposta / autoridades']];
     for (const p of view?.promotions || []) options.push([p.id, `Promoção ${p.id.slice(0, 12)} · ${p.status}`]);
-    options.push(['project', 'Projeto e escopo'], ['review', 'Revisão da tarefa'], ['task', 'Preparar tarefa'], ['activity', 'Atividade e arquivos'], ['plans', 'Planos e atualizações'], ['diagnostics', 'Recursos e contexto'], ['help', 'Orientação / capacidades existentes']);
+    options.push(['project', 'Projeto e escopo'], ['sources', 'Fontes carregadas'], ['review', 'Revisão da tarefa'], ['task', 'Preparar tarefa'], ['activity', 'Atividade e arquivos'], ['plans', 'Planos e atualizações'], ['diagnostics', 'Recursos e contexto'], ['help', 'Orientação / capacidades existentes']);
     if (selected === 'response') options.push(['response', 'Resposta inspecionada']);
     const nextOptions = JSON.stringify(options);
     if (nextOptions !== optionSignature) selector.replaceChildren(...options.map(([value, text]) => {
@@ -419,12 +420,15 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
       view.proposal?.status === 'pending' && !view.reviewer_available ? 'Revisão indisponível nesta sessão. Verifique a configuração operacional do reviewer.' :
       view.continuity === 'unconfirmed' ? 'Aprovação registrada; execução ativa não confirmada. Nenhuma retomada automática.' :
       view.active ? 'Execução ativa confirmada pelo servidor.' : 'Registro consultado; nenhuma execução ativa confirmada.';
-    const nextPanel = JSON.stringify([selected, view, ['project', 'review'].includes(selected) && loading]);
+    const nextPanel = JSON.stringify([selected, view, ['project', 'review'].includes(selected) && loading, selected === 'sources' ? workspace.getWorkspace() : '']);
     if (nextPanel !== panelSignature) {
     panelSignature = nextPanel;
     el('studio-controls').replaceChildren();
     if (selected === 'project') {
       renderProjectScope(el('studio-detail'), loading ? { ...view, validity: 'unavailable' } : view);
+    } else if (selected === 'sources') {
+      if (historyAvailable()) renderSources(el('studio-detail'), history, session(), workspace.getWorkspace());
+      else detailText('Aguardando o histórico da conversa para consultar suas fontes.');
     } else if (selected === 'review') {
       renderEngineeringReview(el('studio-detail'), loading ? { ...view, validity: 'unavailable' } : view);
     } else if (selected === 'task') {
@@ -574,7 +578,14 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     if (historyAvailable()) refreshHistoryPresentation();
   });
   document.addEventListener('studio-session-metadata-changed', syncHeading);
-  document.addEventListener('studio-workspace-changed', () => { chat.clearPreparedMobsAction(); scheduleRefresh(); });
+  document.addEventListener('studio-workspace-changed', () => {
+    chat.clearPreparedMobsAction();
+    if (selected === 'sources') {
+      if (historyAvailable()) renderSources(el('studio-detail'), history, session(), workspace.getWorkspace());
+      else detailText('Aguardando o histórico da conversa para consultar suas fontes.');
+    }
+    scheduleRefresh();
+  });
   document.addEventListener('studio-activity', e => {
     el('studio-status-description').textContent = e.detail.label || el('product-agent-activity-label')?.textContent || 'Estado da resposta';
     liveBusy = ['understanding', 'investigating', 'executing', 'validating'].includes(e.detail.state);
@@ -588,6 +599,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     foldLongCode(history);
     refreshStudioActivity(history, Date.now(), chat.hasActiveStream ? chat.hasActiveStream(session()) : true);
     if (selected === 'activity') renderStudioWorkSummary(el('studio-detail'), history, session());
+    if (selected === 'sources') renderSources(el('studio-detail'), history, session(), workspace.getWorkspace());
     if (selected === 'plans') renderStudioPlanIndex(el('studio-detail'), history);
     if (selected === 'diagnostics') renderStudioDiagnostics(el('studio-detail'), history);
     for (const msg of history.querySelectorAll('.msg-ai:not([data-studio-inspect]),.agent-thread:not([data-studio-inspect])')) {

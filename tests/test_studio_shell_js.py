@@ -174,8 +174,8 @@ const previewData={...next,preview:{validity:'valid',session_id:'new',promotion_
  {path:'tests/test_app.py',effect:'create',before:'',after:'assert True\n',diff:'+assert True'}]}};
 globalThis.fetch=async()=>({ok:true,json:async()=>previewData});
 await pair.children[6].click();
-assert.equal(pair.children[7].children.length,2);
-assert.equal(pair.children[7].children[0].children[1].textContent,'-pass\n+<script>literal text</script>');
+assert.equal(pair.children[7].children[0].children[4].children.length,2);
+assert.equal(pair.children[7].children[0].children[4].children[0].children[1].textContent,'-pass\n+<script>literal text</script>');
 assert.equal(staged,null,'reading sealed bytes must never stage a decision');
 let refreshPreview;
 globalThis.fetch=url=>url.includes('promotion_id=') ? new Promise(resolve=>refreshPreview=resolve) :

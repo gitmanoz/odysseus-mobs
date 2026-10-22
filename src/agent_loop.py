@@ -5114,6 +5114,13 @@ async def _stream_agent_loop(
 
             # Emit tool_output (include ui_event data if present)
             tool_output_data = {"type": "tool_output", "tool": block.tool_type, "command": cmd_display, "output": output_text, "exit_code": result.get("exit_code")}
+            if block.tool_type == "read_file" and result.get("exit_code") == 0 and isinstance(result.get("source_reference"), dict):
+                reference = dict(result["source_reference"])
+                reference["workspace"] = workspace if isinstance(workspace, str) else ""
+                if institutional_context:
+                    reference["baseline_head"] = institutional_context.target.get("head")
+                    reference["baseline_working_tree_sha256"] = institutional_context.target.get("working_tree_sha256")
+                tool_output_data["source_reference"] = reference
             if is_doc_tool and "action" in result:
                 tool_output_data.update({
                     "doc_id": result.get("doc_id"),
@@ -5323,6 +5330,8 @@ async def _stream_agent_loop(
             # this the diff shows live but vanishes from saved history.
             if result.get("diff"):
                 tool_event["diff"] = result["diff"]
+            if block.tool_type == "read_file" and result.get("exit_code") == 0 and isinstance(result.get("source_reference"), dict):
+                tool_event["source_reference"] = tool_output_data["source_reference"]
             if _pending_ask_user_event:
                 # Persist the structured question with the tool event.  On a
                 # reload, chatRenderer can restore the card; a later user

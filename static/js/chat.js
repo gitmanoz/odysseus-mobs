@@ -7,6 +7,7 @@
 
 import Storage from './storage.js';
 import { renderStudioPlan, toolResultPresentation, recordStudioDiagnostics, formatElapsed } from './studioActivity.js';
+import { recordSourceSnapshot } from './studioSources.js';
 
 // Providers use both string and object error envelopes. Keep the factual
 // detail visible without treating upstream text as UI markup or authority.
@@ -3416,6 +3417,7 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
                   const _wasOpen = currentToolBubble.classList.contains('open');
                   currentToolBubble.className = 'agent-thread-node' + (toolPresentation.failed ? ' error' : '') + (_wasOpen ? ' open' : '');
                   if (json.diff?.text && typeof json.diff.file === 'string') currentToolBubble.dataset.studioDiffFile = json.diff.file;
+                  recordSourceSnapshot(currentToolBubble, json);
                   currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolPresentation.icon}</span><span class="agent-thread-tool">${esc(json.tool)}</span><span class="agent-thread-status">${toolPresentation.label}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
                   // Reset so thinking spinner between tools says "Thinking" not the old tool's label
                   _lastToolName = '';

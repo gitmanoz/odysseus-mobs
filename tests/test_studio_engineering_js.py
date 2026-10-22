@@ -182,3 +182,15 @@ const history=new E();tool(history,'bash','returned');A.renderStudioDiagnostics(
 assert.match(target.textContent,/autorização e despacho não são certificados/);
 assert.doesNotMatch(target.textContent,/objetivo cumprido confirmado/);
 ''')
+
+
+def test_recipe_catalog_distinguishes_test_compile_lint_and_typed_git_without_execution():
+    run(r'''
+globalThis.fetch=()=>{throw Error('catalog must not execute')};
+const recipes=G.validationRecipes({proposal:{allowed_commands:['python -m pytest','python -m py_compile','ruff check --no-fix','git_head_current','UNKNOWN']}});
+assert.match(recipes[0].meaning,/testes selecionados/);
+assert.match(recipes[1].meaning,/compilação\/sintaxe/);
+assert.match(recipes[2].meaning,/regras estáticas/);
+assert.match(recipes[3].meaning,/identidade\/estado Git/);
+assert.match(recipes[4].meaning,/não classificada/);
+''')

@@ -10,7 +10,7 @@ export function diffLineStats(text) {
   return { added, removed };
 }
 
-export function sealedFilePreview(file) {
+export function sealedFilePreview(file, isCurrent = () => true) {
   const item = document.createElement('details'); item.open = true;
   const title = document.createElement('summary'); title.textContent = file.path;
   const diff = document.createElement('pre'); diff.className = 'studio-sealed-diff';
@@ -20,6 +20,7 @@ export function sealedFilePreview(file) {
   const copyButton = (label, text) => {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
     button.onclick = async () => {
+      if (!isCurrent()) return;
       try { await navigator.clipboard.writeText(text); feedback.textContent = 'Conteúdo exato copiado.'; }
       catch (_) { feedback.textContent = 'Cópia indisponível. Selecione o texto para copiar manualmente.'; }
     };
@@ -49,4 +50,24 @@ export function sealedFilePreview(file) {
   };
   for (const node of [stats, copyButton('Copiar diff', file.diff), mode, feedback]) item.appendChild(node);
   return item;
+}
+
+export function sealedArtifactPreview(files, identity = '', isCurrent = () => true) {
+  const group = document.createElement('section');
+  const heading = document.createElement('h4'); heading.textContent = `${files.length} arquivo(s) do mesmo candidato`;
+  const note = document.createElement('p'); note.textContent = `Referência: ${identity || 'não informada'}. Conteúdo selado; validar, aprovar e aplicar continuam ações distintas.`;
+  const selector = document.createElement('select'); selector.setAttribute('aria-label', 'Arquivo do candidato');
+  const mode = document.createElement('select'); mode.setAttribute('aria-label', 'Comparação do conjunto');
+  for (const [value, text] of [['all', 'Todos os arquivos'], ['selected', 'Um arquivo por vez']]) { const o = document.createElement('option'); o.value = value; o.textContent = text; mode.appendChild(o); }
+  mode.value = 'all';
+  const content = document.createElement('div');
+  const previews = files.map((file, i) => {
+    const option = document.createElement('option'); option.value = String(i); option.textContent = file.path; selector.appendChild(option);
+    const preview = sealedFilePreview(file, isCurrent); content.appendChild(preview); return preview;
+  });
+  selector.value = '0';
+  const update = () => { if (!isCurrent()) return; previews.forEach((node, i) => { node.hidden = mode.value === 'selected' && String(i) !== selector.value; }); };
+  mode.onchange = selector.onchange = update;
+  for (const node of [heading, note, selector, mode, content]) group.appendChild(node);
+  return group;
 }

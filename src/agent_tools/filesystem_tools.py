@@ -182,7 +182,9 @@ class ReadFileTool:
             return {"error": f"read_file: {path}: {e}", "exit_code": 1}
         if not (offset > 0 or limit > 0) and len(data) > MAX_READ_CHARS:
             data = data[:MAX_READ_CHARS] + f"\n... [truncated at {MAX_READ_CHARS} chars]"
-        return {"output": data, "exit_code": 0}
+        return {"output": data, "exit_code": 0,
+                "source_reference": {"path": raw_path, "start_line": max(offset, 1),
+                                     "kind": "read_file_snapshot"}}
 
 class WriteFileTool:
     async def execute(self, content: str, ctx: dict) -> dict:
