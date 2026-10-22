@@ -7,6 +7,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
+from core.platform_compat import background_subprocess_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,8 @@ def discover_tailscale_hosts() -> List[str]:
     hosts = []
     try:
         result = subprocess.run(
-            ["tailscale", "status", "--json"], capture_output=True, text=True, timeout=5
+            ["tailscale", "status", "--json"], capture_output=True, text=True, timeout=5,
+            **background_subprocess_kwargs(),
         )
         if result.returncode != 0:
             return hosts

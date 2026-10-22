@@ -1,9 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+import tempfile
 from pathlib import Path
 
 import webview
 from PyInstaller.utils.hooks import collect_all
+from PyInstaller.config import CONF
+from src.desktop_python_toolchain import prepare_bundle
+
+# A frozen GUI executable is not a Python interpreter. Package the existing
+# build interpreter for the TEB and compile its inventory pin into the archive.
+_toolchain_work = Path(tempfile.mkdtemp(prefix="governed-python-", dir=CONF["workpath"]))
+_toolchain = prepare_bundle(_toolchain_work)
+_pin_module = _toolchain_work / "_desktop_python_toolchain_pin.py"
+_pin_module.write_text(
+    f'SHA256 = {_toolchain["sha256"]!r}\nVERSION = {_toolchain["version"]!r}\n', encoding="utf-8")
 
 runtime_root = os.environ.get("ODYSSEUS_WEBVIEW2_FIXED_ROOT")
 if not runtime_root or not (Path(runtime_root) / "msedgewebview2.exe").is_file():
@@ -17,9 +28,10 @@ datas = [
     ("config", "config"),
     (".env.example", "."),
     (runtime_root, "webview2-runtime"),
+    (str(_toolchain["root"]), "python-toolchain"),
 ]
 binaries = []
-hiddenimports = ["webview.platforms.edgechromium"]
+hiddenimports = ["webview.platforms.edgechromium", "_desktop_python_toolchain_pin"]
 webview_datas, webview_binaries, webview_hidden = collect_all("webview")
 datas += webview_datas
 binaries += webview_binaries
@@ -39,17 +51,18 @@ for _architecture in _WEBVIEW2_LOADER_ARCHITECTURES:
 
 a = Analysis(
     ["launcher.py"],
-    pathex=[], binaries=binaries, datas=datas, hiddenimports=hiddenimports,
+    pathex=[str(_toolchain_work)], binaries=binaries, datas=datas, hiddenimports=hiddenimports,
     hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False,
     optimize=0,
 )
 pyz = PYZ(a.pure)
 exe = EXE(
-    pyz, a.scripts, [], exclude_binaries=True, name="Odysseus", debug=False,
+    pyz, a.scripts, [], exclude_binaries=True, name="MOBS Studio", debug=False,
     bootloader_ignore_signals=False, strip=False, upx=True, console=False,
     disable_windowed_traceback=False, argv_emulation=False, target_arch=None,
     codesign_identity=None, entitlements_file=None, icon=["static/icon.ico"],
+    version="desktop/version-info.txt",
 )
 coll = COLLECT(
-    exe, a.binaries, a.datas, strip=False, upx=True, upx_exclude=[], name="Odysseus",
+    exe, a.binaries, a.datas, strip=False, upx=True, upx_exclude=[], name="MOBS Studio",
 )

@@ -1,0 +1,12 @@
+# Public product identity; persistent installation identifiers remain unchanged.
+VSVersionInfo(
+  ffi=FixedFileInfo(filevers=(1, 0, 2, 0), prodvers=(1, 0, 2, 0),
+    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[StringFileInfo([StringTable('041604B0', [
+    StringStruct('FileDescription', 'MOBS Studio — ambiente de engenharia agêntica'),
+    StringStruct('ProductName', 'MOBS Studio'),
+    StringStruct('OriginalFilename', 'MOBS Studio.exe'),
+    StringStruct('FileVersion', '1.0.2'),
+    StringStruct('ProductVersion', '1.0.2 — build local para revisão, não publicado')
+  ])]), VarFileInfo([VarStruct('Translation', [1046, 1200])])]
+)

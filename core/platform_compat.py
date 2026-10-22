@@ -55,6 +55,15 @@ def safe_chmod(path, mode: int) -> bool:
 
 
 # ── Process detach / liveness / teardown ────────────────────────────────────
+def background_subprocess_kwargs() -> dict:
+    """Hide a background console on Windows without detaching its process.
+
+    Pipes, timeouts, exit status and parent supervision stay unchanged.
+    Interactive terminal launches must not use this helper.
+    """
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if IS_WINDOWS else {}
+
+
 def detached_popen_kwargs() -> dict:
     """Keyword args for :class:`subprocess.Popen` that fully detach a child so
     it outlives the request/stream that launched it.
@@ -414,6 +423,7 @@ def run_ssh_command(
         timeout=timeout,
         capture_output=True,
         text=text,
+        **background_subprocess_kwargs(),
     )
 
 

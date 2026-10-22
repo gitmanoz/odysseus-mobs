@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 APP_NAME = "Odysseus"
+DISPLAY_NAME = "MOBS Studio"
 POLICY_ID = "odysseus.desktop.junior"
 POLICY_VERSION = 2
 FIXED_RUNTIME_DIR = "webview2-runtime"
@@ -215,7 +216,7 @@ def wait_for_readiness(url: str, *, timeout: float = 90.0,
         except Exception as exc:
             last_error = str(exc)
         time.sleep(0.15)
-    raise DesktopHostError(f"Odysseus backend did not become ready: {last_error}")
+    raise DesktopHostError(f"MOBS Studio: o backend não ficou pronto: {last_error}")
 
 
 def validate_runtime_readiness(checker: Callable[[], dict] | None = None) -> dict:
@@ -225,7 +226,7 @@ def validate_runtime_readiness(checker: Callable[[], dict] | None = None) -> dic
         checker = check_readiness
     result = checker()
     if result.get("ready") is not True:
-        raise DesktopHostError("Odysseus runtime integrity checks failed")
+        raise DesktopHostError("MOBS Studio: a verificação de integridade do runtime falhou")
     return result
 
 
@@ -312,9 +313,58 @@ def clear_runtime_state(state: Path | None) -> None:
 
 def show_error(message: str) -> None:
     if os.name == "nt":
-        ctypes.windll.user32.MessageBoxW(None, message, "Odysseus could not start", 0x10)
+        ctypes.windll.user32.MessageBoxW(None, message, f"{DISPLAY_NAME} — não foi possível iniciar", 0x10)
     else:
         print(message, file=sys.stderr)
+
+
+def apply_window_appearance(window) -> None:
+    """Style only this native frame; retain system chrome and high contrast."""
+    if os.name != "nt":
+        return
+    try:
+        from ctypes import wintypes
+
+        class HighContrast(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.UINT), ("dwFlags", wintypes.DWORD),
+                        ("lpszDefaultScheme", wintypes.LPWSTR)]
+
+        contrast = HighContrast()
+        contrast.cbSize = ctypes.sizeof(contrast)
+        if not ctypes.windll.user32.SystemParametersInfoW(0x42, contrast.cbSize,
+                                                         ctypes.byref(contrast), 0):
+            logging.warning("Native frame unchanged: high contrast state unavailable")
+            return
+        if contrast.dwFlags & 1:
+            return
+        hwnd = int(window.native.Handle.ToInt64())
+        build = int(platform.version().split(".")[2])
+        outcomes = _set_dark_frame(hwnd, build, ctypes.windll.dwmapi.DwmSetWindowAttribute)
+        logging.info("Native frame appearance: %s", outcomes)
+        from src.desktop_window_chrome import install_studio_caption
+        install_studio_caption(window)
+    except Exception:
+        # Aesthetic failure must not disable window controls or the runtime.
+        logging.exception("Native frame appearance unavailable")
+
+
+def _set_dark_frame(hwnd: int, build: int, setter) -> dict[int, int]:
+    from ctypes import wintypes
+
+    setter.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+    setter.restype = ctypes.c_long
+    # Windows 10 19041+ accepts attribute 20 in practice; its public contract
+    # starts at Windows 11. Record HRESULT and keep native defaults on failure.
+    if build < 19041:
+        return {}
+    attributes = {20: 1}
+    if build >= 22000:
+        attributes.update({34: 0x282523, 35: 0x131110, 36: 0xE7E9EB})
+    result = {}
+    for attribute, color in attributes.items():
+        value = wintypes.DWORD(color)
+        result[attribute] = int(setter(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)))
+    return result
 
 
 def run_desktop() -> int:
@@ -327,7 +377,7 @@ def run_desktop() -> int:
     runtime_state = None
     try:
         if not guard.acquire():
-            show_error("Odysseus is already running.")
+            show_error("MOBS Studio já está em execução.")
             return 2
         provision_trusted_desktop_config(paths)
         ensure_fixed_webview2(paths)
@@ -346,14 +396,17 @@ def run_desktop() -> int:
         runtime_state = write_runtime_state(paths, port)
 
         import webview
-        webview.create_window("Odysseus", f"http://127.0.0.1:{port}/", width=1440, height=920,
-                              min_size=(960, 640), confirm_close=False)
+        window = webview.create_window(DISPLAY_NAME, f"http://127.0.0.1:{port}/", width=1440, height=920,
+                                       min_size=(960, 640), confirm_close=False,
+                                       background_color="#101113", shadow=False, transparent=False,
+                                       maximized=True)
+        window.events.shown += lambda: apply_window_appearance(window)
         # No js_api: browser content receives no privileged native bridge.
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(paths.webview))
         return 0
     except Exception as exc:
         logging.exception("Desktop host startup/runtime failure")
-        show_error(f"{exc}\n\nStartup log:\n{log_path}")
+        show_error(f"{exc}\n\nLog de inicialização:\n{log_path}")
         return 1
     finally:
         if backend is not None:
@@ -369,6 +422,6 @@ def run_desktop() -> int:
 
 def main() -> int:
     if os.name != "nt":
-        show_error("Odysseus Desktop MVP supports Windows only.")
+        show_error("MOBS Studio Desktop suporta somente Windows.")
         return 1
     return run_desktop()

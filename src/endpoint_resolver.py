@@ -10,6 +10,7 @@ import socket
 import subprocess
 from typing import Optional, Tuple, Dict
 from urllib.parse import urlparse, urlunparse
+from core.platform_compat import background_subprocess_kwargs
 
 from core.database import SessionLocal, ModelEndpoint
 from src.llm_core import _detect_provider, _host_match, _is_kimi_code_url, KIMI_CODE_USER_AGENT, _ollama_api_root
@@ -145,7 +146,7 @@ def _resolve_tailscale_host(hostname: str) -> Optional[str]:
     try:
         result = subprocess.run(
             ["tailscale", "status", "--json"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, timeout=5, **background_subprocess_kwargs(),
         )
         if result.returncode == 0:
             import json as _json

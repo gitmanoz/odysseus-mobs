@@ -31,6 +31,7 @@ def _load_builtin_mcp(monkeypatch):
     platform_compat = types.ModuleType("core.platform_compat")
     platform_compat.IS_WINDOWS = False
     platform_compat.which_tool = lambda name: None
+    platform_compat.background_subprocess_kwargs = lambda: {}
     monkeypatch.setitem(sys.modules, "core", core)
     monkeypatch.setitem(sys.modules, "core.platform_compat", platform_compat)
 

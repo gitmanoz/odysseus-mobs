@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 
-from core.platform_compat import IS_WINDOWS, which_tool
+from core.platform_compat import IS_WINDOWS, which_tool, background_subprocess_kwargs
 from src.runtime_paths import get_app_root
 
 logger = logging.getLogger(__name__)
@@ -287,6 +287,7 @@ async def _is_npx_package_cached(npx_path, package_spec, timeout_s=5):
             npx_path, "--no-install", package_spec, "--version",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **background_subprocess_kwargs(),
         )
     except NotImplementedError:
         try:
@@ -294,6 +295,7 @@ async def _is_npx_package_cached(npx_path, package_spec, timeout_s=5):
                 [npx_path, "--no-install", package_spec, "--version"],
                 capture_output=True,
                 timeout=timeout_s,
+                **background_subprocess_kwargs(),
             )
         except (subprocess.TimeoutExpired, OSError, ValueError):
             return False

@@ -76,11 +76,11 @@ try {
     $results.first_pid = $primary.Id
     $results.first_port = [int]$firstState.port
     $results.dynamic_port_avoided_7000 = ([int]$firstState.port -ne 7000)
-    $results.desktop_window = ($primary.MainWindowTitle -eq "Odysseus")
+    $results.desktop_window = ($primary.MainWindowTitle -eq "MOBS Studio")
     Start-Sleep -Seconds 3
     $buildRoot = [IO.Path]::GetFullPath((Split-Path -Parent $Executable))
-    $falseInstanceWindows = @(Get-Process Odysseus -ErrorAction SilentlyContinue | Where-Object {
-        $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -eq "Odysseus could not start" -and
+    $falseInstanceWindows = @(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($Executable)) -ErrorAction SilentlyContinue | Where-Object {
+        $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -eq "MOBS Studio — não foi possível iniciar" -and
         $_.Path -and [IO.Path]::GetFullPath($_.Path).StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)
     })
     $results.no_false_second_instance_dialogs = ($falseInstanceWindows.Count -eq 0)
@@ -131,7 +131,7 @@ try {
     $second = Start-Process -FilePath $Executable -PassThru
     Start-Sleep -Seconds 2
     $second.Refresh()
-    $results.second_instance_refused = (-not $second.HasExited -and $second.MainWindowTitle -eq "Odysseus could not start") -or ($second.HasExited -and $second.ExitCode -eq 2)
+    $results.second_instance_refused = (-not $second.HasExited -and $second.MainWindowTitle -eq "MOBS Studio — não foi possível iniciar") -or ($second.HasExited -and $second.ExitCode -eq 2)
     if (-not $second.HasExited) {
         [void]$second.CloseMainWindow()
         [void]$second.WaitForExit(10000)

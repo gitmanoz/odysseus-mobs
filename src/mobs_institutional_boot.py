@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from core.platform_compat import background_subprocess_kwargs
 
 
 class InstitutionalBootError(ValueError):
@@ -349,7 +350,7 @@ def _git(root: Path, *args: str) -> bytes:
              '-c', 'core.fsmonitor=false', '-c', 'diff.external=',
              '-c', 'credential.helper=', '-c', 'protocol.allow=never',
              '-C', str(root), *args], check=True, capture_output=True,
-            timeout=15, env=environment,
+            timeout=15, env=environment, **background_subprocess_kwargs(),
         ).stdout
     except (OSError, subprocess.SubprocessError) as exc:
         raise InstitutionalBootError('Cannot capture repository evidence') from exc

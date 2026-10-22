@@ -8,6 +8,7 @@ import time
 import shlex
 
 from core.platform_compat import (
+    background_subprocess_kwargs,
     NVIDIA_PATH_CANDIDATES,
     SSH_PATH_OVERRIDE,
     run_ssh_command,
@@ -42,7 +43,7 @@ def _run(cmd):
                 text=True,
             )
         else:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10, **background_subprocess_kwargs())
         if r.returncode == 0:
             return r.stdout.strip()
     except Exception:

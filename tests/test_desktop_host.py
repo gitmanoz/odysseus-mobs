@@ -183,7 +183,7 @@ def test_readiness_accepts_public_health_after_internal_integrity_check():
 
 
 def test_readiness_fails_closed():
-    with pytest.raises(desktop_host.DesktopHostError, match="did not become ready"):
+    with pytest.raises(desktop_host.DesktopHostError, match="backend não ficou pronto"):
         desktop_host.wait_for_readiness(
             "http://127.0.0.1/ready", timeout=0.01,
             opener=lambda *_args: (503, b'{"ready":false,"error":"db"}'),
@@ -194,7 +194,7 @@ def test_runtime_integrity_is_checked_without_bypassing_http_auth():
     assert desktop_host.validate_runtime_readiness(
         lambda: {"ready": True, "checks": {"database": {"ok": True}}}
     )["ready"] is True
-    with pytest.raises(desktop_host.DesktopHostError, match="integrity checks failed"):
+    with pytest.raises(desktop_host.DesktopHostError, match="integridade do runtime falhou"):
         desktop_host.validate_runtime_readiness(
             lambda: {"ready": False, "checks": {"database": {"ok": False}}}
         )

@@ -179,6 +179,11 @@ class WindowsExecutionPolicy:
                                        Path(self.target), self.read_paths)
         executable = (sys.executable if self.command[0] in {"python", "python3", "pytest"}
                       else shutil.which(self.command[0]))
+        toolchain_provenance = None
+        if self.private_patch is None and self.command[0] in {"python", "python3", "pytest"}:
+            from src.desktop_python_toolchain import resolve_python
+            resolved, toolchain_provenance = resolve_python()
+            executable = str(resolved)
         if not executable or not Path(executable).is_file():
             capability = {"recipe": recipe, "permitted": True,
                           "executable_available": False, "boundary_executable": False}
@@ -206,11 +211,18 @@ class WindowsExecutionPolicy:
             if self.private_patch is not None:
                 if self.promotion_binding is None or self.private_write is not None or self.validation_artifact is not None:
                     raise TrustedExecutionUnavailable("Private patch requires one promotion execution")
-            elif Path(executable).name.lower() in {"python.exe", "python3.exe"}:
-                executable = str(_stage_python_toolchain(Path(executable), private,
-                                                         pytest_command or self.command[1:3] == ("-m", "pytest")))
             elif recipe == "ruff_check":
                 executable = str(_stage_ruff_toolchain(Path(executable), private))
+            elif Path(executable).name.lower() in {"python.exe", "python3.exe"}:
+                source_python = Path(executable)
+                executable = str(_stage_python_toolchain(Path(executable), private,
+                                                         pytest_command or self.command[1:3] == ("-m", "pytest")))
+                if toolchain_provenance is not None:
+                    from src.desktop_python_toolchain import resolve_python, verify_staged
+                    # Revalidate the full build pin after copying, then every
+                    # private component, before any child may be started.
+                    resolve_python()
+                    verify_staged(source_python.parent, Path(executable).parent)
             else:
                 raise TrustedExecutionUnavailable("This first Windows adapter supports only Python commands")
             if inventory(root, include_git=True) != before_target:
@@ -355,6 +367,8 @@ class WindowsExecutionPolicy:
                     "command_capability": {"recipe": recipe, "permitted": True,
                                            "executable_available": True,
                                            "boundary_executable": True},
+                    **({"toolchain_provenance": toolchain_provenance}
+                       if toolchain_provenance is not None else {}),
                     "uncertainties": ["OS-brokered effects outside the private workspace and AppContainer profile cannot be attributed"],
                     "effects": effects,
                     "adapter_effects": adapter_effects,
@@ -513,9 +527,14 @@ def _stage_python_toolchain(executable: Path, private: Path, include_pytest: boo
                 shutil.copy2(item, output)
     if include_pytest:
         site = source / "Lib" / "site-packages"
+        if (not getattr(sys, "frozen", False)
+                and executable.resolve() == Path(getattr(sys, "_base_executable", sys.executable)).resolve()):
+            # Only the active source interpreter may supply its venv packages.
+            # A frozen application always uses the verified bundled payload.
+            site = Path(sys.prefix) / "Lib" / "site-packages"
         if not site.is_dir() or _reparse(site):
             raise TrustedExecutionUnavailable("Approved pytest toolchain is unavailable")
-        for package in ("pytest", "_pytest", "pluggy", "iniconfig", "packaging", "pygments"):
+        for package in ("pytest", "_pytest", "pluggy", "iniconfig", "packaging", "pygments", "colorama"):
             origin = site / package
             if not origin.is_dir() or _reparse(origin):
                 raise TrustedExecutionUnavailable(f"Approved pytest dependency is unavailable: {package}")
