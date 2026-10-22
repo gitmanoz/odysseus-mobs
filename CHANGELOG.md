@@ -16,6 +16,8 @@
 
 ### Added
 
+- Build-time source fingerprints and package inventory manifests with required-component, source-drift and payload-integrity checks; the existing build invokes them without adding an installer or activation path.
+
 - Browse successful file-read snapshots already loaded in a conversation, with workspace isolation, bounded literal search, line navigation and optional mandate-baseline references. This does not enumerate unread files or introduce a read API.
 - Compare all files from one sealed candidate together or individually, with stale-reference guards; explain existing validation recipes without executing them.
 
@@ -34,6 +36,8 @@
 - Batch four fixed Git metadata-path queries while preserving before/after fingerprints, repository checks and restricted subprocess settings. One profiled multifile case reduced Git-helper invocations from 697 to 523 and call time from about 45 to 33 seconds; this is not a whole-suite or model-performance claim.
 
 ### Validation and limits
+
+- The existing backup CLI was exercised with disposable SQLite WAL/configuration data through snapshot, verification and restore. No personal data, canonical package or active database was restored or replaced.
 
 - Offline consolidation passed 220 distinct regression cases plus the 22-case two-file promotion audit. These fixtures do not certify Desktop Python E2E, real-model continuity or gameplay.
 

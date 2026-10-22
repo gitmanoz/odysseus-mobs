@@ -126,6 +126,9 @@ if (-not $runtimeExe) { Fail "The extracted WebView2 Fixed Version runtime is in
 $runtimeRoot = $runtimeExe.Directory.FullName
 
 Write-Step "Building MOBS Studio.exe"
+$sourceEvidence = Join-Path $PSScriptRoot 'build\source-before.json'
+& $venvPython -m src.desktop_package --source $PSScriptRoot --capture-source $sourceEvidence
+if ($LASTEXITCODE -ne 0) { Fail 'Could not capture build inputs.' }
 $env:ODYSSEUS_WEBVIEW2_FIXED_ROOT = $runtimeRoot
 $env:ODYSSEUS_DATA_DIR = Join-Path $PSScriptRoot "build\analysis-data"
 $env:ODYSSEUS_INPROCESS_TASKS = "0"
@@ -137,6 +140,9 @@ $exe = Join-Path $PSScriptRoot "dist\MOBS Studio\MOBS Studio.exe"
 $fixedExe = Join-Path $PSScriptRoot "dist\MOBS Studio\_internal\webview2-runtime\msedgewebview2.exe"
 if (-not (Test-Path $exe)) { Fail "MOBS Studio.exe was not produced." }
 if (-not (Test-Path $fixedExe)) { Fail "The Fixed Version runtime was not packaged." }
+
+& $venvPython -m src.desktop_package --source $PSScriptRoot --package (Split-Path -Parent $exe) --expected-source $sourceEvidence
+if ($LASTEXITCODE -ne 0) { Fail 'Package integrity/source check failed; do not activate this build.' }
 
 Write-Host ""
 Write-Host "Desktop MVP build complete: $exe" -ForegroundColor Green
