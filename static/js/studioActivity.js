@@ -80,6 +80,18 @@ export function renderStudioDiagnostics(target, history) {
   const summary = document.createElement('p');
   summary.textContent = work.length ? `${work.length} registros · ${work.filter(item => item.status === 'running').length} em andamento · ${work.filter(item => item.status === 'failed').length} com falha. Retorno recebido não comprova o objetivo cumprido.` : 'Nenhum registro de ferramenta carregado. Uma promessa textual não comprova chamada, despacho ou execução.';
   execution.appendChild(summary);
+  const provenance = document.createElement('p');
+  provenance.textContent = 'Origem: registros carregados desta conversa. Chamada nativa, autorização e despacho não são certificados por este resumo. Para conferi-los, confronte a proposta e os eventos/recibos originais; validação exata fica em Revisão da tarefa.';
+  execution.appendChild(provenance);
+  const failureGuide = document.createElement('details');
+  const guideTitle = document.createElement('summary'); guideTitle.textContent = 'Como distinguir uma falha'; failureGuide.appendChild(guideTitle);
+  for (const text of [
+    'Provedor ou transporte: confira o evento de erro e o status original. Um timeout não demonstra falta de memória.',
+    'Formato da chamada: confira o parser e a chamada nativa; uma ferramenta anunciada no texto pode nem ter sido emitida.',
+    'Autorização: confira a negação registrada pelo servidor e o escopo aprovado. Revisão de snapshot não concede execução.',
+    'Execução: confira despacho, retorno e recibo do processo. Um código de saída isolado não distingue todas as causas e não comprova o objetivo.'
+  ]) { const p = document.createElement('p'); p.textContent = text; failureGuide.appendChild(p); }
+  execution.appendChild(failureGuide);
   const failure = work.filter(item => item.status === 'failed').at(-1);
   if (failure) { const p = document.createElement('p'); p.textContent = `Último registro com falha: ${failure.tool}${failure.file ? ` · ${failure.file}` : ''}. Consulte o evento original em Atividade e arquivos para distinguir formato, autorização, execução ou timeout; este resumo não determina a causa.`; execution.appendChild(p); }
   content.appendChild(execution);

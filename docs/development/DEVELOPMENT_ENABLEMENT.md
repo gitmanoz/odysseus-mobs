@@ -135,3 +135,68 @@ Comandos de parse, teste lógico, importação, build e gameplay permanecem oper
 Preflight somente leitura encontrou as dependências Desktop pinadas presentes e sem requisitos quebrados, além do CAB WebView2 existente com SHA256 esperado. A instalação canônica conserva a versão 1.0.2; difere do source em módulos de protocolo/metadados/contexto e recursos web, e ainda não contém studioEngineering.js. É necessário rebuild para ativar o conjunto completo.
 
 O script de build atual instala requisitos e remove build/dist antes de empacotar. Não executá-lo contra o aplicativo aberto. Próxima ativação: confirmar fechamento normal e recursos; manter backup binário completo e dados/config; produzir build rastreável em staging temporário dentro da infraestrutura de build, verificar inventário/version/hash/toolchain/WebView2; substituir somente a instalação canônica liberada; conferir saúde e versão, com rollback para o backup se necessário. Não criar instalação permanente paralela, atualizar dependências silenciosamente ou apagar evidências. Nenhuma dessas etapas foi executada nesta continuação.
+
+## Streaming, cancelamento e preparação segura — continuação offline
+
+Base: `aedcd28f16bc1a4ba685e4003d54676b47fb1598`. Fixtures de transporte exercitam o parser real, com fragmentos, chamadas paralelas, argumentos incompletos, tipos inválidos, timeout e erro de rede. No caminho compatível OpenAI, uma entrada inválida não pode descartar chamadas irmãs; continuação inválida identificada pelo índice invalida aquela chamada inteira. No nativo Ollama, argumentos não-objeto não viram `{}` e EOF sem o marcador `done` produz erro de transporte sem liberar ferramentas pendentes. O compatível OpenAI mantém sua tolerância existente a EOF sem `[DONE]`; não é uma certificação de todos os protocolos ou gateways.
+
+Cancelamento anterior ao primeiro tick agora fecha a fonte sem iterá-la. Cancelar durante espera pelo salvamento anterior também encerra corretamente; uma substituição cancelada mantém a barreira de salvamento para o terceiro envio. Repetir Parar não cancela o cleanup já iniciado. Esses estados pertencem ao gerenciador de transporte; não alteram a máquina de estados institucional nem significam objetivo cumprido. Testes sintéticos não comprovam término de toda árvore de processos de ferramentas reais.
+
+A camada pública do Agent Loop fecha explicitamente seu gerador interno: fechar a transmissão aguarda o cancelamento da tarefa de ferramenta, em vez de depender do encerramento posterior do event loop. A conversão também rejeita argumentos não-objeto para ferramentas de código com todos os campos opcionais; `[]`, `false`, `0` ou `null` não viram uma leitura padrão de diretório/workspace. O objeto `{}` explicitamente válido continua obedecendo ao schema e às mesmas permissões.
+
+A inspeção e testes offline não encontraram reutilização de respostas prontas no streaming: esse caminho não consulta o cache de respostas de `llm_call`/`llm_call_async`, e pedidos diferentes chegam ao transporte sintético. A chave desse cache inclui mensagens e histórico. Isso não elimina hipóteses no modelo, KV-cache do servidor, parâmetros ou contexto real; a causa das saudações repetidas continua aberta até inferência rastreada. Nenhum prompt corretivo artificial foi acrescentado.
+
+O build existente agora oferece `-CheckOnly`: verifica requisitos instalados e suas restrições, consistência de dependências e CAB WebView2 pinado, sem criar venv, instalar, baixar, extrair, limpar outputs ou empacotar. O build normal preserva seu comportamento de instalação de requisitos, mas recusa o executável canônico aberto antes de instalar e novamente antes de limpar; não encerra processos. Recusa também destinos build/dist ligados, links internos ou inventário ilegível. Isso reduz risco, mas não elimina a corrida com uma abertura posterior: ativação continua exigindo fechamento e backup. Staging/rollback são preparação documental, não uma nova instalação ou um atualizador automático.
+
+A revisão apresenta a sequência solicitação → autorização → chamada → despacho → retorno → validação, com origem e lacunas explícitas. Revisão de snapshot não é autorização; aprovação registrada não comprova execução. Os resumos visuais não inventam recibos de chamada/despacho nem certificam cumprimento.
+
+### Godot: matriz do menor experimento proposto
+
+Não admitido nem executado neste ciclo. Primeiro definir o fixture e seus digests no mandato, em cópia privada; reaproveitar dispatcher/TEB e o binário já identificado, sem inserir outro executor. O conjunto abaixo é especificação de teste futuro, não profile operacional.
+
+| Dimensão | Entrada / condição fixada | Resultado exigido |
+|---|---|---|
+| Arquivos | `project.godot` mínimo, sem autoloads, plugins, GDExtensions ou cenas do jogo; um `probe.gd` com `extends RefCounted` e função estática retornando uma constante | Inventário/hashes antes e depois; nenhum acesso a projeto real ou saves |
+| Positivo | Receita candidata `--headless --path <cópia privada> --check-only --script res://probe.gd` | Confirmar suporte da versão pinada e recibo atribuível ao processo; sucesso de parse não prova teste lógico |
+| Negativo | Mesmo fixture/digest identificado, com erro sintático deliberado no script | Retorno não zero e diagnóstico limitado; não considerar falha esperada um sucesso do objetivo de produção |
+| Confinamento | `../`, caminho absoluto externo, script não listado e flags extras | Rejeição pelo dispatcher antes de iniciar processo |
+| Efeitos | User-data/cache temporários confinados, rede/filhos/bibliotecas sob limites existentes comprovados | Nenhum save real, efeito externo ou download; se o executor não oferecer garantias, bloquear a admissão |
+| Interrupção | Limite de tempo/recursos e cancelamento definidos antes da execução | Recibo factual de interrupção e término da árvore; não simular timeout com mera mensagem |
+
+Depois do parse positivo/negativo e confinamento, avaliar a dependência mínima real de `progression_rules.gd`. Teste lógico, importação, build e gameplay exigem receitas distintas. Nenhuma ampliação para Unity/Unreal, N arquivos ou controle de jogo decorre desta preparação. A decisão pendente deve especificar a receita/perfil exatos e as capacidades de isolamento comprováveis; sem isso, não iniciar o experimento.
+
+## Consolidação offline e gates de prontidão
+
+O mandato seguinte consolida o delta local sobre `aedcd28f16bc1a4ba685e4003d54676b47fb1598`, sem Computer Use, inferência ou ativação. Os estados abaixo são critérios de aceitação do consumidor e complementam o [Capability Map](../product/PLATFORM_CAPABILITY_MAP.md); não constituem outro roadmap ou autoridade de admissão.
+
+| Capacidade | Prontidão observável | Gate restante para desenvolvimento cotidiano |
+|---|---|---|
+| Planejamento e preparação | Implementados rascunhos locais, planos e checklist; DOM exercitado sem envio/execução | Confrontar utilidade e cumprimento em tarefa real, sem tratar plano marcado como prova |
+| Composição da conversa | Persistência/replay e histórico exercitados offline; pedidos sintéticos preservados | Investigar repetição com contexto e geração reais; não há causa comprovada para a saudação repetida |
+| Chamadas de ferramentas | Parser/conversor exercitados com fragmentos, IDs conflitantes, tipos inválidos e interrupção | Demonstrar chamada do modelo, despacho e resultado na instalação canônica |
+| Cancelamento e salvamento | Camadas fecham geradores/tarefas; parada repetida e substituição preservam ordem; falha de persistência fica explícita na rota HTTP | Comprovar comportamento com processo/ferramenta real e reabertura no Desktop |
+| Edição privada e promoção | Um ou exatamente dois create/write admitidos; revisão/recibo vinculados ao candidato exato e rollback possuem regressões | Python E2E primeiro; depois caso real coeso de dois arquivos. N arquivos arbitrários continua fora da admissão |
+| Apresentação de evidências | Escopo, revisão, atividade, recursos e guia de falhas implementados sem conceder autorização | Inspeção visual no build atualizado e conferência da cadeia de uma operação real |
+| Atualização | Preflight offline e gates de build exercitados; instalação existente preservada | Backup consistente, build rastreável, ativação e rollback operacional ainda não realizados neste ciclo |
+| Godot / outros motores | Matriz de experimento mínimo preparada; nenhuma nova receita operacional | Decisão e prova de confinamento da receita Godot; Unity/Unreal exigem estudos/admissão próprios |
+| Computer Use / gameplay | Ausente como capacidade própria governada do Studio | Mandato arquitetural e admissão de observação/input/verificação; nenhuma execução de jogo neste ciclo |
+
+### Identidade, encerramento e salvamento
+
+IDs de chamada devem ser strings quando presentes. No compatível OpenAI, ID repetido em slots diferentes, mudança de ID ou nome no mesmo slot tornam as chamadas envolvidas não executáveis. Continuação sem índice mas com ID conhecido usa esse ID em vez da última chamada paralela. No nativo Ollama, IDs repetidos também são rejeitados. Chamadas iguais sem ID não são deduplicadas por conteúdo: podem representar operações legitimamente distintas. Essas garantias não implementam idempotência geral entre rodadas ou reinícios.
+
+A tolerância histórica do compatível OpenAI a EOF foi estreitada para chamadas pendentes: só são liberadas com `[DONE]` ou finish_reason terminal aceito (`stop`, `tool_calls`, `function_call`). `length`/`content_filter` não liberam chamadas mesmo com `[DONE]`. Texto sem ferramenta mantém compatibilidade anterior. Timeout/erro de rede preserva o parcial e não libera chamadas pendentes. Nenhum texto de promessa vira evidência de despacho.
+
+Falha ao salvar uma resposta interrompida no modo agente era absorvida, deixando apenas o estado de parada. Agora a falha sobe ao gerenciador como erro; finally ainda limpa o registro ativo e a resposta HTTP usa mensagem genérica, sem detalhes do armazenamento. Falha ao fechar a fonte também é observável como erro. Isso não inventa retry automático nem garante restauração de gravação que falhou; o replay é em memória e não sobrevive ao restart.
+
+### Thinking e interpretação das falhas
+
+O commit `cce11abe26fbb7a672cc64cd01aad137fb9ee5cf` ampliou deliberadamente `think:false` a todo endpoint Ollama compatível, sem depender do nome do modelo. O teste antigo contradizia essa política; foi alinhado e os comentários corrigidos, sem alterar parâmetros de geração. Endpoints OpenAI remotos continuam sem essa injeção. Nenhuma configuração de contexto/modelo foi mudada.
+
+O diagnóstico oferece orientação para distinguir provedor/transporte, formato, autorização e execução pelas fontes originais. O formato atual dos registros não permite inferir todas essas causas de um código de saída; não foi criado classificador por palavras na saída, nem nova autoridade ou contrato de estado.
+
+### Preparação de ativação e consolidação
+
+Preservar instalação inteira (exe e `_internal`, inclusive WebView2 e toolchain), configuração externa e dados efetivos do usuário. O default congelado é `~/.odysseus/data`, mas override de ambiente deve ser revalidado antes de backup. SQLite ativo exige backup consistente ou fechamento confirmado, não cópia isolada do arquivo principal ignorando WAL. O backup inicial deste ciclo cobre fontes/diff locais; não equivale a backup consistente dos dados do aplicativo.
+
+O preflight não prova que o novo pacote foi construído ou ativado. A preparação registra dependências, CAB e inventário do pacote atual; ativação continua separada. A lista autorizada pede preparar commit/push: delta revisado, mensagens e proposta de changelog devem ficar concretos antes da publicação. HISTORY é avaliado separadamente; não transformar cada regressão em marco institucional.

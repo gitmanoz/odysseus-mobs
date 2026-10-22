@@ -164,3 +164,21 @@ assert.match(target.textContent,/Variação · Retornos de ferramentas: \+45 tok
 assert.doesNotMatch(target.textContent,/Variação · Contexto protegido/);
 assert.match(target.textContent,/Não mede desperdício/);assert.match(target.textContent,/~500 tokens/);
 ''')
+
+
+def test_evidence_chain_does_not_upgrade_review_or_visual_activity_into_execution():
+    run(r'''
+const target=new E();
+for(const validity of ['valid','unavailable']){
+ G.renderEngineeringReview(target,{session_id:'one',validity,reviewed:true,proposal:{status:'approved'}});
+ assert.match(target.textContent,/Solicitação → autorização → chamada de ferramenta → despacho → retorno → validação/);
+ assert.match(target.textContent,/não certifica sozinho/);
+ if(validity==='valid')assert.match(target.textContent,/aprovação registrada pelo servidor; execução ainda exige evidência/);
+ else assert.doesNotMatch(target.textContent,/aprovação registrada pelo servidor/);
+}
+G.renderEngineeringReview(target,{validity:'valid',reviewed:true,proposal:{status:'pending'}});
+assert.match(target.textContent,/revisão do snapshot não concede execução/);
+const history=new E();tool(history,'bash','returned');A.renderStudioDiagnostics(target,history);
+assert.match(target.textContent,/autorização e despacho não são certificados/);
+assert.doesNotMatch(target.textContent,/objetivo cumprido confirmado/);
+''')

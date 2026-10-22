@@ -16,6 +16,8 @@
 
 ### Added
 
+- Read-only Desktop build preflight and guards for open canonical executables and linked cleanup targets; engineering evidence provenance, failure inspection guidance and an offline readiness matrix.
+
 - Read-only presentation of reviewed proposals, sealed artifact previews and content-free context diagnostics.
 - Studio conversation navigation, collapsible code, activity/file inspection, plan updates and a responsive context panel.
 - Observational project scope and engineering review views, a local task-draft composer, tool-failure summaries and plan evidence counts; opening these views does not submit or authorize work.

@@ -62,6 +62,7 @@ export function reviewChecklist(view) {
     { label: 'Consulta institucional atual', state: view?.validity === 'valid' ? 'confirmada' : 'não confirmada' },
     { label: 'Proposta identificada', state: p?.proposal_id && p?.proposal_digest && p?.authority_snapshot ? 'registrada' : 'ausente' },
     { label: 'Revisão do snapshot', state: fresh && view?.reviewed === true ? 'registrada pelo servidor' : 'não confirmada' },
+    { label: 'Autorização de execução', state: fresh && p?.status === 'approved' ? 'aprovação registrada pelo servidor; execução ainda exige evidência' : 'não confirmada nesta visão; revisão do snapshot não concede execução' },
     { label: 'Atividade no servidor', state: fresh && view?.active === true ? 'execução ativa' : 'sem execução ativa confirmada' },
     { label: 'Candidatos pendentes', state: String(pending.length) },
   ];
@@ -87,6 +88,9 @@ export function renderEngineeringReview(target, view) {
   heading(target, 'Antes de decidir', 'h4');
   paragraph(target, 'Confira o objetivo, o escopo e as exclusões em Projeto e escopo. Inspecione o diff e os conteúdos selados do candidato exato.');
   paragraph(target, 'Confronte comandos, retornos e falhas em Atividade e arquivos. Uma marcação no plano ou um retorno sem erro não comprova o objetivo cumprido.');
+  heading(target, 'Caminho da evidência', 'h4');
+  paragraph(target, 'Solicitação → autorização → chamada de ferramenta → despacho → retorno → validação. Etapas não registradas continuam não comprovadas; não são deduzidas do texto do modelo.');
+  paragraph(target, 'A proposta identifica a solicitação e o servidor informa revisão/aprovação. Atividade mostra os registros carregados da conversa. Chamada nativa e despacho precisam dos eventos e recibos originais; um registro visual de ferramenta não certifica sozinho essas etapas.');
   paragraph(target, 'Confirme testes pertinentes, efeitos fora do escopo e possibilidade de rollback. As ações disponíveis continuam na proposta e no artefato, com nova validação no servidor.');
   paragraph(target, 'Arquivo apresentado não significa arquivo aplicado. O recibo confirma somente a validação vinculada ao candidato; não informa aqui cobertura completa de testes ou ausência de riscos. Renomear ou criar arquivos no target pode invalidar o candidato.');
   const report = ['MOBS Studio — revisão da tarefa', `Conversa: ${text(view?.session_id)}`,

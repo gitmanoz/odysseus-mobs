@@ -2,7 +2,8 @@
 <# Build the self-contained Windows Desktop MVP as a PyInstaller onedir app. #>
 param(
     [string]$Python,
-    [string]$WebView2Cab
+    [string]$WebView2Cab,
+    [switch]$CheckOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +11,68 @@ Set-Location -LiteralPath $PSScriptRoot
 
 function Write-Step($message) { Write-Host ""; Write-Host ("==> " + $message) -ForegroundColor Cyan }
 function Fail($message) { Write-Host ""; Write-Host ("ERROR: " + $message) -ForegroundColor Red; exit 1 }
+
+function Assert-BuildTargetsSafe {
+    $root = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')
+    foreach ($name in @('build', 'dist')) {
+        $target = [IO.Path]::GetFullPath((Join-Path $root $name))
+        if ($target -ne "$root\$name") { throw "Build target escapes repository: $target" }
+        if (Test-Path -LiteralPath $target) {
+            $linked = Get-Item -LiteralPath $target -Force
+            if ($linked.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing linked build target: $target"
+            }
+            # Recursive deletion must not traverse a nested link either.
+            if (Get-ChildItem -LiteralPath $target -Recurse -Force -Attributes ReparsePoint -ErrorAction Stop | Select-Object -First 1) {
+                throw "Refusing build target containing a reparse point: $target"
+            }
+        }
+    }
+    foreach ($process in @(Get-Process -Name 'MOBS Studio' -ErrorAction SilentlyContinue)) {
+        $path = $process.Path
+        if (-not $path -or $path.StartsWith("$root\dist\", [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Close MOBS Studio normally before building; no process was stopped.'
+        }
+    }
+}
+
+if ($CheckOnly) {
+    # No venv creation, pip install, download, extraction, or output cleanup.
+    $checkPython = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $checkPython)) { Fail 'Existing build venv required for CheckOnly.' }
+    $dependencyCheck = @'
+from importlib.metadata import version, PackageNotFoundError
+from pathlib import Path
+from packaging.requirements import Requirement
+errors = []
+for name in ('requirements.txt', 'requirements-desktop.txt'):
+    for raw in Path(name).read_text(encoding='utf-8').splitlines():
+        line = raw.split('#', 1)[0].strip()
+        if not line: continue
+        req = Requirement(line)
+        if req.marker and not req.marker.evaluate(): continue
+        try:
+            installed = version(req.name)
+            if installed not in req.specifier: errors.append(f'{req.name}: incompatible {installed}')
+        except PackageNotFoundError:
+            errors.append(f'{req.name}: missing')
+if errors: raise SystemExit('\n'.join(errors))
+print('Declared build requirements satisfied; nothing installed.')
+'@
+    & $checkPython -c $dependencyCheck
+    if ($LASTEXITCODE -ne 0) { Fail 'Build requirements are not satisfied.' }
+    & $checkPython -m pip check
+    if ($LASTEXITCODE -ne 0) { Fail 'Dependency consistency check failed.' }
+    $checkManifest = Get-Content -LiteralPath '.\desktop\webview2-fixed.json' -Raw | ConvertFrom-Json
+    if (-not $WebView2Cab) { $WebView2Cab = Join-Path $env:LOCALAPPDATA "OdysseusBuildCache\WebView2\$($checkManifest.filename)" }
+    if (-not (Test-Path -LiteralPath $WebView2Cab)) { Fail 'Pinned WebView2 CAB missing; CheckOnly will not download it.' }
+    if ((Get-FileHash -LiteralPath $WebView2Cab -Algorithm SHA256).Hash.ToLowerInvariant() -ne $checkManifest.sha256) { Fail 'WebView2 SHA-256 mismatch.' }
+    Write-Host 'Read-only preflight complete; this does not build or certify the installed app.'
+    return
+}
+
+# Check before dependency installation, then recheck immediately before cleanup.
+Assert-BuildTargetsSafe
 
 Write-Step "Selecting Python 3.11+ for the build"
 $bootstrapPython = $Python
@@ -49,7 +112,11 @@ if (-not (Test-Path -LiteralPath $WebView2Cab)) {
 $actualHash = (Get-FileHash -LiteralPath $WebView2Cab -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actualHash -ne $manifest.sha256) { Fail "WebView2 Fixed Version SHA-256 mismatch." }
 
-Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
+Assert-BuildTargetsSafe
+foreach ($name in @('build', 'dist')) {
+    $target = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $name))
+    if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+}
 $expandedRoot = Join-Path $PSScriptRoot "build\webview2-expanded"
 New-Item -ItemType Directory -Force -Path $expandedRoot | Out-Null
 & expand.exe $WebView2Cab -F:* $expandedRoot | Out-Null
