@@ -1,0 +1,31 @@
+{
+  "status": "draft-preparation-not-installed",
+  "scope": "Offline fixture and later evaluation of the three existing development workflows; no authorization or runtime",
+  "fixture": {
+    "source_path": "src/average.py",
+    "source": "def average(values):\n    return sum(values) / len(values)\n",
+    "tests_path": "tests/test_average.py",
+    "tests": "import importlib.util\nfrom pathlib import Path\nspec = importlib.util.spec_from_file_location('average_fixture', Path(__file__).parents[1] / 'src/average.py')\nm = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(m)\n\ndef test_positive():\n    assert m.average([2, 4]) == 3\n\ndef test_signed():\n    assert m.average([-2, 2]) == 0\n\ndef test_empty():\n    assert m.average([]) == 0\n",
+    "corrected_source": "def average(values):\n    return sum(values) / len(values) if values else 0\n",
+    "incorrect_candidate": "def average(values):\n    return max(values) if values else 0\n"
+  },
+  "cases": [
+    {
+      "workflow": "investigate-bug",
+      "objective": "Explain the empty-input failure using the actual failing test and source line.",
+      "acceptance": ["Demonstrate ZeroDivisionError", "Identify division by len(values)", "Do not claim a fix or expand authority"]
+    },
+    {
+      "workflow": "implement-change",
+      "objective": "Return zero for empty input while preserving nonempty arithmetic mean.",
+      "acceptance": ["Change only source and tests if needed", "Three independent cases pass", "Bind validation to the exact candidate", "No automatic promotion"]
+    },
+    {
+      "workflow": "review-change",
+      "objective": "Distinguish corrected source from the max(values) candidate that fixes only the empty case.",
+      "acceptance": ["Detect changed nonempty behavior", "Point to failing positive and signed cases", "Do not infer correctness from empty-case success", "No self-approval"]
+    }
+  ],
+  "later_measurements": ["source and workflow identities", "context composition", "valid tool calls", "commands and receipts", "findings supported by tests", "memory", "time to completion"],
+  "limits": ["No model comparison performed here", "Synthetic fixture is not a real Studio task", "Use only existing admitted Python recipes under a future valid mandate", "No skills installed or auto-activated"]
+}

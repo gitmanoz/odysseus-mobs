@@ -2,7 +2,7 @@
 
 Source of Truth do universo de capacidades da plataforma atualmente chamada Odisseus: estado factual, evidência, natureza arquitetural, dependências, risco, ownership e cobertura. A ordem de materialização pertence exclusivamente ao [ROADMAP.md](../../ROADMAP.md).
 
-Revisão factual em 2026-10-22: consumidor `dev` em `5bb4f80e3ba782c4f1be07db946eb986f1341e85`, mais o delta local descrito na [preparação do desenvolvimento](../development/DEVELOPMENT_ENABLEMENT.md); MOBS `main` em `009feb3558df7919070971656411f6c0a58cf8cf`. Estado descreve inspeção do código e evidências delimitadas; não certifica cada fluxo operacional nem acompanha novos commits automaticamente. O benchmark externo ao final continua datado de 2026-10-11.
+Revisão factual em 2026-10-22: consumidor `dev` em `1a2d67c7f3562a4f9bda07da0e5d61157c47083b`, mais a consolidação documental descrita na [preparação do desenvolvimento](../development/DEVELOPMENT_ENABLEMENT.md); MOBS `main` em `009feb3558df7919070971656411f6c0a58cf8cf`. Estado descreve inspeção do código e evidências delimitadas; não certifica cada fluxo operacional nem acompanha novos commits automaticamente. O benchmark externo ao final continua datado de 2026-10-11.
 
 ## Baseline e responsabilidades
 
@@ -20,20 +20,20 @@ Benchmark: **D** = documentado nas fontes oficiais; **O** = observado nas ferram
 |---|---|---|---|---|---|
 | `conversation` — Chat, sessões e anexos | D/O | Existente; chat/session routes e UI | Produto/runtime; UI/chat | Auth, modelo e persistência; perda de estado | Mapeada |
 | `desktop` — Desktop, instalação e UX | D | Existente; `src/desktop_host.py`, `desktop/`, Product Shell e temas | Produto/deployment; Desktop | Backend/WebView2/data; boot ou compatibilidade | Mapeada |
-| `repository` — Workspace, arquivos, busca e compreensão | D/O | Parcial; filesystem tools, workspace boot e visão do escopo da proposta em `studioEngineering.js`; sem novo indexador ou leitura automática | Runtime/tools; engenharia | Paths, contexto e baseline; leitura indevida | Mapeada |
+| `repository` — Workspace, arquivos, busca e compreensão | D/O | Parcial; filesystem tools, workspace boot e escopo da proposta; `studioSources.js` explora snapshots já carregados com busca literal/linhas/origem, sem indexador do disco ou leitura automática | Runtime/tools; engenharia | Paths, contexto e baseline; leitura indevida | Mapeada |
 | `editing` — Patching e edição coesa | D/O | Parcial; Agent Loop/dispatcher e edição privada | Tools/runtime; engenharia | TEB/Promotion; bypass ou delta incompleto | Mapeada |
 | `execution` — Terminal/processos, ambiente e efeitos | D/O | Parcial; Windows Native e toolchain corrigida; execução isolada não comprova Python pelo Desktop, ainda pendente | Runtime/TEB; fronteira | Isolamento, árvore, rede, paths; escape/efeitos incertos | Mapeada; E2E requer validação |
 | `validation` — Testes, lint, compile, build e debug | D/O | Parcial; pytest, py_compile, Ruff; profile v6 | Receitas/perfis; comandos | Tool disponível e TEB; execução indireta | Mapeada |
 | `promotion` — Delta selado e aplicação | E | Parcial; single-file e exatamente dois create/write | Runtime; Promotion | Mandato/OAP/hashes/preimage/drift; aplicação parcial | Mapeada |
 | `git-read` — Identidade/status/diff/log/show | D/O | Parcial; branch/HEAD/status tipados; demais ausentes | Tools/perfis; Git | Metadata/baseline/read paths; helpers e vazamento | Mapeada |
 | `git-closure` — Worktrees, branches, commit/push/PR/CI | D/O | Ausente como fluxo governado | Runtime/integração; engenharia | Git read, isolamento e autorização; publicação/perda | Mapeada |
-| `review` — Code review e segurança | D/O | Checklist consultivo e artefatos inspecionáveis parciais; reviewer especializado governado ausente | Specialist/tools; review | Delta/contexto/evidência; achados omitidos ou inventados | Mapeada |
+| `review` — Code review e segurança | D/O | Checklist consultivo, referência exata e comparação conjunta/individual de arquivos selados; reviewer especializado governado ausente | Specialist/tools; review | Delta/contexto/evidência; achados omitidos ou inventados | Mapeada |
 | `planning` — Plano multi-step e replanejamento | D/O | Parcial; Agent Loop/instruções e planos junto a registros de ferramentas em `studioActivity.js`; sem vínculo por etapa nem planner confiável dedicado | Runtime; Agent Loop | Mandato/avaliação; plano ampliar escopo | Mapeada |
 | `evaluation` — Resultado, debugging e reparo iterativo | D/O | Parcial; validações específicas, ciclo geral incompleto | Runtime/evaluator; avaliação | Critérios/evidências; falso sucesso | Mapeada |
 | `continuity` — Durable runs, steering, fila e retomada | D/O | Parcial; sessões/agent_runs não provam durable execution MOBS completo | Runtime/persistência; runs | Contexto/ledger/cancelamento; ação repetida ou obsoleta | Mapeada |
 | `automation` — Agendamento/background/monitoramento | D/O | Herdado/parcial; task_scheduler/bg_jobs | Runtime/produto; tarefas | Durable runs/policy; efeitos sem aprovação | Mapeada |
 | `memory` — Memória operacional e de projeto | D | Parcial; memory/provider/vector | Memory/runtime; conhecimento | Origem/escopo/contexto; memória virar autoridade | Mapeada |
-| `skills` — Workflows e recursos | D/O | Parcial; skills routes e integrações; três templates de desenvolvimento em docs, não instalados nem publicados | Skills; extensões | Tools/corpus/trust; prompt injection | Mapeada |
+| `skills` — Workflows e recursos | D/O | Parcial; skills routes e integrações; três templates draft em docs e fixture comparável de avaliação, sem instalação/ativação automática ou avaliação com modelo | Skills; extensões | Tools/corpus/trust; prompt injection | Mapeada |
 | `context-intelligence` — Authority-Aware Context Engine | E; contexto/memória D | Parcial: boot authority-first e diagnóstico de peso/duplicatas literais existem; engine completo ausente | Runtime; contexto | Fontes/identidades/permissões; omissão, custo e vazamento | Mapeada; implementação aberta |
 | `models` — Providers, discovery, escolha/fallback/routing | D | Parcial; endpoints/discovery/MOBS Auto; Auto seleciona o mesmo Qwen coder, não compara custo/complexidade entre modelos | Router/modelos; providers | Contexto/modalidade/qualidade/custo; escolha inadequada | Mapeada |
 | `extensions` — Plugins/MCP/hooks/conectores | D/O | Parcial; MCP routes/servers e integrações | MCP/plugins/tools; extensões | Auth/admissão/policy; expansão de efeitos | Mapeada |
@@ -58,7 +58,7 @@ Benchmark: **D** = documentado nas fontes oficiais; **O** = observado nas ferram
 | `observability` — Atividade/evidência/diagnóstico | D/O | Parcial; runs/ledger/UI contextual, estimativas de contexto e duplicatas literais sem conteúdo, escopo e checklist consultivos | Runtime/produto; observabilidade | Persistência/identidade; falso sucesso/perda | Mapeada |
 | `self-development` — Evoluir o próprio source separado | E | Parcial; target confiável/artifact validado/preautorização estreita | Runtime/MOBS; engenharia | TEB/Promotion/OAP; mutar executor/autoampliar | Mapeada |
 | `self-audit` — Examinar código/comportamento próprios | E | Fluxo completo ausente | Specialist/evaluator; auditoria | Critérios/evidências/contexto; autoaprovação | Mapeada |
-| `self-update` — Instalar/ativar nova versão | E | Ausente; Self-Development não ativa versão | Deployment/runtime; Desktop | Versão/migração/recuperação; perda de dados | Mapeada |
+| `self-update` — Instalar/ativar nova versão | E | Ausente como fluxo de ativação; build tem manifesto de fontes/payload e verificador de inventário, sem instalador/updater. Self-Development não ativa versão | Deployment/runtime; Desktop | Versão/migração/recuperação; perda de dados | Mapeada |
 | `governance` — Boot/snapshot/review/mandate/OAP/provenance | E | Existente/parcial; mobs modules, ledger e TEB | MOBS mantém autoridade; consumidor implementa | Binding/estado confiável; confusão de decisões/permissões | Mapeada |
 | `capability-harvest` — Evolução contínua | E | Processo documental; automação ausente | Produto/governança; fundador/maintainer | Evidence/Responsibility Harvest; descoberta virar autorização | Mapeada |
 

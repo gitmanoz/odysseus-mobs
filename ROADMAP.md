@@ -2,7 +2,7 @@
 
 Source of Truth da sequência estratégica de materialização do produto atualmente chamado Odisseus. O [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) mantém universo, estado factual, evidências, ownership e dependências das capacidades.
 
-Revisão factual em 2026-10-22: consumidor `dev` em `5bb4f80e3ba782c4f1be07db946eb986f1341e85`, com melhorias locais de inspeção descritas na [preparação do desenvolvimento](docs/development/DEVELOPMENT_ENABLEMENT.md); baseline institucional MOBS `009feb3558df7919070971656411f6c0a58cf8cf`. Datas identificam revisão, não compromisso de lançamento. A presença de código e testes isolados não certifica o E2E pelo Desktop.
+Revisão factual em 2026-10-22: consumidor `dev` em `1a2d67c7f3562a4f9bda07da0e5d61157c47083b`, com preparação e limites descritos na [nota de desenvolvimento](docs/development/DEVELOPMENT_ENABLEMENT.md); baseline institucional MOBS `009feb3558df7919070971656411f6c0a58cf8cf`. Datas identificam revisão, não compromisso de lançamento. A presença de código e testes isolados não certifica o E2E pelo Desktop.
 
 ## Direção e fronteiras
 
@@ -28,7 +28,7 @@ Fases expressam dependências, não versões já entregues. Estado de ciclo pert
 ## Dependências e trilhas explícitas
 
 - O bloqueio atual é a ausência de operação Python concluída pelo Desktop com cadeia de evidências. Há execução isolada anterior e correções de protocolo, contexto e toolchain; não atribuir toda falha à TEB ou à memória sem evento comprobatório. A integração de input do ambiente também permanece sem recuperação demonstrada. Preservar isolamento e fail-closed.
-- A fatia local atual melhora diagnóstico de contexto, escopo apresentado, acompanhamento de planos e checklist de revisão. Isso não conclui F0/F1/F2, não implementa indexador, reviewer independente ou promoção de N arquivos. Próximos experimentos e decisões estão na nota técnica de preparação, sem autoridade adicional.
+- A fatia local atual acrescenta exploração/busca por linha sobre leituras já carregadas, revisão conjunta de arquivos selados, catálogo observacional de receitas, custo de schemas por família e preparação de integridade de pacote. Isso não conclui F0/F1/F2, não implementa indexador do disco, reviewer independente ou promoção de N arquivos. Próximos experimentos e decisões estão na nota técnica de preparação, sem autoridade adicional.
 - Self-Development em F1 mantém runtime ativo separado do target, vínculo confiável, artifact exato validado e promoção governada. A utilidade deve crescer para tarefas reais sem ampliar autoridade.
 - Git read precede closure. Branch/worktree, commit, push e PR exigem fatias e autorizações próprias; não decorrem deste planejamento.
 - O roteamento mínimo por autoridade já existe. Authority-Aware Context Engine pertence a F2, antes da adoção de corpus em grande escala. Não exige criar novos corpus primeiro nem escolher banco vetorial neste ciclo.

@@ -200,3 +200,29 @@ O diagnóstico oferece orientação para distinguir provedor/transporte, formato
 Preservar instalação inteira (exe e `_internal`, inclusive WebView2 e toolchain), configuração externa e dados efetivos do usuário. O default congelado é `~/.odysseus/data`, mas override de ambiente deve ser revalidado antes de backup. SQLite ativo exige backup consistente ou fechamento confirmado, não cópia isolada do arquivo principal ignorando WAL. O backup inicial deste ciclo cobre fontes/diff locais; não equivale a backup consistente dos dados do aplicativo.
 
 O preflight não prova que o novo pacote foi construído ou ativado. A preparação registra dependências, CAB e inventário do pacote atual; ativação continua separada. A lista autorizada pede preparar commit/push: delta revisado, mensagens e proposta de changelog devem ficar concretos antes da publicação. HISTORY é avaliado separadamente; não transformar cada regressão em marco institucional.
+
+## Itens locais do roadmap: exploração, revisão e ensaios
+
+O ciclo seguinte autoriza publicar a consolidação e executar somente os itens marcados Local. A exploração reaproveita os retornos de `read_file` e o preview autenticado existente, sem criar API de leitura geral. A visão **Fontes carregadas** organiza as pastas observadas, procura texto literal com até 100 resultados e abre o trecho por linha. É um índice de snapshots da conversa, não a árvore completa do disco nem um indexador semântico. Arquivos ainda não lidos continuam exigindo uma tarefa/leitura admitida. Escopo e exclusões continuam em **Projeto e escopo**.
+
+Leituras bem-sucedidas passam a registrar caminho solicitado e linha inicial; o Agent Loop acrescenta workspace e baseline do mandato quando disponíveis. O baseline é referência da autorização, não hash do arquivo atual. O conteúdo mostrado pode já ter sido limitado pelo executor; o painel mostra até 40 linhas por posição e limita a captura adicional a 64 KiB. Não reconstrói origem de registros antigos. Mudar sessão/workspace elimina a visão anterior; controles destacados e respostas atrasadas não devem consultar outro projeto. A busca só opera sobre texto carregado, nunca envia código ou consulta externa.
+
+O preview do mesmo candidato pode mostrar todos os arquivos juntos ou um por vez, mantendo comparação antes/depois/diff e cópia dos bytes recebidos, inclusive CRLF e arquivo vazio. O digest do conjunto fica explícito. Copiar não valida ou aplica; referência obsoleta bloqueia controles. O checklist continua reunindo escopo, recibo exato e limites. O catálogo de receitas explica pytest, py_compile e Ruff sem confundir compilação/lint com teste funcional; receitas desconhecidas não recebem interpretação inventada.
+
+Diagnóstico de contexto acrescenta contagem/custo estimado de schemas por família fechada. O ensaio offline compara os 71 schemas consumidores com os conjuntos de leitura (5) e desenvolvimento (9) já existentes: aproximadamente 17.688, 767 e 1.449 tokens de schemas, respectivamente, pela mesma heurística. Mensagens e autoridades são idênticas em cada comparação. Isso não demonstra que os 71 schemas foram enviados na tentativa histórica de 28 mil tokens, não mede prefill/memória e não muda a seleção do runtime. MCP, protocolos textuais e filtros por autorização continuam separados. Histórico de 2, 40 e 300 mensagens permite confrontar crescimento sem inferência ou remoção de fontes protegidas.
+
+O build existente agora captura hashes dos fontes Python/recursos Git-visíveis antes do empacotamento e os reconfere depois. O manifesto final inventaria bytes/hashes do pacote, incluindo toolchain e WebView2; ausência de componentes obrigatórios, mudança do source ou divergência do inventário impede aceitação pelo verificador. É evidência de integridade relativa a um manifesto confiável, não assinatura de origem, garantia de build reproduzível ou teste de boot. Nenhum pacote novo foi construído/ativado neste ciclo. O CLI de backup existente foi ensaiado somente em SQLite WAL e configuração descartáveis; snapshot, verify, restore e integrity_check preservaram os dados esperados e a cópia de segurança da restauração.
+
+### Casos concretos de autodesenvolvimento para replay futuro
+
+Os defeitos abaixo já estão corrigidos no consumidor atual. Servem como casos pequenos e reproduzíveis em target descartável separado no baseline indicado; não são pendências de produção nem autorizam criar esse target automaticamente. A nova proposta deve identificar os dois roots, baseline, paths, revisão e autorização válidas. Não reaproveitar aprovações antigas nem alterar o runtime ativo.
+
+| Caso | Baseline do target de reprodução | Delta máximo / aceitação |
+|---|---|---|
+| Cancelamento antes do primeiro tick | `aedcd28f16bc1a4ba685e4003d54676b47fb1598` | `src/agent_runs.py` e teste de regressão em tests; estado terminal e fonte fechada sem iniciar ferramenta |
+| Argumentos não-objeto viram leitura padrão | `aedcd28f16bc1a4ba685e4003d54676b47fb1598` | `src/tool_schemas.py` e teste; rejeitar arrays/bools/números sem rejeitar `{}` válido |
+| Origem da leitura por faixa | `9dd9a4dcf06cd586f6253874d02f941dc93b8aa6` | `src/agent_tools/filesystem_tools.py` e teste; linha/caminho correspondem ao trecho e falha não fabrica origem |
+
+### Avaliação preparada dos workflows existentes
+
+[workflow-evaluation.json](workflow-evaluation.json) fixa um mesmo projeto sintético de dois arquivos para investigar, implementar e revisar. `average([])` provoca divisão por zero; o candidato correto preserva média de entradas positivas/negativas; um candidato que usa max passa o vazio e falha nos dois casos não-vazios. O probe offline confronta essas três variantes com os mesmos testes/interpretador. Isso valida a discriminação do fixture, não a qualidade de um modelo nem a execução pelo Studio. Templates continuam draft, sem instalação/ativação automática, novo harness de gameplay ou autoridade.

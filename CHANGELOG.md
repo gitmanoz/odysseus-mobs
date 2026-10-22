@@ -16,6 +16,8 @@
 
 ### Added
 
+- A common two-file workflow evaluation fixture and pinned replay cases for future self-development; readiness/roadmap entries distinguish local evidence from Desktop, model and engine admission gates. Templates remain draft and are not auto-installed.
+
 - Content-free schema-family cost diagnostics and offline comparisons of existing read/development tool sets, without changing runtime selection or protected context.
 
 - Build-time source fingerprints and package inventory manifests with required-component, source-drift and payload-integrity checks; the existing build invokes them without adding an installer or activation path.
