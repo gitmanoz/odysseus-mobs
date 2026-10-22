@@ -78,6 +78,21 @@ Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard
 await proposalParts[2].click();
 assert.deepEqual(JSON.parse(copied),next.proposal);
 assert.equal(staged,null);
+// New engineering views only present already-fetched data. Opening them
+// must neither issue requests nor prepare an institutional action.
+const savedFetch=globalThis.fetch;
+globalThis.fetch=()=>{throw Error('opening an engineering view must not fetch')};
+nodes.get('studio-selection').onchange({target:{value:'project'}});
+assert.equal(nodes.get('studio-detail').children[0].textContent,'Projeto e escopo');
+assert.equal(nodes.get('studio-controls').children.length,0);
+nodes.get('studio-selection').onchange({target:{value:'review'}});
+assert.equal(nodes.get('studio-detail').children[0].textContent,'Revisão da tarefa');
+assert.equal(nodes.get('studio-controls').children.length,0);assert.equal(staged,null);
+nodes.get('studio-selection').onchange({target:{value:'task'}});
+assert.equal(nodes.get('studio-detail').children[0].textContent,'Preparar tarefa');
+assert.equal(nodes.get('studio-controls').children.length,0);assert.equal(staged,null);
+nodes.get('studio-selection').onchange({target:{value:'proposal'}});
+globalThis.fetch=savedFetch;
 // Identical activity notifications must not replace the displayed evidence,
 // reset an expanded disclosure, or rebuild the selection under keyboard focus.
 const selectorBefore=nodes.get('studio-selection').children;

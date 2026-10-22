@@ -81,7 +81,7 @@ const steps=A.parseStudioPlan(text);assert.equal(steps.length,3);assert.equal(st
 const history=new E(),message=new E(),panel=new E();history.appendChild(message);A.renderStudioPlan(message,text);
 assert.equal(message.children[0].querySelector('ul').children[1].attrs['aria-current'],'step');
 A.renderStudioPlanIndex(panel,history);assert.match(panel.textContent,/<script>current<\/script>/);assert.doesNotMatch(panel.textContent,/example only/);
-const original=message.children[0],jump=panel.children[2].children[0].children[2];original.remove();jump.onclick();assert.equal(original.focused,undefined);
+const original=message.children[0],jump=panel.querySelector('.studio-file-index').querySelector('button');original.remove();jump.onclick();assert.equal(original.focused,undefined);
 ''')
 
 

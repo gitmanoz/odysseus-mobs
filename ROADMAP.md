@@ -2,7 +2,7 @@
 
 Source of Truth da sequência estratégica de materialização do produto atualmente chamado Odisseus. O [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) mantém universo, estado factual, evidências, ownership e dependências das capacidades.
 
-Base observada em 2026-10-11: consumidor `dev` em `72d16b26028c644302d0d3ee64c13b0eb4e5e4a3`; baseline institucional MOBS `009feb3558df7919070971656411f6c0a58cf8cf`. Datas deste documento identificam revisão, não compromisso de lançamento.
+Revisão factual em 2026-10-22: consumidor `dev` em `5bb4f80e3ba782c4f1be07db946eb986f1341e85`, com melhorias locais de inspeção descritas na [preparação do desenvolvimento](docs/development/DEVELOPMENT_ENABLEMENT.md); baseline institucional MOBS `009feb3558df7919070971656411f6c0a58cf8cf`. Datas identificam revisão, não compromisso de lançamento. A presença de código e testes isolados não certifica o E2E pelo Desktop.
 
 ## Direção e fronteiras
 
@@ -18,7 +18,7 @@ Fases expressam dependências, não versões já entregues. Estado de ciclo pert
 
 | Fase | Objetivo e IDs do Map | Entrada | Saída verificável | Estado |
 |---|---|---|---|---|
-| F0 — Base operacional confiável | TEB física Windows, saúde, diagnóstico, segurança e UX de falhas (`execution`, `desktop`, `security`, `observability`) | Causa factual do bloqueio ACL/AppContainer e mandato de correção | Processo controlado inicia sob garantias exigidas; cancelamento/timeout cessam a unidade; efeitos são registrados; sem fallback inseguro | Próximo desbloqueio técnico |
+| F0 — Base operacional confiável | TEB física Windows, saúde, diagnóstico, segurança e UX de falhas (`execution`, `desktop`, `security`, `observability`) | Recursos, protocolo e isolamento suficientes; diagnóstico por evidência | Processo controlado inicia sob garantias exigidas; cancelamento/timeout cessam a unidade; efeitos são registrados; sem fallback inseguro | Parcial; testes isolados e correções presentes, Python pelo Desktop ainda não comprovado |
 | F1 — Desenvolvimento cotidiano e Self-Development | Investigar, editar, testar/debug, reparar, revisar, promover e fechar Git (`repository`, `editing`, `validation`, `promotion`, `git-read`, `git-closure`, `review`, `self-development`) | F0 funcional, receitas/perfis e isolamento suficientes | Tarefas reais, inclusive no próprio source separado, concluídas com delta exato validado, provenance e fechamento Git autorizado | Próxima prioridade estratégica; base parcial existente |
 | F2 — Continuidade e conhecimento | Durable execution, steering, Memory, Skills, Authority-Aware Context Engine, avaliação e Self-Audit (`continuity`, `memory`, `skills`, `context-intelligence`, `planning`, `evaluation`, `self-audit`) | Identidades e evidências reconstruíveis; fronteiras das fontes definidas | Retomada preserva mandato; contexto relevante, limitado e rastreável; falhas/achados avaliados sem autoampliar autorização | Planejada |
 | F3 — Operação ampliada | Browser, Computer Use, automations, Specialists, Model Router, plugins/MCP e multi-agent (`browser`, `computer-use`, `automation`, `specialists`, `models`, `extensions`, `multi-agent`, `integrations`) | Execução confiável, política por ferramenta e provenance | Fluxos integrados observáveis, ações autorizadas, recuperação explícita e coordenação sem runtime paralelo | Planejada |
@@ -27,7 +27,8 @@ Fases expressam dependências, não versões já entregues. Estado de ciclo pert
 
 ## Dependências e trilhas explícitas
 
-- TEB física Windows permanece bloqueador imediato, conforme restrição operacional do ciclo anterior. Esta revisão documental não reexecuta o diagnóstico. Correção deve preservar isolamento e fail-closed.
+- O bloqueio atual é a ausência de operação Python concluída pelo Desktop com cadeia de evidências. Há execução isolada anterior e correções de protocolo, contexto e toolchain; não atribuir toda falha à TEB ou à memória sem evento comprobatório. A integração de input do ambiente também permanece sem recuperação demonstrada. Preservar isolamento e fail-closed.
+- A fatia local atual melhora diagnóstico de contexto, escopo apresentado, acompanhamento de planos e checklist de revisão. Isso não conclui F0/F1/F2, não implementa indexador, reviewer independente ou promoção de N arquivos. Próximos experimentos e decisões estão na nota técnica de preparação, sem autoridade adicional.
 - Self-Development em F1 mantém runtime ativo separado do target, vínculo confiável, artifact exato validado e promoção governada. A utilidade deve crescer para tarefas reais sem ampliar autoridade.
 - Git read precede closure. Branch/worktree, commit, push e PR exigem fatias e autorizações próprias; não decorrem deste planejamento.
 - O roteamento mínimo por autoridade já existe. Authority-Aware Context Engine pertence a F2, antes da adoção de corpus em grande escala. Não exige criar novos corpus primeiro nem escolher banco vetorial neste ciclo.

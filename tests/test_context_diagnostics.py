@@ -38,6 +38,17 @@ def test_schema_cost_and_literal_duplicates_are_observed_without_deduplication()
     assert profile["image_tokens_included"] is False
 
 
+def test_duplicate_cost_is_observational_and_protected_copies_remain():
+    messages = [{'role': 'system', 'content': 'protected', '_protected': True}] * 3
+    before = deepcopy(messages)
+    profile = context_profile(messages)
+    assert messages == before
+    assert profile['duplicate_system_messages'] == 2
+    assert profile['duplicate_protected_messages'] == 2
+    assert profile['duplicate_system_tokens_estimated'] == 2 * estimate_tokens([messages[0]])
+    assert 'protected' not in json.dumps(profile['categories'].get('system', {}))
+
+
 def test_multimodal_and_native_tool_call_shapes_use_existing_estimator():
     messages = [{"role": "user", "content": [{"type": "text", "text": "request"}, {"type": "image_url", "image_url": {"url": "private"}}]},
                 {"role": "assistant", "content": None, "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path":"private"}'}}]}]

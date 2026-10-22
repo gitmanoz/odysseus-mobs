@@ -4,6 +4,7 @@ import { foldLongCode } from './studioCodeDisclosure.js';
 import { studioColumns } from './studioColumns.js';
 import { refreshStudioActivity, renderStudioWorkSummary, renderStudioPlanIndex, renderStudioDiagnostics } from './studioActivity.js';
 import { sealedFilePreview } from './studioArtifactPreview.js';
+import { renderProjectScope, renderEngineeringReview, renderTaskPreparation } from './studioEngineering.js';
 export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
   if (!document.getElementById('studio-home')) {
     // An older navigation document may be returned once by the existing SW.
@@ -403,7 +404,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     const selector = el('studio-selection');
     const options = [['proposal', 'Proposta / autoridades']];
     for (const p of view?.promotions || []) options.push([p.id, `Promoção ${p.id.slice(0, 12)} · ${p.status}`]);
-    options.push(['activity', 'Atividade e arquivos'], ['plans', 'Planos e atualizações'], ['diagnostics', 'Recursos e contexto'], ['help', 'Orientação / capacidades existentes']);
+    options.push(['project', 'Projeto e escopo'], ['review', 'Revisão da tarefa'], ['task', 'Preparar tarefa'], ['activity', 'Atividade e arquivos'], ['plans', 'Planos e atualizações'], ['diagnostics', 'Recursos e contexto'], ['help', 'Orientação / capacidades existentes']);
     if (selected === 'response') options.push(['response', 'Resposta inspecionada']);
     const nextOptions = JSON.stringify(options);
     if (nextOptions !== optionSignature) selector.replaceChildren(...options.map(([value, text]) => {
@@ -418,11 +419,17 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
       view.proposal?.status === 'pending' && !view.reviewer_available ? 'Revisão indisponível nesta sessão. Verifique a configuração operacional do reviewer.' :
       view.continuity === 'unconfirmed' ? 'Aprovação registrada; execução ativa não confirmada. Nenhuma retomada automática.' :
       view.active ? 'Execução ativa confirmada pelo servidor.' : 'Registro consultado; nenhuma execução ativa confirmada.';
-    const nextPanel = JSON.stringify([selected, view]);
+    const nextPanel = JSON.stringify([selected, view, ['project', 'review'].includes(selected) && loading]);
     if (nextPanel !== panelSignature) {
     panelSignature = nextPanel;
     el('studio-controls').replaceChildren();
-    if (selected === 'activity') {
+    if (selected === 'project') {
+      renderProjectScope(el('studio-detail'), loading ? { ...view, validity: 'unavailable' } : view);
+    } else if (selected === 'review') {
+      renderEngineeringReview(el('studio-detail'), loading ? { ...view, validity: 'unavailable' } : view);
+    } else if (selected === 'task') {
+      renderTaskPreparation(el('studio-detail'), view);
+    } else if (selected === 'activity') {
       if (el('studio-detail')._studioWorkUI?.heading.parentNode !== el('studio-detail')) el('studio-detail').replaceChildren();
     } else if (selected === 'plans') {
       delete el('studio-detail')._studioPlanSignature;

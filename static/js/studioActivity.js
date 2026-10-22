@@ -19,7 +19,7 @@ export function recordStudioDiagnostics(message, metrics) {
   for (const key of ['initial_context_profile', 'last_round_context_profile']) {
     const profile = metrics[key]; if (!profile || profile.estimate_only !== true) continue;
     const safe = { estimate_only: true, categories: {} };
-    for (const name of ['messages', 'message_tokens_estimated', 'duplicate_system_messages', 'tool_schema_count', 'tool_schema_tokens_estimated']) {
+    for (const name of ['messages', 'message_tokens_estimated', 'duplicate_system_messages', 'duplicate_system_tokens_estimated', 'duplicate_protected_messages', 'tool_schema_count', 'tool_schema_tokens_estimated']) {
       if (Number.isFinite(profile[name]) && profile[name] >= 0) safe[name] = profile[name];
     }
     for (const [name, value] of Object.entries(profile.categories || {}).slice(0, 16)) {
@@ -32,13 +32,14 @@ export function recordStudioDiagnostics(message, metrics) {
 
 export function renderStudioDiagnostics(target, history) {
   const messages = Array.from(history.querySelectorAll('.msg-ai')).filter(message => message.dataset.studioDiagnostics);
-  const last = messages.at(-1), signature = last?.dataset.studioDiagnostics || 'missing';
+  const work = collectStudioWork(history);
+  const last = messages.at(-1), signature = JSON.stringify([last?.dataset.studioDiagnostics || 'missing', work.map(item => [item.tool, item.file, item.status])]);
   if (target._studioDiagnosticSignature === signature && target._studioDiagnosticMessage === last) return;
   target._studioDiagnosticSignature = signature; target._studioDiagnosticMessage = last;
   const heading = document.createElement('h3'); heading.textContent = 'Recursos e contexto';
   const note = document.createElement('p'); note.textContent = 'Última resposta com medidas disponíveis nesta conversa. Estimativas não são contagem do tokenizer nem comprovam a janela realmente carregada no Ollama.';
   const content = document.createElement('div'); content.className = 'studio-diagnostics';
-  let data; try { data = JSON.parse(signature); } catch (_) {}
+  let data; try { data = JSON.parse(last?.dataset.studioDiagnostics || 'null'); } catch (_) {}
   if (!data || typeof data !== 'object') content.textContent = 'Sem medidas registradas. Novas respostas poderão trazer composição e tempos; nenhuma inferência é iniciada por esta consulta.';
   else {
     const row = (label, value) => { const p = document.createElement('p'); p.textContent = `${label}: ${value}`; content.appendChild(p); };
@@ -51,13 +52,26 @@ export function renderStudioDiagnostics(target, history) {
     const profile = data.initial_context_profile;
     if (profile) {
       const title = document.createElement('h4'); title.textContent = 'Composição inicial estimada'; content.appendChild(title);
-      for (const [key, value] of Object.entries(profile.categories || {})) row(labels[key] || 'Outros', `${value.estimated_tokens} tokens · ${value.messages} mensagens`);
+      const categories = Object.entries(profile.categories || {}).sort((a, b) => b[1].estimated_tokens - a[1].estimated_tokens);
+      const total = categories.reduce((sum, [, value]) => sum + value.estimated_tokens, 0);
+      for (const [key, value] of categories) row(labels[key] || 'Outros', `${value.estimated_tokens} tokens · ${value.messages} mensagens · ${total ? Math.round(value.estimated_tokens * 100 / total) : 0}% da composição estimada`);
       row('Mensagens de sistema repetidas literalmente', profile.duplicate_system_messages || 0);
+      if (typeof profile.duplicate_system_tokens_estimated === 'number') row('Custo estimado das repetições', `${profile.duplicate_system_tokens_estimated} tokens`);
+      if (typeof profile.duplicate_protected_messages === 'number') row('Repetições que são mensagens protegidas', profile.duplicate_protected_messages);
+      if (profile.duplicate_system_messages) row('Revisão das repetições', 'Verifique origem e obrigatoriedade antes de propor mudanças. Nenhuma deduplicação automática ou remoção de autoridade foi autorizada.');
       const schemas = data.last_round_context_profile || profile;
       row('Schemas na última chamada observada', `${schemas.tool_schema_count || 0} · ~${schemas.tool_schema_tokens_estimated || 0} tokens`);
       row('Limite da estimativa', 'Schemas contabilizados separadamente; custo de imagens não incluído. Nenhum conteúdo obrigatório foi removido por este diagnóstico.');
     } else row('Composição detalhada', 'Não registrada nesta resposta. Dados antigos não são reconstruídos por suposição.');
   }
+  const execution = document.createElement('section');
+  const executionTitle = document.createElement('h4'); executionTitle.textContent = 'Evidência de ferramentas na conversa carregada'; execution.appendChild(executionTitle);
+  const summary = document.createElement('p');
+  summary.textContent = work.length ? `${work.length} registros · ${work.filter(item => item.status === 'running').length} em andamento · ${work.filter(item => item.status === 'failed').length} com falha. Retorno recebido não comprova o objetivo cumprido.` : 'Nenhum registro de ferramenta carregado. Uma promessa textual não comprova chamada, despacho ou execução.';
+  execution.appendChild(summary);
+  const failure = work.filter(item => item.status === 'failed').at(-1);
+  if (failure) { const p = document.createElement('p'); p.textContent = `Último registro com falha: ${failure.tool}${failure.file ? ` · ${failure.file}` : ''}. Consulte o evento original em Atividade e arquivos para distinguir formato, autorização, execução ou timeout; este resumo não determina a causa.`; execution.appendChild(p); }
+  content.appendChild(execution);
   target.replaceChildren(heading, note, content);
 }
 
@@ -166,12 +180,18 @@ export function parseStudioPlan(text) {
 
 export function renderStudioPlanIndex(target, history) {
   const plans = Array.from(history.querySelectorAll('.studio-plan'));
+  const work = collectStudioWork(history);
   const signature = JSON.stringify(plans.map(plan => plan.dataset.signature));
+  const evidenceText = work.length ? `${work.length} registros de ferramentas nesta conversa · ${work.filter(item => item.status === 'running').length} em andamento · ${work.filter(item => item.status === 'failed').length} com falha. Confira em Atividade e arquivos; não há vínculo automático entre cada etapa e esses registros.` : 'Sem registros de ferramentas nesta conversa. Etapas marcadas como concluídas pelo agente ainda não têm evidência de ferramenta registrada aqui.';
   if (target._studioPlanSignature === signature && target._studioPlanNodes?.length === plans.length &&
-      target._studioPlanNodes.every((node, index) => node === plans[index])) return;
+      target._studioPlanNodes.every((node, index) => node === plans[index]) && target._studioPlanEvidence?.parentNode === target) {
+    target._studioPlanEvidence.textContent = evidenceText; return;
+  }
   target._studioPlanSignature = signature; target._studioPlanNodes = plans;
   const heading = document.createElement('h3'); heading.textContent = 'Planos e atualizações';
   const note = document.createElement('p'); note.textContent = 'Checklists informados pelo agente na conversa carregada. Marcações não comprovam execução, validação ou aplicação.';
+  const evidence = document.createElement('p');
+  evidence.textContent = evidenceText; target._studioPlanEvidence = evidence;
   const list = document.createElement('div'); list.className = 'studio-file-index';
   if (!plans.length) list.textContent = 'Nenhum checklist registrado nesta conversa. Solicite um planejamento para começar.';
   for (const [index, plan] of plans.entries()) {
@@ -182,7 +202,7 @@ export function renderStudioPlanIndex(target, history) {
     jump.onclick = () => { if (!history.contains(plan)) return; plan.open = true; plan.tabIndex = -1; plan.focus({ preventScroll: true }); plan.scrollIntoView({ block: 'nearest' }); };
     for (const node of [summary, contents, jump]) section.appendChild(node); list.appendChild(section);
   }
-  target.replaceChildren(heading, note, list);
+  target.replaceChildren(heading, note, evidence, list);
 }
 
 export function renderStudioPlan(target, text) {
