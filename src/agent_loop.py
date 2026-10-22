@@ -2777,12 +2777,17 @@ def _resolve_tool_blocks(
     is_api_model: bool = False,
     allow_fenced_for_api: bool = False,
 ):
-    """Choose native function calls or fenced code block parsing. Returns (tool_blocks, used_native)."""
+    """Return blocks, native-channel selection and aligned converted calls."""
     used_native = False
     converted_calls = []  # native calls that converted, ALIGNED with tool_blocks
-    if native_tool_calls:
+    native_supplied = native_tool_calls is not None and not (
+        isinstance(native_tool_calls, list) and not native_tool_calls)
+    if native_supplied:
         tool_blocks = []
-        for tc in native_tool_calls:
+        for tc in native_tool_calls if isinstance(native_tool_calls, list) else []:
+            if not isinstance(tc, dict) or not isinstance(tc.get("name"), str):
+                logger.warning("Rejecting malformed native tool envelope")
+                continue
             tc_name = tc.get("name", "")
             tc_args = tc.get("arguments", "{}")
             block = function_call_to_tool_block(tc_name, tc_args)
@@ -2791,10 +2796,12 @@ def _resolve_tool_blocks(
                 converted_calls.append(tc)
                 logger.info(f"  -> converted: {tc_name} -> {block.tool_type}")
             else:
-                logger.warning(f"  -> FAILED to convert native call: {tc_name} args={tc_args[:200]}")
+                logger.warning("Failed to convert native call: %s", tc_name)
         if tool_blocks:
             used_native = True
-    if not used_native:
+    if not native_supplied:
+        # A supplied but invalid native envelope never grants a second chance
+        # to execute illustrative prose through the textual protocol.
         # Native function-calling models (GPT/Claude/Grok/Qwen3/DeepSeek-V, etc.)
         # have a reliable structured channel for real tool invocations. When such
         # a model emits no native tool_calls, any ```bash/```python/```json fence
@@ -2815,7 +2822,7 @@ def _resolve_tool_blocks(
 
     resp_preview = round_response[:200].replace('\n', '\\n') if round_response else "(empty)"
     logger.info(f"Agent round {round_num} summary: {len(round_response)} chars, "
-                f"{len(native_tool_calls)} native calls, "
+                f"{len(native_tool_calls) if isinstance(native_tool_calls, list) else 0} native calls, "
                 f"{len(tool_blocks)} tool blocks. Preview: {resp_preview}")
 
     return tool_blocks, used_native, converted_calls

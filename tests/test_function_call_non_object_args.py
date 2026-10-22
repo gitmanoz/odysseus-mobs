@@ -47,10 +47,9 @@ def test_non_object_arguments_do_not_crash(arguments):
     must not raise (it used to throw AttributeError: 'list' object has no
     attribute 'get', aborting the entire agent stream)."""
     block = function_call_to_tool_block("bash", arguments)
-    # Coerced to empty args -> empty bash command, but importantly NO crash.
-    assert block is not None
-    assert block.tool_type == "bash"
-    assert block.content == ""
+    # Malformed code-tool input is rejected before conversion/dispatch;
+    # robustness does not require creating an executable empty command.
+    assert block is None
 
 
 @pytest.mark.parametrize("tool_name", ["list_emails", "mcp__email__list_emails"])

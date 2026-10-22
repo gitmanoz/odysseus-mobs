@@ -8,6 +8,7 @@
 - Pin the packaged Python interpreter used by the existing Windows execution boundary; suppress transient console windows during background probes.
 - Preserve complete local tool examples, document existing code-navigation tools and reject a governed command round that ends without a tool call.
 - Guard native Ollama streaming against degenerate repetition and preserve session identity across asynchronous sends and navigation.
+- Reject malformed native code-tool envelopes and schema-incompatible arguments before conversion; invalid native calls no longer fall back to executing textual examples. Preserve explicit empty file/replacement values and aligned valid calls.
 
 ### Added
 

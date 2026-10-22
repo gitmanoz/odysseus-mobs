@@ -1367,8 +1367,34 @@ def _repair_document_function_args(tool_type: str, arguments: str) -> Optional[d
     return None
 
 
+def _valid_code_tool_args(tool_type, args):
+    """Check existing code-tool schemas before lossy conversion to text."""
+    if tool_type not in {"bash", "python", "read_file", "write_file", "edit_file", "apply_patch", "grep", "glob", "ls", "get_workspace"}:
+        return True
+    parameters = next(item["function"]["parameters"] for item in FUNCTION_TOOL_SCHEMAS
+                      if item["function"]["name"] == tool_type)
+    values = dict(args)
+    if tool_type == "apply_patch" and "patch_text" not in values:
+        for alias in ("patchText", "patch"):
+            if alias in values:
+                values["patch_text"] = values[alias]
+                break
+    if any(key not in values for key in parameters.get("required", [])):
+        return False
+    types = {"string": str, "boolean": bool, "integer": int, "number": (int, float), "object": dict, "array": list}
+    for key, spec in parameters.get("properties", {}).items():
+        if key not in values or spec.get("type") not in types:
+            continue
+        value, kind = values[key], spec["type"]
+        if not isinstance(value, types[kind]) or (kind in {"integer", "number"} and isinstance(value, bool)):
+            return False
+    return True
+
+
 def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock]:
     """Convert a native function call into a ToolBlock for the existing execution pipeline."""
+    if not isinstance(name, str):
+        return None
     tool_type = _TOOL_NAME_MAP.get(name, name)
     try:
         if not arguments or (isinstance(arguments, str) and not arguments.strip()):
@@ -1380,12 +1406,12 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
         if args is not None:
             logger.warning(f"Repaired malformed document function call arguments for {name}")
         else:
-            logger.error(f"Failed to parse function call arguments for {name}: {arguments}")
+            logger.error("Failed to parse function call arguments for %s", name)
             return None
 
     # Some models emit valid JSON that isn't an object (e.g. a bare array
-    # ["ls -la"], string, or number) as function arguments. Most local tools keep
-    # the legacy empty-object coercion for stream robustness, but email MCP tools
+    # ["ls -la"], string, or number) as function arguments. Legacy tools keep
+    # empty-object coercion; code-tool required fields are checked below. Email MCP tools
     # must fail closed so a malformed call cannot read the default mailbox.
     # Uses the shared BUILTIN_EMAIL_TOOLS (single source of truth) so the
     # fail-closed set can't drift from the dispatch/blocklist sets.
@@ -1396,6 +1422,9 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
         logger.warning(f"Non-object function call arguments for {name}: {args!r}; treating as empty")
         args = {}
 
+    if not _valid_code_tool_args(tool_type, args):
+        logger.warning("Rejecting arguments incompatible with the code-tool schema: %s", name)
+        return None
     required_args = _REQUIRED_NATIVE_TOOL_ARGS.get(tool_type)
     if required_args and not any(str(args.get(key) or "").strip() for key in required_args):
         logger.warning(f"Rejecting empty required arguments for function call {name}: {args!r}")
