@@ -153,25 +153,39 @@ class ReadFileTool:
             return {"error": f"read_file: {e}", "exit_code": 1}
         try:
             def _read():
-                if offset > 0 or limit > 0:
-                    start = max(offset, 1)
-                    out, n, budget = [], 0, MAX_READ_CHARS
-                    with open(path, "r", encoding="utf-8", errors="replace") as f:
-                        for i, line in enumerate(f, 1):
-                            if i < start:
-                                continue
-                            if limit > 0 and n >= limit:
-                                break
-                            out.append(line)
-                            n += 1
-                            budget -= len(line)
-                            if budget <= 0:
-                                out.append(f"\n... [truncated at {MAX_READ_CHARS} chars]")
-                                break
-                    return "".join(out)
+                start = max(offset, 1)
+                out, lines_read, budget = [], 0, MAX_READ_CHARS
+                has_more = partial_line = False
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
-                    return f.read(MAX_READ_CHARS + 1)
-            data = await asyncio.to_thread(_read)
+                    for _ in range(start - 1):
+                        # Skip long preceding lines in bounded chunks too.
+                        while True:
+                            skipped = f.readline(MAX_READ_CHARS + 1)
+                            if not skipped or skipped.endswith("\n"):
+                                break
+                        if not skipped:
+                            return "", 0, False, None, False
+                    while True:
+                        if limit > 0 and lines_read >= limit:
+                            has_more = bool(f.read(1))
+                            break
+                        line = f.readline(budget + 1)
+                        if not line:
+                            break
+                        if len(line) > budget:
+                            has_more = True
+                            if not out:
+                                # A partial line cannot be resumed by a line offset.
+                                # Do not skip its unread suffix or promise completeness.
+                                out.append(line[:budget])
+                                partial_line = True
+                            break
+                        out.append(line)
+                        lines_read += 1
+                        budget -= len(line)
+                next_offset = start + lines_read if has_more and not partial_line else None
+                return "".join(out), lines_read, has_more, next_offset, partial_line
+            data, lines_read, has_more, next_offset, partial_line = await asyncio.to_thread(_read)
         except FileNotFoundError:
             return {"error": f"read_file: {path}: not found", "exit_code": 1}
         except PermissionError:
@@ -180,9 +194,10 @@ class ReadFileTool:
             return {"error": f"read_file: {path}: is a directory (use ls)", "exit_code": 1}
         except OSError as e:
             return {"error": f"read_file: {path}: {e}", "exit_code": 1}
-        if not (offset > 0 or limit > 0) and len(data) > MAX_READ_CHARS:
-            data = data[:MAX_READ_CHARS] + f"\n... [truncated at {MAX_READ_CHARS} chars]"
         return {"output": data, "exit_code": 0,
+                "has_more": has_more, "next_offset": next_offset,
+                "partial_line": partial_line, "lines_read": lines_read,
+                "truncated": has_more, "start_line": max(offset, 1),
                 "source_reference": {"path": raw_path, "start_line": max(offset, 1),
                                      "kind": "read_file_snapshot"}}
 

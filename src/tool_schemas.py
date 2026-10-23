@@ -94,7 +94,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file from disk. Optionally read a line range with offset/limit for large files.",
+            "description": "Read a file from disk. Large files return has_more and next_offset; call read_file again with offset=next_offset when complete content is needed. A partial_line cannot be resumed by line offsets; do not claim completeness. Optionally read a line range with offset/limit.",
             "parameters": {
                 "type": "object",
                 "properties": {

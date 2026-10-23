@@ -83,3 +83,13 @@ def test_router_reports_non_calendar_categories():
     assert classify_tool_intent("reply to that email").category == "email"
     assert classify_tool_intent("open my calendar").category == "ui"
     assert classify_tool_intent("research cost effective local models").category == "research"
+
+
+def test_portuguese_workspace_inspection_routes_requests_but_not_examples():
+    for prompt in ('Leia o arquivo de configuração.', 'Liste as pastas do projeto.',
+                   'Por favor, procure arquivos Markdown no repositório.'):
+        intent = classify_tool_intent(prompt)
+        assert intent.needs_tools and intent.category == 'workspace'
+    for prompt in ('Como faço para ler um arquivo?',
+                   'Exemplo de pedido: leia o arquivo.', 'A palavra listar aparece no texto.'):
+        assert not classify_tool_intent(prompt).needs_tools

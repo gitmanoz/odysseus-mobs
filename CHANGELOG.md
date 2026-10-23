@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Reconcile compatible legacy workspace changes: bounded file-read pagination preserves source references, exposes continuation offsets and flags partial lines without silently skipping unread content. Explicit Portuguese inspection requests are routed without granting execution authority.
+- Remove artificial per-token text fades from the incremental renderer while retaining stable code-fence streaming.
+
 - Reject ambiguous streaming tool identities, non-object optional code arguments and unconfirmed/truncated tool streams while preserving valid sibling calls.
 - Close nested agent generators on cancellation, preserve replacement save barriers and report interrupted-response persistence failures without exposing storage details.
 - Align Ollama thinking-suppression tests with the deliberate endpoint-wide policy; generation parameters remain unchanged.
@@ -36,10 +39,14 @@
 
 ### Changed
 
+- Desktop builds can reuse verified existing dependencies with `-UseExistingDependencies`, without package installation or downloads. Canonical installation updates follow the founder's single-installation policy; legacy automatic dispatch/retry and parallel Docker deployment are not imported into the Desktop.
+
 - Refine the Graphite/Champagne Studio shell, native Windows frame, conversation titles, operational indicators and public product assets while retaining legacy installation/data identifiers.
 - Batch four fixed Git metadata-path queries while preserving before/after fingerprints, repository checks and restricted subprocess settings. One profiled multifile case reduced Git-helper invocations from 697 to 523 and call time from about 45 to 33 seconds; this is not a whole-suite or model-performance claim.
 
 ### Validation and limits
+
+- Canonical consolidation passed 142 distinct focused regression cases, covering pagination, confinement, source provenance, routing, rendering boundaries, package integrity and build guards. This is offline/synthetic evidence; GUI and real-model E2E remain pending. Legacy branch/local files remain preserved for traceability; this consolidation does not approve automatic execution inferred from prose.
 
 - The local-roadmap regression selection passed 254 distinct cases, plus one real governed-read/dispatcher case with synthetic provider output. Long-session coverage persisted/reopened 300 messages; workflows used a deliberately failing baseline, a correct candidate and a misleading candidate. No inference, Computer Use or binary activation occurred.
 

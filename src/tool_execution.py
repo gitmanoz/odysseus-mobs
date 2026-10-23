@@ -1034,6 +1034,10 @@ def format_tool_result(description: str, result: Dict) -> str:
         parts.append(f"```\n{result['output']}\n```")
         if result.get("exit_code") not in (0, None):
             parts.append(f"**exit_code:** {result['exit_code']}")
+        if result.get("partial_line"):
+            parts.append("Partial line: remaining text was not read. Line offsets cannot resume its unread suffix; do not claim complete content.")
+        elif result.get("has_more") and result.get("next_offset") is not None:
+            parts.append(f"More content remains. Continue read_file with offset={result['next_offset']} when the complete content is required.")
     elif "content" in result:
         parts.append(f"**content ({result.get('size', '?')} chars):**\n```\n{result['content']}\n```")
     elif "response" in result:

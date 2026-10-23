@@ -3,7 +3,8 @@
 param(
     [string]$Python,
     [string]$WebView2Cab,
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [switch]$UseExistingDependencies
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,10 +37,10 @@ function Assert-BuildTargetsSafe {
     }
 }
 
-if ($CheckOnly) {
+if ($CheckOnly -or $UseExistingDependencies) {
     # No venv creation, pip install, download, extraction, or output cleanup.
     $checkPython = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
-    if (-not (Test-Path -LiteralPath $checkPython)) { Fail 'Existing build venv required for CheckOnly.' }
+    if (-not (Test-Path -LiteralPath $checkPython)) { Fail 'Existing build venv required for dependency preflight.' }
     $dependencyCheck = @'
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
@@ -68,7 +69,7 @@ print('Declared build requirements satisfied; nothing installed.')
     if (-not (Test-Path -LiteralPath $WebView2Cab)) { Fail 'Pinned WebView2 CAB missing; CheckOnly will not download it.' }
     if ((Get-FileHash -LiteralPath $WebView2Cab -Algorithm SHA256).Hash.ToLowerInvariant() -ne $checkManifest.sha256) { Fail 'WebView2 SHA-256 mismatch.' }
     Write-Host 'Read-only preflight complete; this does not build or certify the installed app.'
-    return
+    if ($CheckOnly) { return }
 }
 
 # Check before dependency installation, then recheck immediately before cleanup.
@@ -97,9 +98,13 @@ if (-not (Test-Path $venvPython)) {
     if ($LASTEXITCODE -ne 0) { Fail "Could not create the build virtual environment." }
 }
 
-Write-Step "Installing reproducible desktop build dependencies"
-& $venvPython -m pip install --disable-pip-version-check -r requirements.txt -r requirements-desktop.txt
-if ($LASTEXITCODE -ne 0) { Fail "Dependency installation failed." }
+if ($UseExistingDependencies) {
+    Write-Step "Reusing verified installed dependencies; nothing installed"
+} else {
+    Write-Step "Installing reproducible desktop build dependencies"
+    & $venvPython -m pip install --disable-pip-version-check -r requirements.txt -r requirements-desktop.txt
+    if ($LASTEXITCODE -ne 0) { Fail "Dependency installation failed." }
+}
 
 Write-Step "Preparing the pinned WebView2 Fixed Version runtime"
 $manifest = Get-Content -LiteralPath ".\desktop\webview2-fixed.json" -Raw | ConvertFrom-Json

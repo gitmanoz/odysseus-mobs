@@ -118,6 +118,8 @@ _ROUTING_PATTERNS: tuple[tuple[str, str, Pattern[str]], ...] = tuple(
         ("workspace", "test/build command request", rf"{_PLEASE}(?:run|execute|start|launch)\b.{{0,80}}\b(?:tests?|pytest|npm\s+test|pnpm\s+test|yarn\s+test|build|lint|typecheck|benchmark|eval|terminal[- ]bench|tbench)\b"),
         ("workspace", "file/code inspection request", rf"{_PLEASE}(?:find|inspect|look\s+at|open|read|check)\b.{{0,120}}\b(?:file|folder|directory|repo|repository|code|source|logs?|trace|stack|diff)\b"),
         ("workspace", "server/process debugging request", rf"{_PLEASE}(?:check|debug|fix|restart|start|stop|kill|tail|inspect)\b.{{0,120}}\b(?:server|service|process|port|docker|container|tmux|endpoint|logs?)\b"),
+        # Routing is not a tool call or an authorization grant.
+        ("workspace", "Portuguese workspace inspection request", r"^\s*(?:por\s+favor[,\s]+)?(?:leia|ler|liste|listar|abra|abrir|verifique|verificar|procure|localize)\b.{0,160}\b(?:arquivos?|pastas?|diret[oó]rios?|reposit[oó]rios?|projeto|c[oó]digo|workspace)\b"),
         ("workspace", "local computer task request", r"\b(?:on|from|in|using|with)\s+(?:this|my|the)\s+(?:computer|machine|pc|laptop|device|system)\b|\b(?:local|host)\s+(?:computer|machine|files?|system)\b"),
         ("workspace", "named computer task request", r"\b(?:on|from)\s+(?!this\b|my\b|the\b|a\b|an\b)(?:[a-z][a-z0-9_.-]{1,31})\b"),
         ("workspace", "terminal workspace request", r"\b(?:terminal|shell|workspace|tmux|docker|container|git|branch|commit|diff|pytest|stacktrace|traceback|benchmark|terminal[- ]bench|tbench)\b"),

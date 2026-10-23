@@ -47,3 +47,22 @@ catch { @{blocked=$true;reason=$_.Exception.Message}|ConvertTo-Json -Compress }
     data = json.loads(result.stdout)
     assert data['blocked'] is blocked, data
     assert 'must never stop' not in data.get('reason', '')
+
+
+def test_existing_dependencies_mode_refuses_missing_venv_before_touching_outputs(tmp_path):
+    shell = shutil.which('pwsh') or shutil.which('powershell')
+    if not shell:
+        pytest.skip('PowerShell unavailable')
+    source = Path(__file__).resolve().parents[1] / 'build-windows-portable.ps1'
+    script = tmp_path / source.name
+    script.write_bytes(source.read_bytes())
+    for name in ('build', 'dist'):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / 'sentinel.txt').write_text('must remain')
+    result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-File', str(script),
+                             '-UseExistingDependencies'], capture_output=True, text=True, timeout=30)
+    assert result.returncode != 0
+    assert 'Existing build venv required' in result.stdout
+    assert not (tmp_path / '.venv').exists()
+    for name in ('build', 'dist'):
+        assert (tmp_path / name / 'sentinel.txt').read_text() == 'must remain'

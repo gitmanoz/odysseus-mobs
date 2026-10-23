@@ -226,3 +226,32 @@ Os defeitos abaixo já estão corrigidos no consumidor atual. Servem como casos 
 ### Avaliação preparada dos workflows existentes
 
 [workflow-evaluation.json](workflow-evaluation.json) fixa um mesmo projeto sintético de dois arquivos para investigar, implementar e revisar. `average([])` provoca divisão por zero; o candidato correto preserva média de entradas positivas/negativas; um candidato que usa max passa o vazio e falha nos dois casos não-vazios. O probe offline confronta essas três variantes com os mesmos testes/interpretador. Isso valida a discriminação do fixture, não a qualidade de um modelo nem a execução pelo Studio. Templates continuam draft, sem instalação/ativação automática, novo harness de gameplay ou autoridade.
+
+### Consolidação do checkout legado e instalação única
+
+O checkout ativo é odysseus-mobs-dev, branch dev. O checkout primário
+odysseus-mobs, branch agent/mount-mobs-workspace @ 871db18, compartilha
+os metadados Git com ele e contém delta local: não é descartável nem deve
+receber novas implementações. A revisão do legado reaproveita paginação de
+read_file, com proveniência mantida e aviso para linha parcialmente lida;
+retira o fade artificial por token do renderer e reconhece pedidos explícitos
+de inspeção em português, sem transformar a classificação em autorização.
+
+Não são importados o dispatch determinístico baseado em prosa, os marcadores
+invisíveis para escolhas nem o supervisor legado com retries automáticos. Eles
+não substituem chamada válida do modelo, dispatcher/TEB e evidência atuais.
+O overlay Docker e suas variáveis/docs eram configuração de deployment opcional
+anterior; não são necessários para a instalação nativa e não são ativados como
+outro runtime. O workflow temporário de aplicar patches foi removido na própria
+branch antiga; não há razão para recriá-lo. Conteúdo legado fica preservado,
+sem merge cego e sem declarar todos os seus comportamentos admitidos.
+
+Atualizações Desktop usam o mesmo caminho canônico e o atalho existente, sem
+clones, instalações paralelas ou backups completos automáticos. Git preserva
+o código e dados/configuração continuam fora do pacote. O build oferece
+-UseExistingDependencies: valida venv/requisitos/pip check/CAB primeiro e
+reutiliza esses componentes sem instalar ou baixar outros. A ausência deles
+bloqueia esse modo antes de limpar outputs. Backend congelado ainda requer
+rebuild/reinício normal. As recomendações históricas acima de backup completo
+por ativação não são o procedimento atual; a diretriz do fundador de instalação
+única prevalece. Isolamento privado obrigatório da TEB permanece inalterado.
