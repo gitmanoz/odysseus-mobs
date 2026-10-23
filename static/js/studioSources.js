@@ -5,6 +5,24 @@ function observedLines(text) {
   if(!text)return [];
   const rows=text.split('\n');if(rows.at(-1)==='')rows.pop();return rows;
 }
+function completeLines(source) {
+  const rows = observedLines(source.text);
+  const cut = source.partial_line || source.clipped || source.presentation_truncated;
+  if (rows.length && (cut || (!source.text.endsWith('\n') && source.has_more !== false))) rows.pop();
+  return rows;
+}
+export function sourceCoverage(pages) {
+  const ranges = pages.map(source => [source.start, source.start + completeLines(source).length - 1])
+    .filter(([start, end]) => end >= start && Number.isSafeInteger(end)).sort((a, b) => a[0] - b[0]);
+  const intervals = [], gaps = [];
+  for (const [start, end] of ranges) {
+    const previous = intervals.at(-1);
+    if (previous && start <= previous[1] + 1) previous[1] = Math.max(previous[1], end);
+    else intervals.push([start, end]);
+  }
+  for (let i = 1; i < intervals.length; i++) gaps.push([intervals[i-1][1] + 1, intervals[i][0] - 1]);
+  return { intervals, gaps };
+}
 function pagination(value) {
   const data = {};
   if (value && typeof value === 'object') {
@@ -57,8 +75,8 @@ export function loadedSources(history) {
         result.push({ path:source.path, start:source.start, text:source.text.slice(0,MAX_TEXT),
           clipped:source.clipped === true || source.text.length > MAX_TEXT,
           workspace:typeof source.workspace === 'string' ? source.workspace.slice(0,8192) : '',
-          head:typeof source.head === 'string' ? source.head.slice(0,64) : '',
-          baseline:typeof source.baseline === 'string' ? source.baseline.slice(0,64) : '',
+          head:typeof source.head === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(source.head) ? source.head : '',
+          baseline:typeof source.baseline === 'string' && /^[0-9a-f]{64}$/.test(source.baseline) ? source.baseline : '',
           ...pagination(source), node });
     } catch (_) {}
   }
@@ -92,15 +110,13 @@ export function groupSourcePages(sources) {
   return [...groups.values()];
 }
 export function sourceConflicts(sources) {
-  const conflicts = []; let comparisons = 0;
+  const conflicts = []; let comparisons = 0, linesCompared = 0;
   for (const pages of groupSourcePages(sources)) for (let i=0;i<pages.length;i++) for(let j=i+1;j<pages.length;j++) {
     if (++comparisons > 2000 || conflicts.length === 100) return {conflicts,limited:true};
-    const a=pages[i],b=pages[j],ar=a.text.split('\n'),br=b.text.split('\n');
+    const a=pages[i],b=pages[j],ar=completeLines(a),br=completeLines(b);
     const start=Math.max(a.start,b.start),end=Math.min(a.start+ar.length-1,b.start+br.length-1);
     for(let line=start;line<=end;line++) {
-      // A final empty split token is not an observed next line; partial tails
-      // also cannot prove a contradictory complete line.
-      if(line===a.start+ar.length-1 || line===b.start+br.length-1) continue;
+      if (++linesCompared > 100000) return {conflicts,limited:true};
       if(ar[line-a.start]!==br[line-b.start]) { conflicts.push({path:a.path,line}); break; }
     }
   }
@@ -141,13 +157,14 @@ export function renderSources(target, history, session = '', workspace = '') {
     const copy=(label,makeText)=>{
       const button=document.createElement('button');button.type='button';button.textContent=label;
       button.onclick=async()=>{if(!current(source)||!state.viewer.contains(button))return;
-        try{await navigator.clipboard.writeText(makeText());if(current(source)&&state.viewer.contains(button))feedback.textContent='Copiado; nenhum pedido foi enviado.';}
+        try{const text=makeText();if(text===null)return;await navigator.clipboard.writeText(text);if(current(source)&&state.viewer.contains(button))feedback.textContent='Copiado; nenhum pedido foi enviado.';}
         catch(_){if(current(source)&&state.viewer.contains(button))feedback.textContent='Cópia indisponível.';}};
       return button;
     };
     const endInput=document.createElement('input');endInput.type='number';endInput.min=source.start;endInput.value=source.start;endInput.setAttribute('aria-label','Última linha para copiar');
     const excerpt=copy('Copiar intervalo com referência',()=>{
-    const rows=observedLines(source.text),first=Math.max(source.start,Math.min(source.start+rows.length-1,Math.trunc(Number(lineInput.value))||source.start));
+      const rows=observedLines(source.text);if(!rows.length)return null;
+      const first=Math.max(source.start,Math.min(source.start+rows.length-1,Math.trunc(Number(lineInput.value))||source.start));
       const end=Math.max(first,Math.min(source.start+rows.length-1,Math.trunc(Number(endInput.value))||first));
       return `${source.path}:${first}-${end} · trecho observado · ${sourceReadStatus(source)}\n${rows.slice(first-source.start,end-source.start+1).join('\n')}`;
     });
@@ -158,11 +175,12 @@ export function renderSources(target, history, session = '', workspace = '') {
       const n = Math.max(source.start, Math.min(source.start + rows.length - 1, Math.trunc(Number(lineInput.value)) || source.start));
       lineInput.value = n;
       const start = Math.max(0, n - source.start - 5);
-      body.textContent = rows.slice(start, start + 40).map((text, i) => `${source.start + start + i}  ${text}`).join('\n');
+      body.textContent = rows.length ? rows.slice(start, start + 40).map((text, i) => `${source.start + start + i}  ${text.replace(/\r$/, '')}`).join('\n') : 'Trecho vazio; nenhuma linha de conteúdo recebida.';
     };
     lineInput.oninput = render; render();
+    lineInput.disabled=endInput.disabled=excerpt.disabled=!source.text.length;
     for (const node of [origin,readState,lineInput,body,endInput,excerpt,jump,feedback]) state.viewer.appendChild(node);
-    if(source.has_more===true && !source.partial_line && source.next_offset) state.viewer.appendChild(copy('Copiar pedido de continuação',()=>`Leia o arquivo ${JSON.stringify(source.path)} a partir da linha ${source.next_offset}, usando somente o escopo e as ferramentas admitidas. Este pedido não concede autorização adicional.`));
+    if(source.has_more===true && !source.partial_line && !source.clipped && !source.presentation_truncated && source.next_offset) state.viewer.appendChild(copy('Copiar pedido de continuação',()=>`Leia o arquivo ${JSON.stringify(source.path)} a partir da linha ${source.next_offset}, usando somente o escopo e as ferramentas admitidas. Este pedido não concede autorização adicional.`));
   };
   const folders = new Map(),fileGroups=new Map();
   for (const source of sources) {
@@ -178,6 +196,12 @@ export function renderSources(target, history, session = '', workspace = '') {
   }
   if (!sources.length) state.tree.textContent = 'Nenhuma leitura de arquivo com origem registrada. Solicite uma leitura pelas ferramentas admitidas; abrir este painel não a executa.';
   const pages=document.createElement('p');pages.textContent=`${groupSourcePages(sources).length} arquivo(s)/referência(s) · ${sources.length} trecho(s), sem união automática.`;state.tree.appendChild(pages);
+  for (const group of groupSourcePages(sources)) {
+    const coverage=sourceCoverage(group),p=document.createElement('p');
+    const ranges=items=>items.slice(0,20).map(([a,b])=>a===b?String(a):`${a}–${b}`).join(', ')+(items.length>20?' … (lista limitada)':'');
+    p.textContent=`${group[0].path} · linhas completas observadas: ${ranges(coverage.intervals)||'não registradas'} · lacunas internas: ${ranges(coverage.gaps)||'nenhuma entre os intervalos observados'}. Não certifica leitura integral nem versão atual.`;
+    state.tree.appendChild(p);
+  }
   const conflicts=sourceConflicts(sources);
   for(const conflict of conflicts.conflicts){const p=document.createElement('p');p.textContent=`Trechos observados divergem: ${conflict.path}:${conflict.line}. Confira os eventos; não há escolha automática da versão atual.`;state.tree.appendChild(p);}
   if(conflicts.limited){const p=document.createElement('p');p.textContent='Comparação de sobreposições limitada; ausência de alerta não comprova igualdade.';state.tree.appendChild(p);}

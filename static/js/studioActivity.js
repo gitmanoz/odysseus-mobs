@@ -119,6 +119,12 @@ export function renderStudioDiagnostics(target, history) {
 export function reducedDiagnostics(history) {
   const work=collectStudioWork(history),messages=Array.from(history.querySelectorAll('.msg-ai'));
   const result={format:1,scope:'loaded_conversation_counts_only',tool_records:work.length,failed:work.filter(x=>x.status==='failed').length,running:work.filter(x=>x.status==='running').length,metrics:[]};
+  result.tool_timings={};
+  for (const key of ['dispatch_seconds','execution_seconds']) {
+    const values=work.map(item=>{try{return JSON.parse(item.node.dataset.studioToolPhases||'null')?.[key];}catch(_){return undefined;}}).filter(value=>Number.isFinite(value)&&value>=0);
+    const sum=values.reduce((a,b)=>a+b,0);
+    if(values.length&&Number.isFinite(sum))result.tool_timings[key]={records:values.length,total_seconds:sum};
+  }
   for(const node of messages.slice(-100)){
     let raw;try{raw=JSON.parse(node.dataset.studioDiagnostics||'{}');}catch(_){continue;}
     const data={};for(const key of ['response_time','time_to_first_token','agent_prep_time','provider_stream_seconds','request_context_tokens','context_length'])if(Number.isFinite(raw?.[key])&&raw[key]>=0)data[key]=raw[key];

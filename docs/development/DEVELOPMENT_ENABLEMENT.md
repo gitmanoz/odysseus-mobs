@@ -281,3 +281,26 @@ São propostas não aprovadas para Git tipado, fechamento, promoção N-arquivos
 validação Godot e conclusão factual. Não concedem ferramentas nem mudam estados.
 HISTORY foi avaliado separadamente: nenhum marco institucional novo; não criar
 arquivo no consumidor nem editar o HISTORY do MOBS para registrar este delta.
+
+### Refinamento das fontes e atualização canônica — 2026-10-23
+
+O relato de falta de disco acima descreve o fechamento anterior. Após recursos
+liberados, o mandato seguinte autoriza recompilar no mesmo caminho. O resultado
+do build e a identidade efetivamente instalada são registrados no manifesto e
+em `C:/AI/STUDIO_NEXT_OFFLINE_BATCH.md`, sem inferir instalação a partir do Git.
+
+O painel agora mostra intervalos de linhas completas observadas e lacunas
+internas, sem certificar leitura integral ou atualidade. A comparação inclui
+linha final completa, ignora caudas incertas e limita pares/linhas examinadas.
+Hashes persistidos são revalidados; arquivo vazio não gera linha/cópia fictícia.
+CRLF é apresentado sem CR residual, mantendo texto recebido para cópia.
+Continuação não é oferecida se puder saltar conteúdo cortado na apresentação.
+
+Rascunhos permitem limpar explicitamente o valor salvo nas preferências
+existentes (null), preservando o texto local. Botões de persistência bloqueiam
+requisições concorrentes; mudança de escopo torna controles antigos inertes.
+O diagnóstico reduzido inclui apenas totais/contagens finitos das duas fases
+observadas de ferramenta, sem nomes/saídas/caminhos. Cache web versionado.
+85 regressões offline e 39 verificações de host/build/toolchain passaram neste
+incremento (124 casos distintos). Nenhuma inferência, CU, novo
+runtime ou admissão institucional. HISTORY novamente sem marco novo.

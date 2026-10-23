@@ -4,6 +4,9 @@
 
 ### Added
 
+- Loaded-source coverage intervals and internal-gap reporting, bounded complete-line comparisons, explicit saved-draft clearing and concurrency guards, and reduced exports of observed tool-phase totals.
+- Revalidate persisted source hashes, avoid phantom lines for empty reads, present CRLF cleanly while preserving copied text, and suppress continuation shortcuts when presentation was clipped.
+
 - Observed source pagination/status, grouped pages, overlap warnings, loaded-source diagnostic links and explicit continuation/range copying, without automatic reads or submissions.
 - Paged sealed-diff presentation, whitespace/newline inspection, aggregate file statistics and consultative notes bound to file/digest; full diff copying remains exact.
 - Explicit task-draft save/restore through existing account preferences, scoped by conversation/workspace, plus consultative acceptance references and reduced diagnostic exports.
@@ -15,7 +18,7 @@
 - Prevent legacy anonymous task drafts from leaking to accounts after authentication is enabled, and prevent stale draft/source controls from crossing workspaces.
 - Prefer the fresh web shell and restrict offline resource fallback to the current service-worker cache.
 
-Validated with offline fixtures only. Desktop activation of this increment is pending safe disk capacity; no model, GUI or governed Desktop E2E claim. Six follow-up architecture proposals remain unapproved.
+Validated with offline fixtures only. Desktop packaging/activation evidence is recorded separately from source validation; no model, GUI or governed Desktop E2E claim. Six follow-up architecture proposals remain unapproved.
 
 ## Unreleased — 2026-10-22
 

@@ -163,18 +163,22 @@ export function renderTaskPreparation(target, view) {
   };
   target.appendChild(button); target.appendChild(feedback);
   const current=()=>target._studioTaskUI===draft&&target.contains(objective);
-  for(const [label,save]of[['Salvar rascunho',true],['Restaurar rascunho salvo',false]]){
+  const persistenceButtons=[];
+  for(const [label,operation]of[['Salvar rascunho','save'],['Restaurar rascunho salvo','restore'],['Limpar rascunho salvo','clear']]){
     const b=document.createElement('button');b.type='button';b.textContent=label;
-    b.onclick=async()=>{if(!current()||!draft.view?.session_id)return;
+    persistenceButtons.push(b);
+    b.onclick=async()=>{if(!current()||!draft.view?.session_id||draft.pending)return;
+      draft.pending=true;persistenceButtons.forEach(button=>button.disabled=true);
       const captured={format:1,kind:kind.value,objective:objective.value,acceptance:acceptance.value};
       try{const key=await taskDraftKey(draft.view.session_id,draft.view.workspace||'');if(!current())return;
-        const loaded=await taskDraftRequest(key,save?captured:undefined);if(!current())return;
-        if(!save&&loaded){
+        const loaded=await taskDraftRequest(key,operation==='save'?captured:operation==='clear'?null:undefined);if(!current())return;
+        if(operation==='restore'&&loaded){
           if(objective.value!==captured.objective||acceptance.value!==captured.acceptance||kind.value!==captured.kind){feedback.textContent='O rascunho local mudou durante a consulta; restauração não aplicada.';return;}
           kind.value=loaded.kind;objective.value=loaded.objective;acceptance.value=loaded.acceptance;update();
         }
-        feedback.textContent=save?'Rascunho salvo nas suas preferências; tarefa não enviada.':loaded?'Rascunho restaurado.':'Nenhum rascunho válido salvo neste escopo.';
+        feedback.textContent=operation==='save'?'Rascunho salvo nas suas preferências; tarefa não enviada.':operation==='clear'?'Rascunho salvo limpo. O texto local foi preservado.':loaded?'Rascunho restaurado.':'Nenhum rascunho válido salvo neste escopo.';
       }catch(_){if(current())feedback.textContent='Não foi possível acessar o rascunho salvo. O texto local foi preservado.';}
+      finally{draft.pending=false;if(current())persistenceButtons.forEach(button=>button.disabled=false);}
     };target.appendChild(b);
   }
   const evidence=document.createElement('textarea');evidence.rows=3;evidence.maxLength=8000;evidence.setAttribute('aria-label','Critérios e referências observadas');evidence.placeholder='Para cada critério, anote evento/arquivo/recibo existente ou marque evidência ausente. Não certifica conclusão.';

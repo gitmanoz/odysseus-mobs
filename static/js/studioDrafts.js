@@ -14,7 +14,7 @@ export async function taskDraftKey(session,workspace) {
 export async function taskDraftRequest(key,value,signal) {
   if(!/^studio-task-draft-[0-9a-f]{64}$/.test(key))throw Error('invalid draft key');
   const options={credentials:'same-origin',cache:'no-store',signal};
-  if(value!==undefined){const safe=normalizeTaskDraft(value);if(!safe)throw Error('invalid draft');Object.assign(options,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:safe})});}
+  if(value!==undefined){const safe=value===null?null:normalizeTaskDraft(value);if(value!==null&&!safe)throw Error('invalid draft');Object.assign(options,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:safe})});}
   const response=await fetch('/api/prefs/'+key,options);if(!response.ok)throw Error('draft unavailable');
   const data=await response.json();return normalizeTaskDraft(data?.value);
 }
