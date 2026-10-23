@@ -304,3 +304,29 @@ observadas de ferramenta, sem nomes/saídas/caminhos. Cache web versionado.
 85 regressões offline e 39 verificações de host/build/toolchain passaram neste
 incremento (124 casos distintos). Nenhuma inferência, CU, novo
 runtime ou admissão institucional. HISTORY novamente sem marco novo.
+
+### Continuidade manual assistida — 2026-10-23
+
+A visão **Resumo para continuidade**, no Contexto existente, reúne objetivo,
+bloqueios e próxima ação manuais com referências da proposta/snapshot e de
+candidatos selados, contagens de ferramentas do workspace e referências de
+fontes já carregadas. Planos são contados como declarações do agente na conversa,
+sem vínculo comprovado ao projeto; não certificam execução. Não são extraídos
+comandos, saídas, conteúdo de arquivos, mensagens ou raciocínio privado.
+
+Copiar é explícito e inclui as notas digitadas e referências do projeto; revisar
+antes de compartilhar. Não envia mensagem, aprova, lê disco ou retoma tarefa.
+Notas ficam em memória enquanto a visão existir; sair dela ou mudar escopo
+descarta o preenchimento. Refresh no mesmo escopo preserva os campos e atualiza
+as evidências. Controles antigos são inertes e consulta em andamento/incerta
+não confirma aprovação; hashes e identidades malformados não sustentam recibos.
+
+Fontes: até 100 leituras recentes/20 grupos/10 intervalos por grupo; candidatos:
+até 10 referências; planos: até 20 registros/100 etapas, com metadados limitados.
+As limitações aparecem no texto. Novos pedidos e autoridades continuam nos
+fluxos existentes. O resumo inteiro tem limite de 32 mil caracteres com aviso
+de corte; referências não confiáveis são citadas como texto literal. Esta é
+preparação manual F1/F2, não durable execution,
+retomada automática, compactação institucional de contexto ou scheduler.
+As decisões arquiteturais anteriores permanecem pendentes. Evidências do lote
+em `C:/AI/STUDIO_HANDOFF_BATCH.md`; pacote atual sempre pelo manifesto.

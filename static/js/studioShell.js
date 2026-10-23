@@ -5,7 +5,7 @@ import { studioColumns } from './studioColumns.js';
 import { refreshStudioActivity, renderStudioWorkSummary, renderStudioPlanIndex, renderStudioDiagnostics } from './studioActivity.js';
 import { sealedArtifactPreview } from './studioArtifactPreview.js';
 import { renderSources } from './studioSources.js';
-import { renderProjectScope, renderEngineeringReview, renderTaskPreparation } from './studioEngineering.js';
+import { renderProjectScope, renderEngineeringReview, renderTaskPreparation, renderDevelopmentHandoff, handoffScopedView } from './studioEngineering.js';
 export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
   if (!document.getElementById('studio-home')) {
     // An older navigation document may be returned once by the existing SW.
@@ -405,7 +405,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     const selector = el('studio-selection');
     const options = [['proposal', 'Proposta / autoridades']];
     for (const p of view?.promotions || []) options.push([p.id, `Promoção ${p.id.slice(0, 12)} · ${p.status}`]);
-    options.push(['project', 'Projeto e escopo'], ['sources', 'Fontes carregadas'], ['review', 'Revisão da tarefa'], ['task', 'Preparar tarefa'], ['activity', 'Atividade e arquivos'], ['plans', 'Planos e atualizações'], ['diagnostics', 'Recursos e contexto'], ['help', 'Orientação / capacidades existentes']);
+    options.push(['project', 'Projeto e escopo'], ['sources', 'Fontes carregadas'], ['review', 'Revisão da tarefa'], ['task', 'Preparar tarefa'], ['handoff', 'Resumo para continuidade'], ['activity', 'Atividade e arquivos'], ['plans', 'Planos e atualizações'], ['diagnostics', 'Recursos e contexto'], ['help', 'Orientação / capacidades existentes']);
     if (selected === 'response') options.push(['response', 'Resposta inspecionada']);
     const nextOptions = JSON.stringify(options);
     if (nextOptions !== optionSignature) selector.replaceChildren(...options.map(([value, text]) => {
@@ -420,7 +420,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
       view.proposal?.status === 'pending' && !view.reviewer_available ? 'Revisão indisponível nesta sessão. Verifique a configuração operacional do reviewer.' :
       view.continuity === 'unconfirmed' ? 'Aprovação registrada; execução ativa não confirmada. Nenhuma retomada automática.' :
       view.active ? 'Execução ativa confirmada pelo servidor.' : 'Registro consultado; nenhuma execução ativa confirmada.';
-    const nextPanel = JSON.stringify([selected, view, ['project', 'review'].includes(selected) && loading, ['sources','task'].includes(selected) ? workspace.getWorkspace() : '']);
+    const nextPanel = JSON.stringify([selected, view, ['project', 'review','handoff'].includes(selected) && loading, ['sources','task','handoff'].includes(selected) ? workspace.getWorkspace() : '']);
     if (nextPanel !== panelSignature) {
     panelSignature = nextPanel;
     el('studio-controls').replaceChildren();
@@ -433,6 +433,8 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
       renderEngineeringReview(el('studio-detail'), loading ? { ...view, validity: 'unavailable' } : view);
     } else if (selected === 'task') {
       renderTaskPreparation(el('studio-detail'), { ...view, workspace: workspace.getWorkspace() || view?.workspace || '' });
+    } else if (selected === 'handoff') {
+      if(!historyAvailable())detailText('Aguardando o histórico da conversa para preparar continuidade.');
     } else if (selected === 'activity') {
       if (el('studio-detail')._studioWorkUI?.heading.parentNode !== el('studio-detail')) el('studio-detail').replaceChildren();
     } else if (selected === 'plans') {
@@ -456,6 +458,10 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     for (const b of el('studio-controls').children) b.disabled = loading || liveBusy || !!view?.active;
     syncPreviewControl();
     if (selected === 'response') responseDetail();
+    if (selected === 'handoff' && historyAvailable()) {
+      renderDevelopmentHandoff(el('studio-detail'),handoffScopedView(view,session(),workspace.getWorkspace()||'',loading),history);
+      el('studio-validity').textContent='Resumo consultivo, sem execução ou retomada automática. Revalide referências antes de agir.';
+    }
     if (selected === 'activity' && historyAvailable()) {
       renderStudioWorkSummary(el('studio-detail'), history, session());
       el('studio-validity').textContent = 'Histórico visível da conversa; permissões e evidências institucionais permanecem na proposta e nos artefatos.';
@@ -580,7 +586,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
   document.addEventListener('studio-session-metadata-changed', syncHeading);
   document.addEventListener('studio-workspace-changed', () => {
     chat.clearPreparedMobsAction();
-    if(selected==='task'){panelSignature=null;render();}
+    if(['task','handoff'].includes(selected)){panelSignature=null;render();}
     if (selected === 'sources') {
       if (historyAvailable()) renderSources(el('studio-detail'), history, session(), workspace.getWorkspace());
       else detailText('Aguardando o histórico da conversa para consultar suas fontes.');
@@ -603,6 +609,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     if (selected === 'sources') renderSources(el('studio-detail'), history, session(), workspace.getWorkspace());
     if (selected === 'plans') renderStudioPlanIndex(el('studio-detail'), history);
     if (selected === 'diagnostics') renderStudioDiagnostics(el('studio-detail'), history);
+    if (selected === 'handoff') renderDevelopmentHandoff(el('studio-detail'),handoffScopedView(view,session(),workspace.getWorkspace()||'',loading),history);
     for (const msg of history.querySelectorAll('.msg-ai:not([data-studio-inspect]),.agent-thread:not([data-studio-inspect])')) {
       msg.dataset.studioInspect = 'true';
       const b = document.createElement('button'); b.type = 'button'; b.className = 'studio-inspect';

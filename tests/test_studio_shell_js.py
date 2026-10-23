@@ -91,6 +91,9 @@ assert.equal(nodes.get('studio-controls').children.length,0);assert.equal(staged
 nodes.get('studio-selection').onchange({target:{value:'task'}});
 assert.equal(nodes.get('studio-detail').children[0].textContent,'Preparar tarefa');
 assert.equal(nodes.get('studio-controls').children.length,0);assert.equal(staged,null);
+nodes.get('studio-selection').onchange({target:{value:'handoff'}});
+assert.equal(nodes.get('studio-detail').children[0].textContent,'Resumo para continuidade');
+assert.equal(nodes.get('studio-controls').children.length,0);assert.equal(staged,null);
 nodes.get('studio-selection').onchange({target:{value:'proposal'}});
 globalThis.fetch=savedFetch;
 // Identical activity notifications must not replace the displayed evidence,

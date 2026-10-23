@@ -1,5 +1,7 @@
 // Observational views; draft persistence uses existing owner-scoped preferences.
 import { taskDraftKey, taskDraftRequest } from './studioDrafts.js';
+import { collectStudioWork } from './studioActivity.js';
+import { loadedSources, groupSourcePages, sourceCoverage } from './studioSources.js';
 function text(value, fallback = 'Não registrado') {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
@@ -185,4 +187,94 @@ export function renderTaskPreparation(target, view) {
   target.appendChild(evidence);
   const copyEvidence=document.createElement('button');copyEvidence.type='button';copyEvidence.textContent='Copiar critérios e referências';
   copyEvidence.onclick=async()=>{if(!current())return;try{await navigator.clipboard.writeText(`Critérios: ${acceptance.value}\nReferências consultivas: ${evidence.value}\nProposta observada: ${draft.view?.proposal?.proposal_digest||'não registrada'}\nNão aprova nem comprova objetivo cumprido.`);}catch(_){if(current())feedback.textContent='Cópia indisponível.';}};target.appendChild(copyEvidence);
+}
+
+function handoffWorkspace(value) {
+  const key = typeof value === 'string' ? value.replaceAll('\\', '/').replace(/\/+$/, '') : '';
+  return /^[a-z]:\//i.test(key) || key.startsWith('//') ? key.toLowerCase() : key;
+}
+function handoffText(value, limit = 4000) {
+  return typeof value === 'string' ? value.slice(0, limit) : '';
+}
+function handoffReference(value, hash = false) {
+  return typeof value === 'string' && (hash ? /^[0-9a-f]{64}$/ : /^[A-Za-z0-9_-]{1,128}$/).test(value) ? value : 'não registrada';
+}
+export function handoffScopedView(view, session, workspace, loading = false) {
+  const current=typeof view?.workspace==='string' && view?.session_id===session && handoffWorkspace(view.workspace)===handoffWorkspace(workspace);
+  return current ? {...view,validity:loading?'unavailable':view.validity} : {session_id:session,workspace,validity:'unavailable'};
+}
+export function developmentHandoff(view, history, notes = {}) {
+  const key = handoffWorkspace(view?.workspace), fresh = view?.validity === 'valid';
+  const work = collectStudioWork(history);
+  const scoped = work.filter(item => typeof item.node.dataset.studioToolWorkspace === 'string' && handoffWorkspace(item.node.dataset.studioToolWorkspace) === key);
+  const p = view?.proposal;
+  const proposalExact=handoffReference(p?.proposal_id)!=='não registrada'&&handoffReference(p?.proposal_digest,true)!=='não registrada'&&handoffReference(p?.authority_snapshot,true)!=='não registrada';
+  const rows = ['MOBS Studio — resumo para continuidade (consultivo)',
+    'Não concede autorização, retoma execução ou comprova objetivo cumprido. Revalide baseline, autoridades e recursos antes de agir.',
+    'Contém notas manuais e referências do projeto. Revise antes de compartilhar. Não extrai conteúdo de arquivos, comandos, saídas ou raciocínio privado; notas digitadas por você serão incluídas.',
+    `Conversa: ${JSON.stringify(handoffText(view?.session_id, 256) || 'não registrada')}`,
+    `Workspace apresentado: ${JSON.stringify(handoffText(view?.workspace, 1024) || 'não selecionado')}`,
+    `Objetivo manual: ${handoffText(notes?.objective) || 'não preenchido'}`,
+    `Bloqueios manuais: ${handoffText(notes?.blockers) || 'não preenchidos; não significa ausência de bloqueios'}`,
+    `Próxima ação proposta: ${handoffText(notes?.next) || 'não preenchida'}`,
+    `Consulta institucional: ${fresh ? 'registrada como válida nesta visão; revalidar antes de agir' : 'não confirmada; referências podem ser históricas'}`,
+    `Proposta observada: ${handoffReference(p?.proposal_id)}`,
+    `Digest: ${handoffReference(p?.proposal_digest, true)}`,
+    `Snapshot: ${handoffReference(p?.authority_snapshot, true)}`,
+    `Revisão do snapshot: ${fresh && proposalExact && view?.reviewed === true ? 'informada pelo servidor; não concede execução' : 'não confirmada'}`,
+    `Autorização: ${fresh && proposalExact && p?.status === 'approved' ? 'aprovação informada pelo servidor; não é prova de execução' : 'não confirmada nesta visão'}`,
+    `Ferramentas no workspace: ${scoped.length} registros, ${scoped.filter(x=>x.status==='running').length} em andamento, ${scoped.filter(x=>x.status==='failed').length} com falha. Retorno recebido não prova objetivo.`,
+    `Outros registros da conversa fora deste escopo ou sem workspace: ${work.length-scoped.length}; detalhes omitidos.`];
+  const plans = Array.from(history.querySelectorAll('.studio-plan'));
+  const planCounts = {total:0,done:0,current:0};
+  for (const plan of plans.slice(-20)) {
+    if(typeof plan.dataset.signature!=='string'||plan.dataset.signature.length>65536)continue;
+    let steps;try{steps=JSON.parse(plan.dataset.signature||'null');}catch(_){continue;}
+    if (!Array.isArray(steps)) continue;
+    for (const step of steps.slice(0,100)) {
+      if (!step || typeof step.text !== 'string') continue;
+      planCounts.total++;if(step.done===true)planCounts.done++;if(step.current===true)planCounts.current++;
+    }
+  }
+  rows.push(`Planos da conversa: ${planCounts.done}/${planCounts.total} etapas marcadas pelo agente, ${planCounts.current} atuais (até 20 planos/100 etapas por plano). Sem vínculo comprovado ao workspace nem certificação de execução.`);
+  const candidates = Array.isArray(view?.promotions) ? view.promotions : [];
+  rows.push(`Candidatos apresentados: ${candidates.length}; até 10 referências abaixo, sem conteúdos/diffs.`);
+  for (const candidate of candidates.slice(0,10)) {
+    const digest=handoffReference(candidate?.artifact_digest,true);
+    const exact=fresh&&candidate?.validity==='valid'&&candidate?.validated===true&&digest!=='não registrada'&&handoffReference(candidate?.id)!=='não registrada';
+    rows.push(`- Candidato ${handoffReference(candidate?.id)} / ${digest}: ${exact ? 'validação exata informada pelo servidor; não comprova promoção ou objetivo' : 'validação exata não confirmada'}.`);
+  }
+  const sources = loadedSources(history).filter(source=>handoffWorkspace(source.workspace)===key);
+  const groups = groupSourcePages(sources.slice(-100));
+  rows.push(`Fontes do workspace: ${sources.length} trechos; referências das últimas 100 leituras, até 20 grupos. Nenhuma leitura nova.`);
+  for (const pages of groups.slice(0,20)) {
+    const intervals=sourceCoverage(pages).intervals;
+    const ranges=intervals.slice(0,10).map(([a,b])=>`${a}–${b}`).join(', ')||'linhas completas não registradas';
+    rows.push(`- ${JSON.stringify(handoffText(pages[0].path,240))}: ${ranges}${intervals.length>10?' (intervalos limitados)':''}; head ${pages[0].head||'não registrado'}; não certifica leitura integral/atualidade.`);
+  }
+  if(sources.length>100||groups.length>20)rows.push('Lista de referências limitada; consulte os eventos e o painel Fontes carregadas.');
+  const report=rows.join('\n');
+  return report.length<=32000 ? report : report.slice(0,32000)+'\n[Resumo limitado a 32.000 caracteres; consulte as referências originais.]';
+}
+
+export function renderDevelopmentHandoff(target, view, history) {
+  let state=target._studioHandoff;
+  if(!state || state.session!==view?.session_id || state.workspace!==handoffWorkspace(view?.workspace) || !target.contains(state.preview)) {
+    target.replaceChildren();heading(target,'Resumo para continuidade');
+    paragraph(target,'Prepare uma passagem manual de trabalho com referências já carregadas. Nada é enviado, autorizado ou retomado. Notas locais, sem salvamento: sair desta visão ou mudar de conversa/projeto descarta o preenchimento.');
+    state={session:view?.session_id,workspace:handoffWorkspace(view?.workspace),fields:{}};
+    for(const [key,label] of [['objective','Objetivo para continuidade'],['blockers','Bloqueios conhecidos'],['next','Próxima ação proposta']]) {
+      const field=document.createElement('textarea');field.rows=2;field.maxLength=4000;field.setAttribute('aria-label',label);field.placeholder=label;
+      target.appendChild(field);state.fields[key]=field;
+    }
+    state.preview=document.createElement('pre');target.appendChild(state.preview);
+    state.copy=document.createElement('button');state.copy.type='button';state.copy.textContent='Copiar resumo para continuidade';target.appendChild(state.copy);
+    state.feedback=document.createElement('p');state.feedback.setAttribute('role','status');target.appendChild(state.feedback);
+    target._studioHandoff=state;
+    const current=()=>target._studioHandoff===state&&target.contains(state.preview);
+    const update=()=>{if(!current())return;state.preview.textContent=developmentHandoff(state.view,state.history,Object.fromEntries(Object.entries(state.fields).map(([k,f])=>[k,f.value])));};
+    state.update=update;for(const field of Object.values(state.fields))field.oninput=update;
+    state.copy.onclick=async()=>{if(!current())return;update();try{await navigator.clipboard.writeText(state.preview.textContent);if(current())state.feedback.textContent='Resumo copiado. Revise as referências; nenhuma tarefa foi enviada.';}catch(_){if(current())state.feedback.textContent='Cópia indisponível. O texto continua no painel.';}};
+  }
+  state.view=view;state.history=history;state.update();
 }

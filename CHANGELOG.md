@@ -4,6 +4,8 @@
 
 ### Added
 
+- A manual development handoff view combining scoped source references, proposal/candidate identities, observed activity and plan counts with editable objective/blockers/next action. Explicit clipboard copying never submits, resumes or authorizes work; unavailable or mismatched scope stays unconfirmed, and raw tool/file content is excluded.
+
 - Loaded-source coverage intervals and internal-gap reporting, bounded complete-line comparisons, explicit saved-draft clearing and concurrency guards, and reduced exports of observed tool-phase totals.
 - Revalidate persisted source hashes, avoid phantom lines for empty reads, present CRLF cleanly while preserving copied text, and suppress continuation shortcuts when presentation was clipped.
 
