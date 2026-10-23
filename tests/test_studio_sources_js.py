@@ -5,6 +5,36 @@ from tests.test_studio_development_workbench_js import run_js
 MODULE = (Path(__file__).resolve().parents[1]/'static/js/studioSources.js').as_uri()
 
 
+def test_pagination_controls_conflicts_and_literal_ranges_never_submit():
+    run_js('const S=await import('+json.dumps(MODULE)+');\n'+r'''
+globalThis.fetch=()=>{throw Error('must not send')};
+const history=new E(),panel=new E(),node=tool(history,'read_file','');
+const event={tool:'read_file',exit_code:0,workspace:'C:/A',source_reference:{path:'src/a.py',start_line:10,workspace:'C:/A'},source_pagination:{has_more:true,next_offset:13,partial_line:false,lines_read:3},output:'a\nb\nc\n'};
+S.recordSourceSnapshot(node,event);S.renderSources(panel,history,'one','C:/A');const state=panel._studioSources;
+state.tree.querySelector('button').onclick();assert.match(state.viewer.textContent,/Leitura paginada.*13/);
+let buttons=state.viewer.querySelectorAll('button');await buttons.find(b=>b.textContent==='Copiar pedido de continuação').onclick();assert.match(copied[0],/linha 13/);
+const inputs=state.viewer.querySelectorAll('input');inputs[0].value=11;inputs[1].value=12;
+await buttons.find(b=>b.textContent==='Copiar intervalo com referência').onclick();assert.match(copied[1],/src\/a.py:11-12/);assert.match(copied[1],/b\nc$/);
+buttons.find(b=>b.textContent==='Ir ao evento de leitura').onclick();assert.equal(node.scrolled,true);
+const second=tool(history,'read_file','');S.recordSourceSnapshot(second,{...event,output:'x\nb\nc\n'});S.renderSources(panel,history,'one','C:/A');assert.match(panel.textContent,/Trechos observados divergem/);
+const a=S.loadedSources(history);assert.equal(S.groupSourcePages(a).length,1);assert.equal(S.sourceConflicts(a).conflicts.length,1);
+S.renderSources(panel,history,'two','C:/B');await buttons.find(b=>b.textContent==='Copiar pedido de continuação').onclick();assert.equal(copied.length,2);
+''')
+
+
+def test_malformed_old_snapshots_unknown_completeness_and_diagnostics_are_bounded():
+    run_js('const S=await import('+json.dumps(MODULE)+');\n'+r'''
+const history=new E();for(const raw of ['{broken','null','[]','{"path":"bad","text":"secret","start":-1}']){const n=tool(history,'read_file','');n.dataset.studioSource=raw;}
+assert.equal(S.loadedSources(history).length,0);assert.match(S.sourceReadStatus({}),/não registrada/);
+assert.match(S.sourceReadStatus({partial_line:true}),/parcialmente/);
+assert.equal(S.diagnosticLocations(Array(120).fill('src/a.py:12: fail').join('\n')).length,100);
+const panel=new E(),source=tool(history,'read_file','');S.recordSourceSnapshot(source,{tool:'read_file',exit_code:0,source_reference:{path:'src/a.py',start_line:1,workspace:'C:/A'},output:'known\nline\n'});
+S.renderSources(panel,history,'one','C:/A');const fail=tool(history,'python','error');S.recordSourceSnapshot(fail,{tool:'python',workspace:'C:/A',output:'src/a.py:2: known failure'});
+S.renderSources(panel,history,'one','C:/A');assert.match(panel.textContent,/Referência na saída: src\/a.py:2/);
+panel._studioSources.pathFilter.value='other';panel._studioSources.pathFilter.oninput();assert.doesNotMatch(panel.textContent,/Referência na saída/);
+''')
+
+
 def test_sources_search_lines_and_stale_controls_stay_inside_loaded_session():
     run_js('const S=await import('+json.dumps(MODULE)+');\n'+r'''
 globalThis.fetch=()=>{throw Error('no network')};

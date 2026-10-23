@@ -420,7 +420,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
       view.proposal?.status === 'pending' && !view.reviewer_available ? 'Revisão indisponível nesta sessão. Verifique a configuração operacional do reviewer.' :
       view.continuity === 'unconfirmed' ? 'Aprovação registrada; execução ativa não confirmada. Nenhuma retomada automática.' :
       view.active ? 'Execução ativa confirmada pelo servidor.' : 'Registro consultado; nenhuma execução ativa confirmada.';
-    const nextPanel = JSON.stringify([selected, view, ['project', 'review'].includes(selected) && loading, selected === 'sources' ? workspace.getWorkspace() : '']);
+    const nextPanel = JSON.stringify([selected, view, ['project', 'review'].includes(selected) && loading, ['sources','task'].includes(selected) ? workspace.getWorkspace() : '']);
     if (nextPanel !== panelSignature) {
     panelSignature = nextPanel;
     el('studio-controls').replaceChildren();
@@ -432,7 +432,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
     } else if (selected === 'review') {
       renderEngineeringReview(el('studio-detail'), loading ? { ...view, validity: 'unavailable' } : view);
     } else if (selected === 'task') {
-      renderTaskPreparation(el('studio-detail'), view);
+      renderTaskPreparation(el('studio-detail'), { ...view, workspace: workspace.getWorkspace() || view?.workspace || '' });
     } else if (selected === 'activity') {
       if (el('studio-detail')._studioWorkUI?.heading.parentNode !== el('studio-detail')) el('studio-detail').replaceChildren();
     } else if (selected === 'plans') {
@@ -580,6 +580,7 @@ export function initStudioShell({ chat, sessions, workspace, storage, ui }) {
   document.addEventListener('studio-session-metadata-changed', syncHeading);
   document.addEventListener('studio-workspace-changed', () => {
     chat.clearPreparedMobsAction();
+    if(selected==='task'){panelSignature=null;render();}
     if (selected === 'sources') {
       if (historyAvailable()) renderSources(el('studio-detail'), history, session(), workspace.getWorkspace());
       else detailText('Aguardando o histórico da conversa para consultar suas fontes.');

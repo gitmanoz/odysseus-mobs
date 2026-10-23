@@ -4015,6 +4015,7 @@ async def _stream_agent_loop(
     full_response = ""
     total_start = time.time()
     time_to_first_token = None
+    _provider_stream_seconds = 0.0
     first_token_received = False
     tool_events = []   # Persist tool executions for history reload
     round_texts = []   # Cleaned text per round for history reload
@@ -4177,6 +4178,7 @@ async def _stream_agent_loop(
         # so never trips the inactivity timeout. Generous — only catches runaway.
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
         _round_start = time.time()
+        _provider_clock = time.perf_counter()
         _round_first_event_logged = False
         _round_first_token_logged = False
         logger.info(
@@ -4403,6 +4405,7 @@ async def _stream_agent_loop(
                 yield chunk
             # Intercept [DONE] — don't forward until all rounds finish
 
+        _provider_stream_seconds += max(0, time.perf_counter() - _provider_clock)
         if institutional_context:
             # /v1 can reload Ollama at its default size despite a larger warm-up.
             # Check before parsing/dispatching tools or accepting completion.
@@ -4857,6 +4860,7 @@ async def _stream_agent_loop(
                 break
 
             total_tool_calls += 1
+            _observed_tool_seconds = None
             # Build a short display string for the frontend tool bubble.
             # Document tools show a brief summary instead of dumping full content.
             is_doc_tool = block.tool_type in ("create_document", "update_document", "edit_document", "suggest_document")
@@ -4893,6 +4897,8 @@ async def _stream_agent_loop(
                     await _progress_q.put(payload)
 
                 async def _run_tool():
+                    nonlocal _observed_tool_seconds
+                    _tool_clock = time.perf_counter()
                     try:
                         return await execute_tool_block(
                             block,
@@ -4911,8 +4917,10 @@ async def _stream_agent_loop(
                                                if institutional_context and pending_action
                                                else None),
                             governed_read=bool(institutional_context),
+                            observe_timing=True,
                         )
                     finally:
+                        _observed_tool_seconds = round(max(0, time.perf_counter() - _tool_clock), 6)
                         # Sentinel so the drainer knows to stop.
                         await _progress_q.put(None)
 
@@ -5092,7 +5100,11 @@ async def _stream_agent_loop(
             elif "output" in result:
                 # bash / python canonical result: {"output": ..., "exit_code": ...}
                 raw = result["output"] or ""
-                output_text = _truncate(raw)
+                if block.tool_type == 'read_file':
+                    from src.constants import MAX_READ_CHARS
+                    output_text = _truncate(raw, MAX_READ_CHARS)
+                else:
+                    output_text = _truncate(raw)
             elif "response" in result:
                 # AI interaction tools (chat_with_model, send_to_session)
                 label = result.get("model", result.get("session_name", "AI"))
@@ -5114,6 +5126,11 @@ async def _stream_agent_loop(
 
             # Emit tool_output (include ui_event data if present)
             tool_output_data = {"type": "tool_output", "tool": block.tool_type, "command": cmd_display, "output": output_text, "exit_code": result.get("exit_code")}
+            if _observed_tool_seconds is not None:
+                tool_output_data['dispatch_execution_seconds'] = _observed_tool_seconds
+            tool_output_data['workspace'] = workspace if isinstance(workspace,str) else ''
+            if isinstance(result.get('phase_timing'),dict):
+                tool_output_data['phase_timing']={key:value for key,value in result['phase_timing'].items() if key in {'dispatch_seconds','execution_seconds'} and isinstance(value,(int,float)) and not isinstance(value,bool) and 0<=value<float('inf')}
             if block.tool_type == "read_file" and result.get("exit_code") == 0 and isinstance(result.get("source_reference"), dict):
                 reference = dict(result["source_reference"])
                 reference["workspace"] = workspace if isinstance(workspace, str) else ""
@@ -5121,6 +5138,11 @@ async def _stream_agent_loop(
                     reference["baseline_head"] = institutional_context.target.get("head")
                     reference["baseline_working_tree_sha256"] = institutional_context.target.get("working_tree_sha256")
                 tool_output_data["source_reference"] = reference
+                tool_output_data['source_pagination'] = {
+                    name: result[name] for name in ('has_more', 'next_offset', 'partial_line', 'lines_read', 'truncated')
+                    if name in result
+                }
+                tool_output_data['source_pagination']['presentation_truncated'] = output_text != result.get('output', '')
             if is_doc_tool and "action" in result:
                 tool_output_data.update({
                     "doc_id": result.get("doc_id"),
@@ -5332,6 +5354,11 @@ async def _stream_agent_loop(
                 tool_event["diff"] = result["diff"]
             if block.tool_type == "read_file" and result.get("exit_code") == 0 and isinstance(result.get("source_reference"), dict):
                 tool_event["source_reference"] = tool_output_data["source_reference"]
+                tool_event['source_pagination'] = tool_output_data['source_pagination']
+            if _observed_tool_seconds is not None:
+                tool_event['dispatch_execution_seconds'] = _observed_tool_seconds
+            tool_event['workspace'] = workspace if isinstance(workspace,str) else ''
+            if 'phase_timing' in tool_output_data:tool_event['phase_timing']=tool_output_data['phase_timing']
             if _pending_ask_user_event:
                 # Persist the structured question with the tool event.  On a
                 # reload, chatRenderer can restore the card; a later user
@@ -5503,6 +5530,7 @@ async def _stream_agent_loop(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    metrics['provider_stream_seconds'] = round(_provider_stream_seconds, 6)
     metrics["initial_context_profile"] = initial_context_profile
     metrics["last_round_context_profile"] = last_round_context_profile
     yield f"data: {json.dumps({'type': 'metrics', 'data': metrics})}\n\n"

@@ -1,13 +1,12 @@
 // static/sw.js — Odysseus PWA Service Worker
 // Strategy:
-//   - HTML (navigation): stale-while-revalidate. Instant open from cache,
-//     background refresh so the next open has latest HTML.
+//   - HTML (navigation): network-first; the current shell cache is offline fallback.
 //   - JS/CSS (/static/*.js|.css): network-first, cache fallback for offline.
 //     (So code/style edits show up on a normal reload, no manual cache clear.)
 //   - Other static assets (images/fonts/libs): cache-first with bg refresh.
 //   - API / non-GET: never cached.
 // Bump CACHE_NAME whenever the precache list or SW logic changes.
-const CACHE_NAME = 'odysseus-v378-studio-rebrand';
+const CACHE_NAME = 'odysseus-v379-studio-offline-workbench';
 
 // Core shell precached on install so repeat opens are instant without any
 // network wait. Keep this list in sync with the <script type="module"> tags
@@ -17,6 +16,11 @@ const PRECACHE = [
   '/static/style.css',
   '/static/app.js',
   '/static/js/studioShell.js',
+  '/static/js/studioSources.js',
+  '/static/js/studioEngineering.js',
+  '/static/js/studioDrafts.js',
+  '/static/js/studioActivity.js',
+  '/static/js/studioArtifactPreview.js',
   '/static/brand/studio-ms.svg',
   '/static/brand/studio-wordmark.svg',
   '/static/manifest.json',
@@ -98,7 +102,7 @@ self.addEventListener('fetch', (e) => {
   // Never touch API calls or non-GET.
   if (url.pathname.startsWith('/api/') || e.request.method !== 'GET') return;
 
-  // HTML navigation: stale-while-revalidate the app shell — but ONLY for the
+  // HTML navigation: network-first for the app shell — but ONLY for the
   // SPA root. Other navigations (e.g. a deep-linked /static/*.html page) must
   // go to the network/static handlers below; otherwise every navigation was
   // served the app index, replacing the page the user actually asked for.
@@ -110,7 +114,7 @@ self.addEventListener('fetch', (e) => {
           if (res && res.ok) cache.put('/', res.clone());
           return res;
         }).catch(() => cached);
-        return cached || network;
+        return network;
       })
     );
     return;
@@ -126,7 +130,7 @@ self.addEventListener('fetch', (e) => {
           caches.open(CACHE_NAME).then(cache => cache.put(e.request, copy));
         }
         return res;
-      }).catch(() => caches.match(e.request))
+      }).catch(() => caches.open(CACHE_NAME).then(cache => cache.match(e.request)))
     );
     return;
   }

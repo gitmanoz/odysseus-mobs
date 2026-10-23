@@ -37,6 +37,23 @@ function Assert-BuildTargetsSafe {
     }
 }
 
+function Assert-BuildSpace {
+    $drive = [IO.Path]::GetPathRoot($PSScriptRoot).TrimEnd('\').TrimEnd(':')
+    $free = (Get-PSDrive -Name $drive -ErrorAction Stop).Free
+    $observed = 0L
+    foreach ($name in @('build', 'dist')) {
+        $target = Join-Path $PSScriptRoot $name
+        if (Test-Path -LiteralPath $target) {
+            $observed += (Get-ChildItem -LiteralPath $target -Recurse -File -Force -ErrorAction Stop | Measure-Object Length -Sum).Sum
+        }
+    }
+    $required = [long][Math]::Max(2GB, $observed * 1.25 + 512MB)
+    if ($null -eq $free -or $free -lt $required) {
+        throw "Insufficient build space: free=$free bytes; estimated reserve=$required bytes. Outputs and applications were not removed."
+    }
+    Write-Host "Build space: free=$free bytes; estimated reserve=$required bytes (observed outputs plus margin, not a universal requirement)."
+}
+
 if ($CheckOnly -or $UseExistingDependencies) {
     # No venv creation, pip install, download, extraction, or output cleanup.
     $checkPython = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
@@ -74,6 +91,7 @@ print('Declared build requirements satisfied; nothing installed.')
 
 # Check before dependency installation, then recheck immediately before cleanup.
 Assert-BuildTargetsSafe
+Assert-BuildSpace
 
 Write-Step "Selecting Python 3.11+ for the build"
 $bootstrapPython = $Python
@@ -118,6 +136,7 @@ $actualHash = (Get-FileHash -LiteralPath $WebView2Cab -Algorithm SHA256).Hash.To
 if ($actualHash -ne $manifest.sha256) { Fail "WebView2 Fixed Version SHA-256 mismatch." }
 
 Assert-BuildTargetsSafe
+Assert-BuildSpace
 foreach ($name in @('build', 'dist')) {
     $target = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $name))
     if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }

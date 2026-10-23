@@ -1006,6 +1006,13 @@
       }
       fetch('/api/version').then(function(r){return r.json()}).then(function(d){
         if (d.version) window._appVersion = d.version;
+        if (d.build) {
+          var badge=document.createElement('small');badge.id='studio-build-identity';
+          badge.textContent=d.build.recorded ? 'Build '+String(d.build.head).slice(0,8) : 'Build sem referência registrada';
+          badge.title='Identificação do manifesto; não é verificação de integridade nem confirmação de objetivo cumprido.';
+          badge.style.cssText='position:fixed;bottom:3px;left:8px;max-width:180px;font-size:10px;color:var(--text-muted,#9a9a9a);pointer-events:none;z-index:2';
+          document.body.appendChild(badge);
+        }
       }).catch(function(){});
     })();
     </script>

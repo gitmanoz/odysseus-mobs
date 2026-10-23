@@ -255,3 +255,29 @@ bloqueia esse modo antes de limpar outputs. Backend congelado ainda requer
 rebuild/reinício normal. As recomendações históricas acima de backup completo
 por ativação não são o procedimento atual; a diretriz do fundador de instalação
 única prevalece. Isolamento privado obrigatório da TEB permanece inalterado.
+
+### Incremento offline de desenvolvimento — 2026-10-23
+
+Este incremento implementa os itens 1–24 do lote aprovado, sem Computer Use,
+inferência ou novas instalações. A instalação permanece no checkpoint 79447c9:
+o build deste incremento não foi iniciado por insuficiência de espaço no C:.
+Os testes offline não certificam interação gráfica ou geração de ferramentas.
+
+| Superfície | Incremento no source | Limite factual |
+|---|---|---|
+| Identidade e atualização | Identificação pública reduzida do manifesto; comparação opcional com source/HEAD; erros de integridade por componente; reserva de disco antes da limpeza; shell web network-first e fallback apenas no cache corrente | Identificação não é verificação criptográfica de origem nem prova de boot; nenhum novo pacote ativado |
+| Leituras observadas | Metadados de paginação vivos/persistidos; leitura de até 20 mil caracteres preservada na apresentação; estados incompleto/EOF/desconhecido; agrupamento e conflitos entre páginas; filtro, cópia de trecho/referência e navegação ao evento | Somente snapshots carregados; continuação é texto copiável, nunca envio automático; registros antigos não ganham completude presumida |
+| Revisão selada | Diferenças de espaços/newlines, páginas de 200 linhas, resumo agregado e notas vinculadas ao arquivo/digest | Paginação só visual; cópia integral preservada; notas consultivas não aprovam nem alteram candidato |
+| Preparação | Salvar/restaurar explicitamente rascunhos por conversa/workspace nas preferências existentes, isoladas por conta; critérios com referências consultivas | Substitui a descrição anterior de rascunhos apenas em memória; nenhuma submissão ou autorização automática |
+| Diagnóstico | Links de arquivo/linha somente para fonte já carregada e caminho conhecido; tempos observados de preparação, stream, gates e handler; exportação reduzida por campos permitidos | Caminhos absolutos/relativos divergentes podem não gerar link; handler não prova efeito externo; stream inclui processamento e não isola tempo de GPU |
+
+As regressões abrangem paginação, contexto de workspace, controles obsoletos,
+formatos antigos/malformados, isolamento de contas, bytes selados, cache e gates
+de build. Logs/JUnit locais: `C:/AI/studio-offline-batch-*.log/xml`.
+O relatório consolidado é `C:/AI/STUDIO_OFFLINE_BATCH_30.md`.
+
+Os itens 25–30 estão em [decisões offline](OFFLINE_DEVELOPMENT_DECISIONS.md).
+São propostas não aprovadas para Git tipado, fechamento, promoção N-arquivos,
+validação Godot e conclusão factual. Não concedem ferramentas nem mudam estados.
+HISTORY foi avaliado separadamente: nenhum marco institucional novo; não criar
+arquivo no consumidor nem editar o HISTORY do MOBS para registrar este delta.

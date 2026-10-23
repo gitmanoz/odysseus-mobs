@@ -1,4 +1,5 @@
-// Read-only views of existing authenticated state. No requests or permissions.
+// Observational views; draft persistence uses existing owner-scoped preferences.
+import { taskDraftKey, taskDraftRequest } from './studioDrafts.js';
 function text(value, fallback = 'Não registrado') {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
@@ -133,18 +134,20 @@ export function developmentTaskReport(view, kind = 'bug', objective = '', accept
 
 export function renderTaskPreparation(target, view) {
   const previous = target._studioTaskUI;
-  if (previous && view?.session_id && target.contains(previous.objective) && previous.view?.session_id === view.session_id) {
+  if (previous && view?.session_id && target.contains(previous.objective) && previous.view?.session_id === view.session_id && previous.view?.workspace === view.workspace) {
     previous.view = view; previous.update(); return;
   }
   target.replaceChildren(); heading(target, 'Preparar tarefa');
-  paragraph(target, 'Preencha um objetivo pequeno e verificável. O rascunho fica apenas neste painel; revise e copie para usar na conversa. Nada é enviado automaticamente.');
+  paragraph(target, 'Preencha um objetivo pequeno e verificável. Salvar guarda somente o rascunho nas suas preferências, por conversa/projeto. Copiar ou salvar não envia pedido nem aprova tarefa.');
   const kind = document.createElement('select'); kind.setAttribute('aria-label', 'Tipo da tarefa');
   for (const [value, label] of Object.entries(taskKinds)) {
     const option = document.createElement('option'); option.value = value; option.textContent = label; kind.appendChild(option);
   }
   kind.value = 'bug'; target.appendChild(kind);
   const objective = document.createElement('textarea'); objective.setAttribute('aria-label', 'Objetivo verificável'); objective.placeholder = 'O que precisa mudar ou ser investigado?'; objective.rows = 3; target.appendChild(objective);
+  objective.maxLength=4000;
   const acceptance = document.createElement('textarea'); acceptance.setAttribute('aria-label', 'Critérios de aceitação'); acceptance.placeholder = 'Qual resultado comprova que a tarefa foi atendida?'; acceptance.rows = 3; target.appendChild(acceptance);
+  acceptance.maxLength=8000;
   const preview = document.createElement('pre'); target.appendChild(preview);
   const draft = { view, objective };
   const update = () => { preview.textContent = developmentTaskReport(draft.view, kind.value, objective.value, acceptance.value); };
@@ -159,4 +162,23 @@ export function renderTaskPreparation(target, view) {
     catch (_) { if (target.contains(button)) feedback.textContent = 'Cópia indisponível. Selecione o texto para copiar.'; }
   };
   target.appendChild(button); target.appendChild(feedback);
+  const current=()=>target._studioTaskUI===draft&&target.contains(objective);
+  for(const [label,save]of[['Salvar rascunho',true],['Restaurar rascunho salvo',false]]){
+    const b=document.createElement('button');b.type='button';b.textContent=label;
+    b.onclick=async()=>{if(!current()||!draft.view?.session_id)return;
+      const captured={format:1,kind:kind.value,objective:objective.value,acceptance:acceptance.value};
+      try{const key=await taskDraftKey(draft.view.session_id,draft.view.workspace||'');if(!current())return;
+        const loaded=await taskDraftRequest(key,save?captured:undefined);if(!current())return;
+        if(!save&&loaded){
+          if(objective.value!==captured.objective||acceptance.value!==captured.acceptance||kind.value!==captured.kind){feedback.textContent='O rascunho local mudou durante a consulta; restauração não aplicada.';return;}
+          kind.value=loaded.kind;objective.value=loaded.objective;acceptance.value=loaded.acceptance;update();
+        }
+        feedback.textContent=save?'Rascunho salvo nas suas preferências; tarefa não enviada.':loaded?'Rascunho restaurado.':'Nenhum rascunho válido salvo neste escopo.';
+      }catch(_){if(current())feedback.textContent='Não foi possível acessar o rascunho salvo. O texto local foi preservado.';}
+    };target.appendChild(b);
+  }
+  const evidence=document.createElement('textarea');evidence.rows=3;evidence.maxLength=8000;evidence.setAttribute('aria-label','Critérios e referências observadas');evidence.placeholder='Para cada critério, anote evento/arquivo/recibo existente ou marque evidência ausente. Não certifica conclusão.';
+  target.appendChild(evidence);
+  const copyEvidence=document.createElement('button');copyEvidence.type='button';copyEvidence.textContent='Copiar critérios e referências';
+  copyEvidence.onclick=async()=>{if(!current())return;try{await navigator.clipboard.writeText(`Critérios: ${acceptance.value}\nReferências consultivas: ${evidence.value}\nProposta observada: ${draft.view?.proposal?.proposal_digest||'não registrada'}\nNão aprova nem comprova objetivo cumprido.`);}catch(_){if(current())feedback.textContent='Cópia indisponível.';}};target.appendChild(copyEvidence);
 }

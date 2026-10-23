@@ -10,7 +10,7 @@ export function recordStudioDiagnostics(message, metrics) {
   let previous = {};
   try { previous = JSON.parse(message.dataset.studioDiagnostics || '{}'); } catch (_) {}
   const data = { ...previous };
-  for (const key of ['response_time', 'time_to_first_token', 'request_context_tokens', 'context_length', 'agent_prep_time']) {
+  for (const key of ['response_time', 'time_to_first_token', 'request_context_tokens', 'context_length', 'agent_prep_time', 'provider_stream_seconds']) {
     if (typeof metrics[key] === 'number' && Number.isFinite(metrics[key]) && metrics[key] >= 0) data[key] = metrics[key];
   }
   if (metrics.agent_prep_breakdown && typeof metrics.agent_prep_breakdown === 'object') {
@@ -53,6 +53,7 @@ export function renderStudioDiagnostics(target, history) {
       if (typeof data[key] === 'number') row(label, `${data[key]} ${unit}`);
     }
     const stages = { request_setup: 'Preparação do pedido', tool_selection: 'Seleção de ferramentas', prompt_build: 'Composição do contexto', context_trim: 'Ajuste ao orçamento' };
+    if(Number.isFinite(data.provider_stream_seconds))row('Transporte/stream do provedor observado',`${data.provider_stream_seconds} s; inclui processamento do stream, não mede apenas GPU`);
     for (const [key, value] of Object.entries(data.preparation || {})) row(stages[key] || key, `${value} s`);
     const labels = { persona: 'Persona', tool_protocol: 'Protocolo de ferramentas', action_instruction: 'Instrução da ação', protected_context: 'Contexto protegido', system: 'Sistema', user: 'Mensagens do usuário', assistant: 'Histórico do agente', tool: 'Retornos de ferramentas', other: 'Outros' };
     const profile = data.initial_context_profile;
@@ -104,7 +105,28 @@ export function renderStudioDiagnostics(target, history) {
   const failure = work.filter(item => item.status === 'failed').at(-1);
   if (failure) { const p = document.createElement('p'); p.textContent = `Último registro com falha: ${failure.tool}${failure.file ? ` · ${failure.file}` : ''}. Consulte o evento original em Atividade e arquivos para distinguir formato, autorização, execução ou timeout; este resumo não determina a causa.`; execution.appendChild(p); }
   content.appendChild(execution);
+  const observed=work.map(item=>item.node.dataset.studioToolSeconds).filter(value=>typeof value==='string'&&value.trim()).map(Number).filter(n=>Number.isFinite(n)&&n>=0);
+  const timing=document.createElement('p');timing.textContent=observed.length?`Despacho + execução observados: ${observed.reduce((a,b)=>a+b,0).toFixed(3)} s em ${observed.length} registros. Não separa custos internos do dispatcher e processo.`:'Tempos de despacho/execução não registrados. Não são inferidos por diferença.';content.appendChild(timing);
+  for(const [key,label] of [['dispatch_seconds','Verificações/despacho'],['execution_seconds','Handler de execução e retorno']]){
+    const values=work.map(item=>{try{return JSON.parse(item.node.dataset.studioToolPhases||'null')?.[key];}catch(_){return undefined;}}).filter(value=>Number.isFinite(value)&&value>=0);
+    const p=document.createElement('p');p.textContent=values.length?`${label}: ${values.reduce((a,b)=>a+b,0).toFixed(3)} s em ${values.length} registros observados.`:`${label}: não registrado separadamente.`;content.appendChild(p);
+  }
+  const exportButton=document.createElement('button');exportButton.type='button';exportButton.textContent='Copiar diagnóstico reduzido (JSON)';
+  exportButton.onclick=async()=>{if(!target.contains(exportButton))return;try{await navigator.clipboard.writeText(JSON.stringify(reducedDiagnostics(history),null,2));}catch(_){if(target.contains(exportButton))exportButton.textContent='Cópia indisponível';}};content.appendChild(exportButton);
   target.replaceChildren(heading, note, content);
+}
+
+export function reducedDiagnostics(history) {
+  const work=collectStudioWork(history),messages=Array.from(history.querySelectorAll('.msg-ai'));
+  const result={format:1,scope:'loaded_conversation_counts_only',tool_records:work.length,failed:work.filter(x=>x.status==='failed').length,running:work.filter(x=>x.status==='running').length,metrics:[]};
+  for(const node of messages.slice(-100)){
+    let raw;try{raw=JSON.parse(node.dataset.studioDiagnostics||'{}');}catch(_){continue;}
+    const data={};for(const key of ['response_time','time_to_first_token','agent_prep_time','provider_stream_seconds','request_context_tokens','context_length'])if(Number.isFinite(raw?.[key])&&raw[key]>=0)data[key]=raw[key];
+    const prep={};for(const key of ['request_setup','tool_selection','prompt_build','context_trim'])if(Number.isFinite(raw?.preparation?.[key])&&raw.preparation[key]>=0)prep[key]=raw.preparation[key];
+    if(Object.keys(prep).length)data.preparation=prep;
+    if(Object.keys(data).length)result.metrics.push(data);
+  }
+  return result;
 }
 
 export function planFromToolEvent(event) {

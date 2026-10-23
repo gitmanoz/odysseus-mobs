@@ -38,8 +38,11 @@ def _load_for_user(user: Optional[str] = None) -> dict:
             users = all_prefs["_users"]
             return dict(next(iter(users.values()), {}))
         return dict(all_prefs["_users"].get(user, {}))
-    # Legacy flat format — return as-is
-    return dict(all_prefs)
+    # A legacy anonymous task draft must not become visible to accounts that
+    # are created after authentication is enabled. Ordinary theme prefs keep
+    # their existing compatibility behavior.
+    return {key: value for key, value in all_prefs.items()
+            if user is None or not key.startswith('studio-task-draft-')}
 
 
 def _save_for_user(user: Optional[str], prefs: dict):

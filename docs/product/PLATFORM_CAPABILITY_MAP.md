@@ -2,7 +2,7 @@
 
 Source of Truth do universo de capacidades da plataforma atualmente chamada Odisseus: estado factual, evidência, natureza arquitetural, dependências, risco, ownership e cobertura. A ordem de materialização pertence exclusivamente ao [ROADMAP.md](../../ROADMAP.md).
 
-Revisão factual em 2026-10-22: consumidor `dev` em `1a2d67c7f3562a4f9bda07da0e5d61157c47083b`, mais a consolidação documental descrita na [preparação do desenvolvimento](../development/DEVELOPMENT_ENABLEMENT.md); MOBS `main` em `009feb3558df7919070971656411f6c0a58cf8cf`. Estado descreve inspeção do código e evidências delimitadas; não certifica cada fluxo operacional nem acompanha novos commits automaticamente. O benchmark externo ao final continua datado de 2026-10-11.
+Revisão factual em 2026-10-23: último checkpoint instalado do consumidor `dev`: `79447c970b908cee4a8055e72598864c57f7033b`; incremento offline posterior descrito na [preparação do desenvolvimento](../development/DEVELOPMENT_ENABLEMENT.md), ainda sujeito à ativação no pacote original. MOBS `main` em `009feb3558df7919070971656411f6c0a58cf8cf`. Consultar Git para source atual e manifesto para versão instalada. Estado descreve inspeção do código e evidências delimitadas; não certifica cada fluxo operacional nem acompanha novos commits automaticamente. O benchmark externo ao final continua datado de 2026-10-11.
 
 ## Baseline e responsabilidades
 

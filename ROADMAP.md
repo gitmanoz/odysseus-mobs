@@ -2,7 +2,7 @@
 
 Source of Truth da sequência estratégica de materialização do produto atualmente chamado Odisseus. O [Capability Map](docs/product/PLATFORM_CAPABILITY_MAP.md) mantém universo, estado factual, evidências, ownership e dependências das capacidades.
 
-Revisão factual em 2026-10-22: consumidor `dev` em `1a2d67c7f3562a4f9bda07da0e5d61157c47083b`, com preparação e limites descritos na [nota de desenvolvimento](docs/development/DEVELOPMENT_ENABLEMENT.md); baseline institucional MOBS `009feb3558df7919070971656411f6c0a58cf8cf`. Datas identificam revisão, não compromisso de lançamento. A presença de código e testes isolados não certifica o E2E pelo Desktop.
+Revisão factual em 2026-10-23: último checkpoint instalado do consumidor `dev`: `79447c970b908cee4a8055e72598864c57f7033b`; evolução offline posterior e limites descritos na [nota de desenvolvimento](docs/development/DEVELOPMENT_ENABLEMENT.md). Baseline institucional MOBS `009feb3558df7919070971656411f6c0a58cf8cf`. Identidade do source atual deve ser consultada no Git; identidade instalada, no manifesto do pacote. Datas identificam revisão, não compromisso de lançamento. A presença de código e testes isolados não certifica o E2E pelo Desktop.
 
 ## Direção e fronteiras
 

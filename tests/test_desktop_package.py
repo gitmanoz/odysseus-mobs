@@ -40,3 +40,26 @@ def test_source_capture_is_content_sensitive_and_omits_private_data(tmp_path):
     second=package.capture_source(tmp_path)
     assert first['source_digest']!=second['source_digest']
     assert 'secret' not in json.dumps(second)
+
+
+def test_verification_reports_component_and_checks_source_when_requested(payload, monkeypatch):
+    record=package.write_manifest(payload,Path('.'))
+    assert package.verify_manifest(payload,Path('.'))==record
+    monkeypatch.setattr(package,'capture_source',lambda *_:{'head':'changed'})
+    with pytest.raises(ValueError,match='Source/HEAD'):
+        package.verify_manifest(payload,Path('.'))
+    (payload/'_internal/static/js/studioSources.js').write_text('tampered')
+    with pytest.raises(ValueError,match='changed.*studioSources'):
+        package.verify_manifest(payload)
+
+
+def test_public_build_identification_exposes_only_safe_metadata(payload):
+    record={'format_version':1,'source':{'head':'a'*40,'source_digest':'b'*64,'files':{'PRIVATE_PATH':'SECRET_CONTENT'}},'files':{}}
+    (payload/package.MANIFEST).write_text(json.dumps(record))
+    public=package.public_build_info(payload)
+    assert public=={'kind':'desktop','recorded':True,'head':'a'*40,'source_digest':'b'*64,'integrity_checked':False}
+    assert 'PRIVATE' not in json.dumps(public) and 'SECRET' not in json.dumps(public)
+    (payload/package.MANIFEST).write_text('[]')
+    assert package.public_build_info(payload)['recorded'] is False
+    with pytest.raises(ValueError,match='format'):
+        package.verify_manifest(payload)

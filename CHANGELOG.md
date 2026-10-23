@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — 2026-10-23
+
+### Added
+
+- Observed source pagination/status, grouped pages, overlap warnings, loaded-source diagnostic links and explicit continuation/range copying, without automatic reads or submissions.
+- Paged sealed-diff presentation, whitespace/newline inspection, aggregate file statistics and consultative notes bound to file/digest; full diff copying remains exact.
+- Explicit task-draft save/restore through existing account preferences, scoped by conversation/workspace, plus consultative acceptance references and reduced diagnostic exports.
+- Observed provider-stream and tool dispatch/handler timings; safe build identity, component-level package mismatch reports, optional source comparison and a pre-cleanup disk-space gate.
+
+### Fixed
+
+- Preserve valid file-read pages up to their existing 20K-character limit instead of clipping their presentation at the generic 10K limit; retain pagination metadata after reload.
+- Prevent legacy anonymous task drafts from leaking to accounts after authentication is enabled, and prevent stale draft/source controls from crossing workspaces.
+- Prefer the fresh web shell and restrict offline resource fallback to the current service-worker cache.
+
+Validated with offline fixtures only. Desktop activation of this increment is pending safe disk capacity; no model, GUI or governed Desktop E2E claim. Six follow-up architecture proposals remain unapproved.
+
 ## Unreleased — 2026-10-22
 
 ### Fixed

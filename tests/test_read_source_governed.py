@@ -18,4 +18,14 @@ def test_governed_read_reference_binds_existing_mandate_baseline(mandate, monkey
     assert reference['baseline_head']==mandate['target']['head']
     assert reference['baseline_working_tree_sha256']==mandate['target']['working_tree_sha256']
     assert reference['workspace']==mandate['target']['path']
+    assert isinstance(output['source_pagination']['has_more'], bool)
+    assert output['dispatch_execution_seconds'] >= 0
+    metrics=next(e['data'] for e in events if e.get('type')=='metrics')
+    persisted=next(e for e in metrics['tool_events'] if e['tool']=='read_file')
+    assert persisted['source_pagination']==output['source_pagination']
+    assert persisted['dispatch_execution_seconds']==output['dispatch_execution_seconds']
+    assert metrics['provider_stream_seconds'] >= 0
+    assert output['phase_timing']['dispatch_seconds'] >= 0
+    assert output['phase_timing']['execution_seconds'] >= 0
+    assert persisted['phase_timing']==output['phase_timing']
     assert any(e.get('type')=='institutional_verified' for e in events)

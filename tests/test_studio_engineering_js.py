@@ -101,7 +101,7 @@ assert.doesNotMatch(body,/PRIVATE CONTENT/);
 def test_task_draft_copies_without_requests_and_preserves_fields_on_refresh():
     run(r'''
 globalThis.fetch=()=>{throw Error('task preparation must stay local')};
-const target=new E(),view={session_id:'one',workspace:'old'};
+const target=new E(),view={session_id:'one',workspace:'current'};
 G.renderTaskPreparation(target,view);
 const objective=target.querySelectorAll('textarea')[0],acceptance=target.querySelectorAll('textarea')[1];
 objective.value='<script>repair bug</script>';acceptance.value='fixture passes';objective.oninput();
@@ -193,4 +193,29 @@ assert.match(recipes[1].meaning,/compilação\/sintaxe/);
 assert.match(recipes[2].meaning,/regras estáticas/);
 assert.match(recipes[3].meaning,/identidade\/estado Git/);
 assert.match(recipes[4].meaning,/não classificada/);
+''')
+
+
+def test_draft_persistence_is_explicit_scoped_and_rejects_old_shapes():
+    run(r'''
+const D=await import(new URL('./studioDrafts.js',G_URL));
+assert.equal(D.normalizeTaskDraft({format:0,kind:'bug',objective:'old',acceptance:''}),null);
+assert.equal(D.normalizeTaskDraft({format:1,kind:'bug',objective:'x'.repeat(4001),acceptance:''}),null);
+const a=await D.taskDraftKey('one','C:/A'),b=await D.taskDraftKey('one','C:/B');assert.notEqual(a,b);assert.match(a,/^studio-task-draft-[0-9a-f]{64}$/);
+const calls=[];globalThis.fetch=async(url,options)=>{calls.push({url,options});return{ok:true,json:async()=>({value:options.body?JSON.parse(options.body).value:{format:1,kind:'test',objective:'saved',acceptance:'fixture'}})};};
+const target=new E();G.renderTaskPreparation(target,{session_id:'one',workspace:'C:/A'});assert.equal(calls.length,0);
+target.querySelectorAll('textarea')[0].value='private A';const save=target.querySelectorAll('button').find(b=>b.textContent==='Salvar rascunho');await save.onclick();assert.equal(calls.length,1);assert.equal(calls[0].options.credentials,'same-origin');assert.match(calls[0].options.body,/private A/);
+G.renderTaskPreparation(target,{session_id:'one',workspace:'C:/B'});assert.equal(target.querySelectorAll('textarea')[0].value,'');await save.onclick();assert.equal(calls.length,1);
+await target.querySelectorAll('button').find(b=>b.textContent==='Restaurar rascunho salvo').onclick();assert.equal(target.querySelectorAll('textarea')[0].value,'saved');assert.match(calls[1].url,new RegExp(b+'$'));
+'''.replace('G_URL', json.dumps((Path(__file__).resolve().parents[1]/'static/js/studioEngineering.js').as_uri())))
+
+
+def test_diagnostics_export_strips_outputs_accounts_paths_and_unknown_fields():
+    run(r'''
+const history=new E(),node=new E('div','msg-ai');history.appendChild(node);
+node.dataset.studioDiagnostics=JSON.stringify({response_time:4,provider_stream_seconds:2,token:'PRIVATE_TOKEN',owner:'PRIVATE_OWNER',path:'PRIVATE_PATH',preparation:{request_setup:1,PRIVATE_STAGE:5}});
+const work=tool(history,'PRIVATE_TOOL','error','PRIVATE_PATH');work.textContent='PRIVATE_RAW_OUTPUT';
+const report=A.reducedDiagnostics(history);assert.equal(report.failed,1);assert.equal(report.metrics[0].provider_stream_seconds,2);
+assert.doesNotMatch(JSON.stringify(report),/PRIVATE/);assert.deepEqual(report.metrics[0].preparation,{request_setup:1});
+node.dataset.studioDiagnostics='null';assert.equal(A.reducedDiagnostics(history).metrics.length,0);
 ''')

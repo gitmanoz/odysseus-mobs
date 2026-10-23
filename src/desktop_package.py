@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
 REQUIRED = ('MOBS Studio.exe', '_internal/webview2-runtime/msedgewebview2.exe',
@@ -70,13 +71,40 @@ def write_manifest(package, source, expected_source=None):
     return record
 
 
-def verify_manifest(package):
+def verify_manifest(package, source=None):
     package = Path(package)
     reject_link(package/MANIFEST)
     record = json.loads((package/MANIFEST).read_text(encoding='utf-8'))
-    if type(record.get('format_version')) is not int or record['format_version'] != 1 or record.get('files') != package_inventory(package):
-        raise ValueError('Package inventory differs from its build manifest')
+    if not isinstance(record, dict) or type(record.get('format_version')) is not int or record['format_version'] != 1 or not isinstance(record.get('files'), dict):
+        raise ValueError('Invalid build manifest format')
+    actual = package_inventory(package)
+    expected = record['files']
+    differences = [(kind, name[:240]) for kind, names in (
+        ('missing', expected.keys()-actual.keys()), ('unexpected', actual.keys()-expected.keys()),
+        ('changed', {name for name in expected.keys() & actual.keys() if expected[name] != actual[name]})) for name in sorted(names)]
+    if differences:
+        raise ValueError('Package inventory differs: '+json.dumps(differences[:12], ensure_ascii=True)+(' (more omitted)' if len(differences)>12 else ''))
+    if source is not None and record.get('source') != capture_source(source):
+        raise ValueError('Source/HEAD/working tree differs from the packaged source evidence')
     return record
+
+
+def public_build_info(package=None):
+    """Public identification only; no paths, installation IDs, files or secrets."""
+    if package is None and not getattr(sys, 'frozen', False):
+        return {'kind': 'source', 'recorded': False, 'integrity_checked': False}
+    root = Path(package) if package is not None else Path(sys.executable).parent
+    try:
+        reject_link(root/MANIFEST)
+        if (root/MANIFEST).stat().st_size > 8*1024*1024: raise ValueError('oversized')
+        record = json.loads((root/MANIFEST).read_text(encoding='utf-8'))
+        source = record['source']
+        import re
+        head, fingerprint = source['head'], source['source_digest']
+        if type(record.get('format_version')) is not int or record['format_version'] != 1 or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',head) or not re.fullmatch(r'[0-9a-f]{64}',fingerprint): raise ValueError('invalid')
+        return {'kind':'desktop','recorded':True,'head':head,'source_digest':fingerprint,'integrity_checked':False}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {'kind':'desktop','recorded':False,'integrity_checked':False}
 
 
 def main():
@@ -87,7 +115,7 @@ def main():
     if a.capture_source:
         a.capture_source.write_text(json.dumps(capture_source(a.source), sort_keys=True), encoding='utf-8')
     elif a.verify:
-        verify_manifest(a.package); print('Package inventory verified; activation not performed.')
+        verify_manifest(a.package, a.source); print('Package inventory verified'+(' against source/HEAD.' if a.source else '.')+' Activation not performed.')
     else:
         expected = json.loads(a.expected_source.read_text(encoding='utf-8')) if a.expected_source else None
         write_manifest(a.package, a.source, expected); print('Build manifest written; activation not performed.')

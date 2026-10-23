@@ -19,6 +19,8 @@ import sys
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
+_active_observed_timing = contextvars.ContextVar('observed_tool_timing', default=None)
+
 
 
 from src.tool_security import (
@@ -596,6 +598,7 @@ async def execute_tool_block(
     trusted_execution: Optional[Any] = None,
     governed_read: bool = False,
     tool_policy: Optional[Any] = None,
+    observe_timing: bool = False,
 ) -> Tuple[str, Dict]:
     """Execute a single tool block. Returns (description, result_dict).
 
@@ -607,6 +610,8 @@ async def execute_tool_block(
     timeout_token = _active_shell_timeout.set(shell_timeout)
     trusted_token = _active_trusted_execution.set(trusted_execution)
     governed_token = _active_governed_read.set(governed_read)
+    timing = {'dispatch_start':time.perf_counter()} if observe_timing else None
+    timing_token = _active_observed_timing.set(timing)
     try:
         output = await _execute_tool_block_impl(
             block,
@@ -616,12 +621,19 @@ async def execute_tool_block(
             progress_cb=progress_cb,
             tool_policy=tool_policy,
         )
+        if timing is not None:
+            finished=time.perf_counter()
+            start=timing.get('execution_start')
+            measured={'dispatch_seconds':round(max(0,(start if start is not None else finished)-timing['dispatch_start']),6)}
+            if start is not None:measured['execution_seconds']=round(max(0,finished-start),6)
+            output[1]['phase_timing']=measured
         return output
     finally:
         _active_workspace.reset(token)
         _active_shell_timeout.reset(timeout_token)
         _active_trusted_execution.reset(trusted_token)
         _active_governed_read.reset(governed_token)
+        _active_observed_timing.reset(timing_token)
 
 
 async def _execute_tool_block_impl(
@@ -738,6 +750,9 @@ async def _execute_tool_block_impl(
         logger.warning("Public tool policy blocked owner=%r tool=%s", owner, tool)
         return desc, result
 
+
+    observed_timing=_active_observed_timing.get()
+    if observed_timing is not None:observed_timing['execution_start']=time.perf_counter()
 
     # Background execution: a `bash` block whose first line is the `#!bg`
     # marker runs DETACHED — returns a job id immediately so the chat stream

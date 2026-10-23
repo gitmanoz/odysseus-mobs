@@ -27,3 +27,17 @@ def test_actual_loop_sends_and_persists_same_source_reference(monkeypatch):
     metrics=next(e['data'] for e in events if e.get('type')=='metrics')
     assert output['source_reference']['path']=='src/a.py'
     assert metrics['tool_events'][0]['source_reference']==output['source_reference']
+
+
+def test_read_presentation_does_not_silently_cut_a_valid_page_to_the_generic_output_limit(monkeypatch):
+    from tests.test_fenced_example_not_executed_for_native_models import _patch_common, _run_loop
+    import src.agent_loop as loop
+    calls=[];_patch_common(monkeypatch,calls)
+    text='line\n'*3000
+    async def read(*a,**k):
+        return 'read_file',{'output':text,'exit_code':0,'has_more':False,'partial_line':False,'lines_read':3000,'source_reference':{'path':'src/a.py','start_line':1}}
+    monkeypatch.setattr(loop,'execute_tool_block',read)
+    events=_run_loop(monkeypatch,'gpt-4o',[],native_calls=[{'id':'read','name':'read_file','arguments':'{"path":"src/a.py"}'}])
+    output=next(e for e in events if e.get('type')=='tool_output')
+    assert output['output']==text
+    assert output['source_pagination']['presentation_truncated'] is False
