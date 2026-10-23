@@ -2,6 +2,12 @@
 
 ## Unreleased — 2026-10-23
 
+### Fixed
+
+- Reject incomplete or mistyped edit/write JSON before touching files, including missing replacements, non-boolean replace-all flags and unencodable UTF-8 replacements. Explicit empty replacements/content remain supported.
+- Preserve UTF-8 bytes outside targeted edits, including mixed line endings and BOM; retain legacy newline-equivalent matching without splitting CRLF, and write replacement/full-file content literally instead of applying Windows newline translation. Report actual UTF-8 bytes written.
+- Count diff content beginning with ++/-- correctly, expose truncation and explain line-ending/final-newline-only changes instead of returning an empty diff.
+
 ### Added
 
 - A manual development handoff view combining scoped source references, proposal/candidate identities, observed activity and plan counts with editable objective/blockers/next action. Explicit clipboard copying never submits, resumes or authorizes work; unavailable or mismatched scope stays unconfirmed, and raw tool/file content is excluded.

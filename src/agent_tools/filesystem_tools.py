@@ -57,19 +57,24 @@ def _unified_diff(old: str, new: str, path: str) -> Optional[Dict[str, Any]]:
         fromfile=f"a/{label}", tofile=f"b/{label}",
         lineterm="",
     ))
-    added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
-    removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
+    # Only the first two rows are headers. Content beginning in ++/-- still
+    # counts as an added/removed line when prefixed by the diff marker.
+    added = sum(1 for line in diff_lines[2:] if line.startswith("+"))
+    removed = sum(1 for line in diff_lines[2:] if line.startswith("-"))
     truncated = False
     if len(diff_lines) > MAX_DIFF_LINES:
         diff_lines = diff_lines[:MAX_DIFF_LINES]
         truncated = True
     text = "\n".join(diff_lines)
+    if not diff_lines:
+        text = 'Text lines unchanged; line endings or final newline changed. Compare the full contents.'
     if truncated:
         text += f"\n… diff truncated at {MAX_DIFF_LINES} lines"
     return {
         "text": text,
         "added": added,
         "removed": removed,
+        "truncated": truncated,
         "new_file": old == "",
         "file": os.path.basename(path) or (path or "file"),
     }
@@ -78,13 +83,22 @@ class EditFileTool:
     async def execute(self, content: str, ctx: dict) -> dict:
         from src.tool_execution import _resolve_tool_path, _resolve_search_root, _truncate
         try:
-            args = json.loads(content) if content.strip().startswith("{") else {}
+            args = json.loads(content) if isinstance(content, str) else None
         except (json.JSONDecodeError, TypeError):
-            args = {}
-        raw_path = (args.get("path") or "").strip()
-        old = args.get("old_string", "")
-        new = args.get("new_string", "")
-        replace_all = bool(args.get("replace_all", False))
+            args = None
+        if not isinstance(args, dict):
+            return {"error": "edit_file: JSON object required", "exit_code": 1}
+        if any(not isinstance(args.get(key), str) for key in ('path', 'old_string', 'new_string')):
+            return {"error": "edit_file: path, old_string and new_string must be explicitly supplied strings", "exit_code": 1}
+        if type(args.get('replace_all', False)) is not bool:
+            return {"error": "edit_file: replace_all must be a boolean", "exit_code": 1}
+        raw_path = args['path'].strip()
+        old, new = args['old_string'], args['new_string']
+        replace_all = args.get('replace_all', False)
+        try:
+            old.encode('utf-8'); new.encode('utf-8')
+        except UnicodeEncodeError:
+            return {"error": "edit_file: replacement strings must be valid UTF-8 text", "exit_code": 1}
         if not raw_path:
             return {"error": "edit_file: path required", "exit_code": 1}
         try:
@@ -96,22 +110,30 @@ class EditFileTool:
         if old == new:
             return {"error": "edit_file: old_string and new_string are identical", "exit_code": 1}
 
+        # Preserve the existing universal-newline matching semantics without
+        # normalizing/re-encoding every untouched line in the file. Everything
+        # except newline equivalence is literal; replacement is not regex text.
+        old_lines = old.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        # A CRLF is one newline, never two matches obtained by backtracking.
+        newline_pattern = r'(?:\r\n|\r(?!\n)|(?<!\r)\n)'
+        pattern = re.compile(newline_pattern.join(re.escape(line) for line in old_lines))
+
         def _apply():
             """Helper function that performs the actual string replacement and file writing logic."""
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8", newline="") as f:
                 original = f.read()
-            count = original.count(old)
+            count = sum(1 for _ in pattern.finditer(original))
             if count == 0:
-                return original, None, "not_found"
+                return original, None, "not_found", 0
             if count > 1 and not replace_all:
-                return original, None, f"not_unique:{count}"
-            updated = original.replace(old, new) if replace_all else original.replace(old, new, 1)
-            with open(path, "w", encoding="utf-8") as f:
+                return original, None, f"not_unique:{count}", 0
+            updated, replaced = pattern.subn(lambda _: new, original, count=0 if replace_all else 1)
+            with open(path, "w", encoding="utf-8", newline="") as f:
                 f.write(updated)
-            return original, updated, "ok"
+            return original, updated, "ok", replaced
 
         try:
-            original, updated, status = await asyncio.to_thread(_apply)
+            original, updated, status, n = await asyncio.to_thread(_apply)
         except FileNotFoundError:
             return {"error": f"edit_file: {path}: not found (use write_file to create it)", "exit_code": 1}
         except (IsADirectoryError, UnicodeDecodeError):
@@ -127,7 +149,6 @@ class EditFileTool:
             n = status.split(":", 1)[1]
             return {"error": f"edit_file: old_string is not unique in {path} ({n} matches). Add surrounding context or set replace_all=true.", "exit_code": 1}
 
-        n = original.count(old)
         result = {"output": f"Edited {path} ({n} replacement{'s' if n != 1 else ''})", "exit_code": 0}
         diff = _unified_diff(original, updated, path)
         if diff:
@@ -204,6 +225,8 @@ class ReadFileTool:
 class WriteFileTool:
     async def execute(self, content: str, ctx: dict) -> dict:
         from src.tool_execution import _resolve_tool_path, _resolve_search_root, _truncate
+        if not isinstance(content, str):
+            return {"error": "write_file: text arguments required", "exit_code": 1}
         lines = content.split("\n", 1)
         raw_path = lines[0].strip()
         body = lines[1] if len(lines) > 1 else ""
@@ -217,11 +240,16 @@ class WriteFileTool:
         if _stripped.startswith("{"):
             try:
                 _a = json.loads(_stripped)
-                if isinstance(_a, dict) and "path" in _a:
-                    raw_path = str(_a.get("path", "")).strip()
-                    body = str(_a.get("content", ""))
+                if not isinstance(_a, dict) or any(not isinstance(_a.get(key), str) for key in ('path','content')):
+                    return {"error": "write_file: path and content must be explicitly supplied strings", "exit_code": 1}
+                raw_path = _a['path'].strip()
+                body = _a['content']
             except (json.JSONDecodeError, TypeError, ValueError):
-                pass
+                return {"error": "write_file: invalid JSON object", "exit_code": 1}
+        try:
+            byte_size = len(body.encode('utf-8'))
+        except UnicodeEncodeError:
+            return {"error": "write_file: content must be valid UTF-8 text", "exit_code": 1}
         try:
             path = _resolve_tool_path(raw_path)
         except ValueError as e:
@@ -230,16 +258,16 @@ class WriteFileTool:
             def _write():
                 old = ""
                 try:
-                    with open(path, "r", encoding="utf-8") as f:
+                    with open(path, "r", encoding="utf-8", newline="") as f:
                         old = f.read()
                 except (FileNotFoundError, IsADirectoryError, UnicodeDecodeError, OSError):
                     old = ""
                 d = os.path.dirname(path)
                 if d:
                     os.makedirs(d, exist_ok=True)
-                with open(path, "w", encoding="utf-8") as f:
+                with open(path, "w", encoding="utf-8", newline="") as f:
                     f.write(body)
-                return old, len(body)
+                return old, byte_size
             old_content, size = await asyncio.to_thread(_write)
         except PermissionError:
             return {"error": f"write_file: {path}: permission denied", "exit_code": 1}

@@ -330,3 +330,32 @@ preparação manual F1/F2, não durable execution,
 retomada automática, compactação institucional de contexto ou scheduler.
 As decisões arquiteturais anteriores permanecem pendentes. Evidências do lote
 em `C:/AI/STUDIO_HANDOFF_BATCH.md`; pacote atual sempre pelo manifesto.
+
+### Fidelidade das ferramentas de edição — 2026-10-23
+
+Os handlers existentes de edit_file/write_file validam tipos e presença dos
+argumentos antes de tocar arquivos. Substituição/conteúdo vazio continua válida
+quando explícita; replace_all exige booleano real. Texto sem codificação UTF-8
+válida é recusado antes de abrir para escrita. Não há ferramenta ou autoridade nova.
+
+Uma edição lê/grava UTF-8 sem tradução automática de terminadores pelo Windows.
+Preserva BOM e bytes fora da região substituída. A correspondência mantém a
+equivalência de CRLF/CR/LF da leitura legada, sem tratar um CRLF como duas
+quebras e sem fuzzy matching de conteúdo/indentação. O replacement é literal,
+incluindo seus terminadores; isso pode produzir arquivo misto se o solicitante
+misturar convenções. Não há normalização silenciosa do arquivo inteiro.
+
+Escrita integral grava exatamente o conteúdo fornecido e conta bytes UTF-8,
+não caracteres. O diff conta corretamente conteúdo iniciado por ++/--, indica
+limitação e explica alterações apenas de terminadores/newline final. É uma
+apresentação, não um patch selado nem evidência de promoção.
+
+Fixtures exercitam argumentos recusados, exclusão explícita, Unicode/BOM,
+CRLF/multilinha, ambiguidades, conteúdo literal e falhas sem substituição.
+Testes antigos usam tmp_path/raízes de fixture, sem depender de /tmp no Windows.
+TEB, dispatcher, autoridades e promoção não foram alterados. O bloqueio de
+edição direta em execução elegível à promoção permanece como existente; esta
+mudança não o contorna. Não se promete atomicidade multi-arquivo, recuperação
+de queda de disco ou proteção contra todas as corridas de filesystem.
+Evidência consolidada: `C:/AI/STUDIO_EDITING_BATCH.md`. HISTORY avaliado sem
+novo marco institucional; CHANGELOG registra apenas o incremento consolidado.
