@@ -359,3 +359,35 @@ mudança não o contorna. Não se promete atomicidade multi-arquivo, recuperaç�
 de queda de disco ou proteção contra todas as corridas de filesystem.
 Evidência consolidada: `C:/AI/STUDIO_EDITING_BATCH.md`. HISTORY avaliado sem
 novo marco institucional; CHANGELOG registra apenas o incremento consolidado.
+
+### Patches de múltiplos arquivos — 2026-10-23
+
+O handler apply_patch existente passa a validar JSON/tipos/alias único, alvos
+resolvidos repetidos ou ancestrais conflitantes e UTF-8 de todas as operações
+antes do loop de escrita. Erros nessa preparação não aplicam operações anteriores.
+Não há transação ou rollback garantido contra falha de IO/crash/corrida posterior.
+
+O matcher compartilhado confere linhas lógicas inteiras e únicas, com hunks
+ordenados/sem sobreposição; não troca substring no meio de uma linha e exige
+contexto para inserção em arquivo existente. O handler direto conserva linhas
+de contexto com seus terminadores e escolhe terminador local para linhas novas;
+substituição de última linha sem newline mantém esse EOF. Add File usa LF da
+gramática do patch; moves/novo marcador de EOF não foram admitidos. Diff agregado
+explicita corte sem perder as contagens integrais.
+
+O adaptador Windows já reutiliza o matcher, por isso suas regressões e as de
+promoção de dois arquivos são confrontadas separadamente. Não se alterou o
+adaptador, seu IO, admissão, política, TEB ou recibos: não se extrapola preservação
+de terminadores do handler direto para a cópia privada governada. Permanecem
+exatamente dois arquivos e as restrições anteriores onde exigidos. Nenhuma
+promoção N-arquivos, mecanismo de execução ou autoridade nova.
+Evidências: `C:/AI/STUDIO_PATCH_BATCH.md`. HISTORY avaliado sem novo marco.
+
+A regressão reúne 128 casos do lote principal e 41 casos distintos de
+fronteira/promoção, total 169 aprovados pelo último resultado de cada caso.
+Dez falhas iniciais da bateria nativa provinham do teste passar sys.executable
+da venv como runtime completo. As políticas dos testes usam agora a receita
+python, exercitando o seletor real existente; 19 casos nativos passaram na
+repetição. O sys.executable do subprocesso interno do probe não mudou.
+Logs originais com falhas foram preservados; não somar reexecuções nem tratar
+esse ajuste de fixture como modificação ou relaxamento da TEB.

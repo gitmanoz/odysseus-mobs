@@ -290,15 +290,19 @@ class ApplyPatchTool:
         """
         from src.tool_execution import _resolve_tool_path
 
-        patch_text = content or ""
+        if not isinstance(content, str):
+            return {"error": "apply_patch: patch text must be a string", "exit_code": 1}
+        patch_text = content
         stripped = patch_text.strip()
         if stripped.startswith("{"):
             try:
                 args = json.loads(stripped)
-                if isinstance(args, dict):
-                    patch_text = str(args.get("patch_text") or args.get("patchText") or args.get("patch") or "")
+                keys = [key for key in ('patch_text','patchText','patch') if isinstance(args,dict) and key in args]
+                if len(keys)!=1 or not isinstance(args[keys[0]],str):
+                    return {"error": "apply_patch: supply exactly one string patch_text, patchText or patch", "exit_code": 1}
+                patch_text = args[keys[0]]
             except (json.JSONDecodeError, TypeError):
-                pass
+                return {"error": "apply_patch: invalid JSON object", "exit_code": 1}
         if not patch_text.strip():
             return {"error": "apply_patch: patch_text required", "exit_code": 1}
 
@@ -307,8 +311,20 @@ class ApplyPatchTool:
             if not ops:
                 return {"error": "apply_patch: no file operations found", "exit_code": 1}
             prepared = []
+            targets = []
             for op in ops:
+                if not op['path']:
+                    raise ValueError('empty patch target')
                 path = _resolve_tool_path(op["path"])
+                target = os.path.normcase(os.path.abspath(path))
+                for previous in targets:
+                    try:
+                        shared = os.path.commonpath((previous,target))
+                    except ValueError:
+                        continue  # distinct drives
+                    if shared in (previous,target):
+                        raise ValueError('repeated or conflicting patch targets')
+                targets.append(target)
                 kind = op["kind"]
                 if kind == "add":
                     if os.path.exists(path):
@@ -318,15 +334,16 @@ class ApplyPatchTool:
                 elif kind == "delete":
                     if not os.path.isfile(path):
                         return {"error": f"apply_patch: {op['path']}: not found", "exit_code": 1}
-                    with open(path, "r", encoding="utf-8") as f:
+                    with open(path, "r", encoding="utf-8", newline="") as f:
                         old = f.read()
                     new = ""
                 else:
                     if not os.path.isfile(path):
                         return {"error": f"apply_patch: {op['path']}: not found", "exit_code": 1}
-                    with open(path, "r", encoding="utf-8") as f:
+                    with open(path, "r", encoding="utf-8", newline="") as f:
                         old = f.read()
                     new = _apply_patch_hunks(old, op["hunks"], op["path"])
+                new.encode('utf-8')  # validate every operation before the commit loop
                 prepared.append((kind, path, old, new))
 
             diffs = []
@@ -337,7 +354,7 @@ class ApplyPatchTool:
                     directory = os.path.dirname(path)
                     if directory:
                         os.makedirs(directory, exist_ok=True)
-                    with open(path, "w", encoding="utf-8") as f:
+                    with open(path, "w", encoding="utf-8", newline="") as f:
                         f.write(new)
                 diff = _unified_diff(old, new, path)
                 if diff:
@@ -349,7 +366,9 @@ class ApplyPatchTool:
         removed = sum(int(d.get("removed") or 0) for d in diffs)
         text_parts = [d.get("text", "") for d in diffs if d.get("text")]
         diff_text = "\n".join(text_parts)
+        truncated = any(d.get('truncated') for d in diffs)
         if len(diff_text.splitlines()) > MAX_DIFF_LINES:
+            truncated = True
             diff_text = "\n".join(diff_text.splitlines()[:MAX_DIFF_LINES]) + f"\n... diff truncated at {MAX_DIFF_LINES} lines"
         result = {
             "output": f"Applied patch ({len(prepared)} file{'s' if len(prepared) != 1 else ''}, +{added}/-{removed})",
@@ -360,6 +379,7 @@ class ApplyPatchTool:
                 "text": diff_text,
                 "added": added,
                 "removed": removed,
+                "truncated": truncated,
                 "new_file": any(d.get("new_file") for d in diffs),
                 "file": "patch",
             }
@@ -428,31 +448,43 @@ def _parse_agent_patch(patch_text: str) -> List[Dict[str, Any]]:
     return ops
 
 def _apply_patch_hunks(original: str, hunks: List[List[str]], label: str) -> str:
-    updated = original
+    # Physical rows keep their original terminators; match entire logical rows.
+    parts = re.split(r'(\r\n|\r|\n)', original)
+    rows = [(parts[i], parts[i+1] if i+1<len(parts) else '')
+            for i in range(0,len(parts),2) if i+1<len(parts) or parts[i]]
+    cursor = 0
     for idx, hunk in enumerate(hunks, 1):
-        old_lines = []
-        new_lines = []
-        for line in hunk:
-            prefix, body = line[:1], line[1:]
-            if prefix in (" ", "-"):
-                old_lines.append(body)
-            if prefix in (" ", "+"):
-                new_lines.append(body)
-        old_text = "\n".join(old_lines)
-        new_text = "\n".join(new_lines)
-        if old_text and old_text in updated:
-            occurrences = updated.count(old_text)
-            if occurrences != 1:
-                raise ValueError(f"{label}: hunk {idx} context matched {occurrences} times")
-            updated = updated.replace(old_text, new_text, 1)
-        elif old_text + "\n" in updated:
-            occurrences = updated.count(old_text + "\n")
-            if occurrences != 1:
-                raise ValueError(f"{label}: hunk {idx} context matched {occurrences} times")
-            updated = updated.replace(old_text + "\n", new_text + "\n", 1)
-        else:
+        old_lines = [line[1:] for line in hunk if line.startswith((' ','-'))]
+        if not old_lines:
+            raise ValueError(f'{label}: hunk {idx} needs existing line context')
+        texts = [body for body, _ in rows]
+        matches = [i for i in range(len(rows)-len(old_lines)+1)
+                   if texts[i]==old_lines[0] and texts[i:i+len(old_lines)]==old_lines]
+        if not matches:
             raise ValueError(f"{label}: hunk {idx} context not found")
-    return updated
+        if len(matches)!=1:
+            raise ValueError(f'{label}: hunk {idx} context matched {len(matches)} times')
+        start=matches[0];end=start+len(old_lines)
+        if start<cursor:
+            raise ValueError(f'{label}: hunk {idx} is out of order or overlaps')
+        matched=rows[start:end]
+        ending=next((eol for _,eol in matched if eol),next((eol for _,eol in rows if eol),'\n'))
+        replacement=[];offset=0
+        for line in hunk:
+            if line[0]==' ':
+                replacement.append(matched[offset]);offset+=1
+            elif line[0]=='-':
+                offset+=1
+            else:
+                replacement.append((line[1:],ending))
+        if end==len(rows) and replacement and hunk[-1].startswith('+') and not matched[-1][1]:
+            replacement[-1]=(replacement[-1][0],'')
+        # Appending after an EOF context row needs a separator, not concatenation.
+        replacement=[(body,eol or ending) if i<len(replacement)-1 else (body,eol)
+                     for i,(body,eol) in enumerate(replacement)]
+        rows[start:end]=replacement
+        cursor=start+len(replacement)
+    return ''.join(body+eol for body,eol in rows)
 
 class LsTool:
     async def execute(self, content: str, ctx: dict) -> dict:

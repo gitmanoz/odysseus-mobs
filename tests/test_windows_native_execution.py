@@ -116,7 +116,8 @@ def synthetic(tmp_path: Path):
 
 def policy(target: Path, mode: str, *args: str, timeout: int = 10) -> WindowsExecutionPolicy:
     return WindowsExecutionPolicy(
-        str(target), (sys.executable, "-I", "allowed/probe.py", mode, *args),
+        # Exercise the real selector (venv launcher is not a complete runtime).
+        str(target), ("python", "-I", "allowed/probe.py", mode, *args),
         ("allowed/**",), ("allowed/**",), ("allowed/**",), timeout,
     )
 
@@ -242,7 +243,7 @@ def test_read_only_file_cannot_be_modified_even_transiently(synthetic):
               "\ntry:\n p.write_text('TEMPORARY')\n print('MUTATED')\n"
               "except OSError:\n print('DENIED')\n")
     result = run(WindowsExecutionPolicy(
-        str(target), (sys.executable, "-I", "-c", script),
+        str(target), ("python", "-I", "-c", script),
         ("allowed/**",), (), (), 10,
     ))
     assert result["exit_code"] == 0, result
@@ -262,7 +263,7 @@ def test_create_grant_does_not_modify_existing_read_only_file(synthetic):
               "try:\n p.unlink()\n print('DELETED')\n"
               "except OSError:\n print('DELETE_DENIED')\n")
     result = run(WindowsExecutionPolicy(
-        str(target), (sys.executable, "-I", "-c", script),
+        str(target), ("python", "-I", "-c", script),
         ("allowed/**",), (), ("allowed/**",), 10,
     ))
     assert result["exit_code"] == 0, result
@@ -279,7 +280,7 @@ def test_write_grant_changes_only_approved_private_file(synthetic):
               "Path('allowed/input.txt').write_text('PRIVATE WRITE'); "
               "print(Path('allowed/input.txt').read_text())")
     result = run(WindowsExecutionPolicy(
-        str(target), (sys.executable, "-I", "-c", script),
+        str(target), ("python", "-I", "-c", script),
         ("allowed/**",), ("allowed/input.txt",), (), 10,
     ))
     assert result["exit_code"] == 0, result
@@ -295,7 +296,7 @@ def test_promotion_artifact_is_sealed_before_private_workspace_cleanup(synthetic
     target, _ = synthetic
     script = "from pathlib import Path; Path('allowed/input.txt').write_text('SEALED')"
     result = run(WindowsExecutionPolicy(
-        str(target), (sys.executable, "-I", "-c", script),
+        str(target), ("python", "-I", "-c", script),
         ("allowed/**",), ("allowed/input.txt",), (), 10,
         promotion_binding={"session_id": "s", "proposal_id": "p", "proposal_digest": "d",
                            "authority_snapshot": "a", "source_baseline": {}, "target_baseline": {"path": str(target)},
@@ -330,7 +331,7 @@ def test_promotion_eligible_private_command_allows_zero_effects(synthetic, tmp_p
     install_junior_operational_profile(monkeypatch, tmp_path)
     target, _ = synthetic
     result = run(WindowsExecutionPolicy(
-        str(target), (sys.executable, '-I', '-c', "print('no delta')"),
+        str(target), ("python", '-I', '-c', "print('no delta')"),
         ('allowed/**',), ('allowed/**',), ('allowed/**',), 10,
         promotion_binding={'session_id': 's', 'proposal_id': 'p', 'proposal_digest': 'd',
                            'authority_snapshot': 'a', 'source_baseline': {}, 'target_baseline': {},
@@ -351,7 +352,7 @@ def test_promotion_eligible_private_command_blocks_multiple_effects(synthetic, t
               "Path('allowed/probe.py').write_text('two')")
     with pytest.raises(TrustedExecutionUnavailable, match='multiple or forbidden'):
         run(WindowsExecutionPolicy(
-            str(target), (sys.executable, '-I', '-c', script),
+            str(target), ("python", '-I', '-c', script),
             ('allowed/**',), ('allowed/**',), ('allowed/**',), 10,
             promotion_binding={'session_id': 's', 'proposal_id': 'p', 'proposal_digest': 'd',
                                'authority_snapshot': 'a', 'source_baseline': {}, 'target_baseline': {},
@@ -364,7 +365,7 @@ def test_unenforceable_single_file_create_fails_closed(synthetic):
     target, _ = synthetic
     with pytest.raises(TrustedExecutionUnavailable, match="Create path cannot be enforced"):
         run(WindowsExecutionPolicy(
-            str(target), (sys.executable, "-I", "-c", "print('not launched')"),
+            str(target), ("python", "-I", "-c", "print('not launched')"),
             ("allowed/**",), (), ("allowed/new.txt",), 10,
         ))
 

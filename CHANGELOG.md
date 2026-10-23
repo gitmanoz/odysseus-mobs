@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Harden the existing apply_patch handler: reject malformed/ambiguous arguments, repeated or ancestor-conflicting targets and invalid UTF-8 before writing; match whole logical lines, reject unordered/overlapping hunks, retain physical line endings and explicit diff-truncation metadata. The shared matcher also improves private patch context checks; existing two-file admission and promotion remain unchanged.
+
 - Reject incomplete or mistyped edit/write JSON before touching files, including missing replacements, non-boolean replace-all flags and unencodable UTF-8 replacements. Explicit empty replacements/content remain supported.
 - Preserve UTF-8 bytes outside targeted edits, including mixed line endings and BOM; retain legacy newline-equivalent matching without splitting CRLF, and write replacement/full-file content literally instead of applying Windows newline translation. Report actual UTF-8 bytes written.
 - Count diff content beginning with ++/-- correctly, expose truncation and explain line-ending/final-newline-only changes instead of returning an empty diff.
