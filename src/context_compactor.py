@@ -221,7 +221,8 @@ def _truncate_message_to_token_budget(msg: Dict[str, Any], token_budget: int) ->
     return _truncate_tool_call_args(out, token_budget)
 
 
-def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: int = 512) -> List[Dict]:
+def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: int = 512,
+                     *, preserve_current: bool = False) -> List[Dict]:
     """Trim system messages to fit within context_length.
 
     For small-context models, progressively strips:
@@ -307,9 +308,22 @@ def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: 
             prior_convo.pop(0)
         convo_msgs = prior_convo + current_msg
 
+    # A governed caller checks the exact request after reduction. Spend the
+    # optional preset budget before truncating that request. Protected sources
+    # and research primers never enter this branch; no authority is shortened.
+    if preserve_current and current_msg and essential_system:
+        if not _is_research_primer(essential_system[0]):
+            rest = essential_system[1:] + convo_msgs
+            available = budget - estimate_tokens(rest)
+            if available >= 128 and estimate_tokens(essential_system + convo_msgs) > budget:
+                essential_system[0] = _truncate_message_to_token_budget(essential_system[0], available)
+
     # If the current message itself is too large, shrink only that message.
-    if current_msg and estimate_tokens(essential_system + protected_msgs + convo_msgs) > budget:
-        prefix = essential_system + protected_msgs + convo_msgs[:-1]
+    # budget already excludes protected_tokens. Count only the remaining
+    # messages here; charging protected context again can truncate a request
+    # that fits exactly once removable history has been discarded.
+    if current_msg and estimate_tokens(essential_system + convo_msgs) > budget:
+        prefix = essential_system + convo_msgs[:-1]
         available_for_current = max(64, budget - estimate_tokens(prefix))
         convo_msgs[-1] = _truncate_message_to_token_budget(convo_msgs[-1], available_for_current)
 

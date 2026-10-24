@@ -1917,6 +1917,11 @@ import { wireArrowUpRecall, getUserMessagesFromChatHistory } from './composerArr
           _mobsAction = null;
           throw new Error('MOBS action belongs to another session. Select the proposal again.');
         }
+        // A textless approval executes the reviewed mandate, not the empty
+        // ordinary-chat draft. Defer admission to server privileges and the
+        // governed boundary; do not synthesize a shell deny from that draft.
+        // Explicit API denies and persistent/admin restrictions stay intact.
+        if (_mobsAction.action === 'approve') fd.delete('allow_bash');
         fd.append('mobs_action', _mobsAction.action);
         if (_mobsAction.proposalId) fd.append('mobs_proposal_id', _mobsAction.proposalId);
         if (_mobsAction.proposalDigest) fd.append('mobs_proposal_digest', _mobsAction.proposalDigest);

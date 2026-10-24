@@ -1,8 +1,20 @@
 # Changelog
 
+## Unreleased — 2026-10-24
+
+### Fixed
+
+- Reserve minimal governed follow-up space and spend optional preset context before truncating the approved request; protected authorities and the existing capacity gates remain unchanged.
+- Feed completed commands back with their output, exit code and a digest reference to the full ledger receipt, avoiding repeated audit payloads in the model context.
+- Preserve observed tool results, partial preparation diagnostics and the blocking reason through the existing history-save path when a later institutional check interrupts a round. Forward preparation events to the existing diagnostics UI.
+
 ## Unreleased — 2026-10-23
 
 ### Fixed
+
+- Submit a textless mandate approval without the empty ordinary-chat draft's shell toggle; server account/admin restrictions, explicit API denies and the reviewed execution boundary remain enforced.
+
+- Count protected context once when budgeting the current message after history trimming; preserve a full approved request that fits alongside its authorities, while retaining visible truncation for genuinely oversized generic messages and existing institutional fail-closed checks.
 
 - Harden the existing apply_patch handler: reject malformed/ambiguous arguments, repeated or ancestor-conflicting targets and invalid UTF-8 before writing; match whole logical lines, reject unordered/overlapping hunks, retain physical line endings and explicit diff-truncation metadata. The shared matcher also improves private patch context checks; existing two-file admission and promotion remain unchanged.
 

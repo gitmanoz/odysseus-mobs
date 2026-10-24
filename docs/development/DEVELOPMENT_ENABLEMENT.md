@@ -1,12 +1,38 @@
-# Preparação do desenvolvimento cotidiano — 2026-10-22
+# Preparação do desenvolvimento cotidiano — atualização 2026-10-24
 
-Nota técnica do consumidor, não autoridade institucional, novo roadmap ou autorização. A prioridade pertence ao [Roadmap](../../ROADMAP.md); a cobertura pertence ao [Capability Map](../product/PLATFORM_CAPABILITY_MAP.md). Seguir PROJECT_INDEX → Decision Tree no MOBS oficial para cada execução. Base de inspeção: consumidor `dev` em `5bb4f80e3ba782c4f1be07db946eb986f1341e85`, mais o delta local deste ciclo; MOBS `009feb3558df7919070971656411f6c0a58cf8cf`.
+Em 2026-10-23, o Desktop executou `python -m pytest -q tests/test_probe.py` pela
+TEB (`windows_appcontainer_job_v1`), com retorno 0 e target original intacto,
+sem promoção. A rodada ficou `blocked` na chamada posterior por excesso de
+contexto. Isso comprova a operação Python, mas não o ciclo completo com síntese.
+A prova local está em C:/AI/STUDIO_PYTHON_DESKTOP_RESULTADO.md; nenhum dado de
+conta, autorização ou recibo pessoal deve ser incorporado ao repositório.
+
+O consumidor corrige o desconto duplo de tokens protegidos e o transporte da
+aprovação sem texto. O flag de shell do rascunho comum não acompanha essa
+aprovação; o servidor continua verificando privilégios, recusas explícitas,
+mandato e TEB. Não há alteração de permissão persistente ou autoridade.
+
+Na rodada de 2026-10-24, o orçamento inicial reserva também 512 tokens mínimos
+para uma chamada curta e seu retorno. O preset opcional pode ser reduzido com
+aviso antes de cortar o pedido, enquanto autoridades/protocolo protegidos
+permanecem literais. Um retorno grande ou várias chamadas ainda podem exceder
+a janela e continuam bloqueados; essa reserva não promete execução ilimitada.
+O feedback do comando mantém saída e código, com digest do recibo integral
+preservado no ledger. Um bloqueio posterior passa resultados observados e
+diagnóstico parcial ao salvamento existente do histórico, sem marcar sucesso.
+
+As regressões sem modelo cobrem preservação, negações, orçamento de duas rodadas
+e evidência parcial pelo caminho HTTP. A repetição no Desktop desta rodada
+depende de login manual: a tela de autenticação não é automatizada. Não foi
+certificado um novo ciclo completo, teste negativo ou edição/promoção por UI.
+
+Nota técnica do consumidor, não autoridade institucional, novo roadmap ou autorização. A prioridade pertence ao [Roadmap](../../ROADMAP.md); a cobertura pertence ao [Capability Map](../product/PLATFORM_CAPABILITY_MAP.md). Seguir PROJECT_INDEX → Decision Tree no MOBS oficial para cada execução. Baseline deste ciclo: consumidor `dev` em `d2a7312d44966452c9f8dfff61ec0444178224db`, mais as correções descritas; MOBS `009feb3558df7919070971656411f6c0a58cf8cf`, somente leitura.
 
 ## Decisão técnica recomendada
 
 Reutilizar Agent Loop, dispatcher, TEB, propostas, sessões, recibos e Controlled Promotion existentes. Primeiro comprovar uma tarefa pequena pelo Desktop. Em seguida admitir uma fatia Godot de código, antes de gameplay ou Computer Use próprio. Não há benefício demonstrado em criar outro executor, serviço de contexto, roteador ou mecanismo de atualização neste ciclo.
 
-O Studio já tem mecanismos de planejamento, edição privada e inspeção, mas ainda não há evidência de Python concluído pelo Desktop. Edição de vários arquivos na cópia privada não equivale a promoção de N arquivos. O contrato atual admite um arquivo ou exatamente dois, e não deve ser contornado por promoções fragmentadas de um delta atômico.
+O Studio já tem mecanismos de planejamento, edição privada e inspeção, e uma operação Python real comprovada pelo Desktop. O ciclo completo e repetível com síntese continua pendente. Edição de vários arquivos na cópia privada não equivale a promoção de N arquivos. O contrato atual admite um arquivo ou exatamente dois, e não deve ser contornado por promoções fragmentadas de um delta atômico.
 
 ## Entregas e próximos experimentos
 

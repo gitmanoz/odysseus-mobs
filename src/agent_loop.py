@@ -8,6 +8,7 @@ The LLM decides when to use tools by writing fenced code blocks.
 
 import asyncio
 import collections
+import hashlib
 import json
 import re
 import time
@@ -3158,6 +3159,25 @@ def _detect_runaway_call(call_freq, threshold=15):
 
 _MOBS_NOT_REQUESTED = object()
 
+# Minimum planning headroom for a short call plus its compact result. Large
+# outputs still hit the unchanged per-round capacity guard; this is no promise
+# that every tool or a long sequence fits in a finite window.
+_GOVERNED_FEEDBACK_RESERVE = 512
+
+
+def _governed_result_feedback(description: str, result: Dict, receipt: Dict) -> str:
+    """Project a completed command for the model; keep the full ledger intact."""
+    projected = dict(result)
+    boundary = receipt.get('boundary', {})
+    evidence = json.dumps(receipt, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    projected.pop('command_capability', None)  # already inside the complete receipt
+    projected['trusted_execution'] = {
+        'adapter': boundary.get('adapter'),
+        'ledger_receipt_sha256': hashlib.sha256(evidence.encode('utf-8')).hexdigest(),
+        'exit_code': receipt.get('exit_code'),
+    }
+    return format_tool_result(description, projected)
+
 
 async def stream_agent_loop(*args, mobs_execution=_MOBS_NOT_REQUESTED, **kwargs) -> AsyncGenerator[str, None]:
     """Existing executor, with an explicit opt-in institutional preflight.
@@ -3167,6 +3187,12 @@ async def stream_agent_loop(*args, mobs_execution=_MOBS_NOT_REQUESTED, **kwargs)
     """
     from src.mobs_institutional_boot import institutional_boot, InstitutionalBootError
     context = None
+    observed_tools = []
+    observed_prep = None
+    observed_start = {}
+    observed_round = 1
+    observed_model = None
+    observed_started = time.monotonic()
     try:
         if mobs_execution is not _MOBS_NOT_REQUESTED:
             from src.tool_security import owner_is_admin_or_single_user
@@ -3190,6 +3216,24 @@ async def stream_agent_loop(*args, mobs_execution=_MOBS_NOT_REQUESTED, **kwargs)
             async for chunk in stream:
                 if context and chunk == "data: [DONE]\n\n":
                     continue
+                if context and chunk.startswith('data: {'):
+                    try:
+                        event = json.loads(chunk[6:])
+                    except json.JSONDecodeError:
+                        event = {}
+                    kind = event.get('type')
+                    if kind == 'agent_prep':
+                        observed_prep = event
+                    elif kind == 'agent_step':
+                        observed_round = event.get('round', observed_round)
+                    elif kind == 'model_actual':
+                        observed_model = event.get('model')
+                    elif kind == 'tool_start':
+                        observed_start = event
+                    elif kind == 'tool_output':
+                        observed_tools.append({**{key: value for key, value in event.items() if key != 'type'},
+                                               'round': observed_start.get('round', observed_round),
+                                               'desc': observed_start.get('command', event.get('command', ''))})
                 yield chunk
         if context:
             await asyncio.to_thread(context.verify)
@@ -3198,6 +3242,17 @@ async def stream_agent_loop(*args, mobs_execution=_MOBS_NOT_REQUESTED, **kwargs)
     except InstitutionalBootError as exc:
         yield f"data: {json.dumps({'delta': 'MOBS execution blocked: ' + str(exc)})}\n\n"
         yield f"data: {json.dumps({'type': 'institutional_blocked', 'reason': str(exc), 'ledger': context.mutation_ledger if context else []})}\n\n"
+        # A later block must not erase already-observed results on history
+        # reload. This is partial telemetry, never an objective-completion flag.
+        partial = {'incomplete': True, 'blocked_reason': str(exc), 'tool_events': observed_tools,
+                   'agent_rounds': observed_round, 'agent_tool_calls': len(observed_tools),
+                   'observed_elapsed_seconds': round(time.monotonic() - observed_started, 3)}
+        if observed_model:
+            partial['model'] = observed_model
+        if observed_prep:
+            partial['agent_prep_breakdown'] = observed_prep.get('data', {})
+            partial['initial_context_profile'] = observed_prep.get('context_profile', {})
+        yield f"data: {json.dumps({'type': 'metrics', 'data': partial})}\n\n"
         yield "data: [DONE]\n\n"
 
 
@@ -3923,11 +3978,12 @@ async def _stream_agent_loop(
                 # when the complete request fits the verified serving window.
                 effective_budget = min(ctx_for_budget, hard_max)
             if institutional_context:
-                governed_input_budget = effective_budget - reserve_tokens
+                governed_input_budget = effective_budget - reserve_tokens - _GOVERNED_FEEDBACK_RESERVE
             trimmed_messages = trim_for_context(
                 messages,
                 effective_budget,
-                reserve_tokens=reserve_tokens,
+                reserve_tokens=reserve_tokens + (_GOVERNED_FEEDBACK_RESERVE if institutional_context else 0),
+                preserve_current=bool(institutional_context),
             )
             after_trim_tokens = estimate_tokens(trimmed_messages)
             if after_trim_tokens < before_trim_tokens:
@@ -4848,6 +4904,7 @@ async def _stream_agent_loop(
         budget_hit = False
         for i, block in enumerate(tool_blocks):
             pending_action = None
+            completed_command = None
             if institutional_context:
                 from src.mobs_institutional_boot import InstitutionalBootError
                 pending_action = await asyncio.to_thread(
@@ -4957,6 +5014,7 @@ async def _stream_agent_loop(
                         institutional_context.complete_command, pending_action, result
                     )
                     event_type = "institutional_command"
+                    completed_command = action
                 else:
                     action = await asyncio.to_thread(
                         institutional_context.complete_mutation, pending_action
@@ -5368,7 +5426,8 @@ async def _stream_agent_loop(
             if block.tool_type in _VERIFIER_EFFECTFUL_TOOLS:
                 _effectful_used = True
 
-            formatted = format_tool_result(desc, result)
+            formatted = (_governed_result_feedback(desc, result, completed_command)
+                         if completed_command is not None else format_tool_result(desc, result))
             tool_results.append(formatted)
             tool_result_texts.append(formatted)
             if (
