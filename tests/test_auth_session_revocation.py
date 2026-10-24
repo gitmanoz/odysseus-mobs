@@ -60,6 +60,39 @@ def test_revoke_user_sessions_preserves_current_and_persists(tmp_path):
     assert mgr.validate_token(bob) is True
 
 
+def test_session_survives_restart_without_reauthentication(tmp_path):
+    mgr = _make_manager(tmp_path)
+    token = mgr.create_session("alice", "old-password")
+    restored = type(mgr)(mgr.auth_path)
+    assert restored.validate_token(token) is True
+    assert restored.get_username_for_token(token) == "alice"
+    restored.revoke_token(token)
+    assert type(mgr)(mgr.auth_path).validate_token(token) is False
+
+
+def test_expiry_restore_reports_reason_without_session_secrets(tmp_path, caplog):
+    import json
+    import logging
+    import time
+
+    mgr = _make_manager(tmp_path)
+    expired = mgr.create_session("alice", "old-password")
+    valid = mgr.create_session("bob", "bob-password")
+    stored = json.loads(Path(mgr._sessions_path).read_text(encoding="utf-8"))
+    stored[expired]["expiry"] = time.time() - 1
+    Path(mgr._sessions_path).write_text(json.dumps(stored), encoding="utf-8")
+    with caplog.at_level(logging.INFO, logger="core.auth"):
+        restored = type(mgr)(mgr.auth_path)
+        assert restored.validate_token(expired) is False
+        assert restored.validate_token(valid) is True
+        restored.revoke_token(valid)
+    assert "discarded 1 expired session(s)" in caplog.text
+    assert "explicit logout" in caplog.text
+    assert expired not in caplog.text
+    assert valid not in caplog.text
+    assert "old-password" not in caplog.text
+
+
 def test_wrong_current_password_does_not_revoke_sessions(tmp_path):
     mgr = _make_manager(tmp_path)
     current = mgr.create_session("alice", "old-password")

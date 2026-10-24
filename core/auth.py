@@ -151,7 +151,10 @@ class AuthManager:
                 pruned = len(data) - len(self._sessions)
                 if pruned > 0:
                     self._save_sessions()
+                    logger.info("Auth session restore: discarded %d expired session(s)", pruned)
                 logger.info(f"Loaded {len(self._sessions)} session(s) from disk")
+            else:
+                logger.info("Auth session restore: no persisted session file")
         except Exception as e:
             logger.error(f"Failed to load sessions: {e}")
             self._sessions = {}
@@ -624,6 +627,7 @@ class AuthManager:
                     deleted_user = True
         if expired or deleted_user:
             self._save_sessions()
+            logger.info("Auth session rejected: %s", "expired" if expired else "account missing")
             return False
         return True
 
@@ -650,12 +654,15 @@ class AuthManager:
                     return _u
         if expired or deleted_user:
             self._save_sessions()
+            logger.info("Auth session rejected: %s", "expired" if expired else "account missing")
         return None
 
     def revoke_token(self, token: str):
         with self._sessions_lock:
-            self._sessions.pop(token, None)
+            removed = self._sessions.pop(token, None)
         self._save_sessions()
+        if removed is not None:
+            logger.info("Auth session revoked: explicit logout")
 
     def revoke_user_sessions(self, username: str, except_token: Optional[str] = None) -> int:
         """Revoke active browser sessions for a user, optionally preserving one."""
@@ -671,6 +678,7 @@ class AuthManager:
                 revoked += 1
             if revoked:
                 self._save_sessions()
+                logger.info("Auth sessions revoked for account: %d", revoked)
         return revoked
 
     def status(self, token: Optional[str]) -> Dict[str, Any]:

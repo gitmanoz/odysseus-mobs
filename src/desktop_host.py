@@ -401,6 +401,9 @@ def run_desktop() -> int:
                                        background_color="#101113", shadow=False, transparent=False,
                                        maximized=True)
         window.events.shown += lambda: apply_window_appearance(window)
+        # Lifecycle observations only: no cancellation or extra shutdown path.
+        window.events.closing += lambda: logging.info('Studio window: closing event received')
+        window.events.closed += lambda: logging.info('Studio window: closed event received')
         # No js_api: browser content receives no privileged native bridge.
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(paths.webview))
         return 0
@@ -411,7 +414,9 @@ def run_desktop() -> int:
     finally:
         if backend is not None:
             try:
+                logging.info('Studio backend: normal shutdown requested')
                 backend.stop()
+                logging.info('Studio backend: normal shutdown finished')
             except Exception:
                 logging.exception("Backend shutdown failed")
         elif listener is not None:

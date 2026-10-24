@@ -2,6 +2,10 @@
 
 ## Unreleased — 2026-10-24
 
+### Added
+
+- Credential-free session expiry/revocation and native-window shutdown diagnostics to distinguish a missing login session from a close request that never reaches the Desktop. Authentication policy and shutdown behavior are unchanged.
+
 ### Fixed
 
 - Reserve minimal governed follow-up space and spend optional preset context before truncating the approved request; protected authorities and the existing capacity gates remain unchanged.

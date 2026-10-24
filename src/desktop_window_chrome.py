@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 
 GRAPHITE = '#101113'
 
@@ -171,9 +172,14 @@ def install_studio_caption(window) -> None:
         header.DoubleClick += maximize
         title.DoubleClick += maximize
         buttons = []
+
+        def close(*_):
+            logging.info('Studio native caption: normal close requested')
+            form.Close()
+
         actions = [('—', 'Minimizar', lambda *_: setattr(form, 'WindowState', FormWindowState.Minimized)),
                    ('□', 'Maximizar ou restaurar', maximize),
-                   ('×', 'Fechar MOBS Studio', lambda *_: form.Close())]
+                   ('×', 'Fechar MOBS Studio', close)]
         for index, (glyph, name, handler) in enumerate(actions):
             button = Button()
             button.Text = glyph
