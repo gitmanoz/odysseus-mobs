@@ -165,3 +165,48 @@ def test_atomic_write_text_preserves_target_when_replace_fails(tmp_path, monkeyp
         atomic_write_text(str(target), "new content that never lands")
 
     assert target.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize("winerror", [5, 32])
+@pytest.mark.parametrize("writer,value", [(atomic_write_json, {"new": True}), (atomic_write_text, "new")])
+def test_windows_transient_share_conflict_retries_atomic_replace(tmp_path, monkeypatch, winerror, writer, value):
+    target = tmp_path / "persisted"
+    real_replace = atomic_io.os.replace
+    calls = []
+    delays = []
+
+    def briefly_blocked(source, destination):
+        calls.append((source, destination))
+        if len(calls) < 3:
+            error = PermissionError("fixture sharing conflict")
+            error.winerror = winerror
+            raise error
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(atomic_io.os, "replace", briefly_blocked)
+    monkeypatch.setattr(atomic_io.time, "sleep", delays.append)
+    writer(str(target), value)
+    assert len(calls) == 3
+    assert delays == [0.025, 0.05]
+    assert target.read_text(encoding="utf-8") == (json.dumps(value) if isinstance(value, dict) else value)
+
+
+def test_windows_permanent_denial_is_bounded_and_preserves_destination(tmp_path, monkeypatch):
+    target = tmp_path / "persisted"
+    atomic_write_json(str(target), {"old": True})
+    attempts = []
+    delays = []
+
+    def denied(*_):
+        attempts.append(1)
+        error = PermissionError("fixture permanent denial")
+        error.winerror = 5
+        raise error
+
+    monkeypatch.setattr(atomic_io.os, "replace", denied)
+    monkeypatch.setattr(atomic_io.time, "sleep", delays.append)
+    with pytest.raises(PermissionError):
+        atomic_write_json(str(target), {"new": True})
+    assert len(attempts) == 5
+    assert delays == [0.025, 0.05, 0.1, 0.2]
+    assert json.loads(target.read_text(encoding="utf-8")) == {"old": True}

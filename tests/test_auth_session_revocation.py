@@ -70,6 +70,59 @@ def test_session_survives_restart_without_reauthentication(tmp_path):
     assert type(mgr)(mgr.auth_path).validate_token(token) is False
 
 
+@pytest.mark.parametrize("operation", ["create", "revoke"])
+def test_delayed_session_save_cannot_overwrite_newer_login_or_logout(tmp_path, monkeypatch, operation):
+    import threading
+
+    mgr = _make_manager(tmp_path)
+    auth_mod = sys.modules[type(mgr).__module__]
+    original = auth_mod._atomic_write_json
+    current = mgr.create_session("alice", "old-password")
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_finished = threading.Event()
+    result = {}
+
+    def delayed_write(path, content, **kwargs):
+        if threading.current_thread().name == "older-session-save":
+            first_entered.set()
+            if not release_first.wait(5):
+                raise TimeoutError("fixture save was not released")
+        return original(path, content, **kwargs)
+
+    def later_change():
+        try:
+            if operation == "create":
+                result["token"] = mgr.create_session("bob", "bob-password")
+            else:
+                mgr.revoke_token(current)
+        finally:
+            second_finished.set()
+
+    monkeypatch.setattr(auth_mod, "_atomic_write_json", delayed_write)
+    older = threading.Thread(target=mgr._save_sessions, name="older-session-save")
+    newer = threading.Thread(target=later_change, name="newer-session-change")
+    older.start()
+    try:
+        assert first_entered.wait(2)
+        newer.start()
+        # Before the fix the newer save finishes and the older snapshot then
+        # replaces it. With serialization the newer change waits for release.
+        second_finished.wait(1)
+    finally:
+        release_first.set()
+        older.join(3)
+        if newer.ident is not None:
+            newer.join(3)
+    assert not older.is_alive() and not newer.is_alive()
+    restored = type(mgr)(mgr.auth_path)
+    if operation == "create":
+        assert restored.validate_token(current) is True
+        assert restored.validate_token(result["token"]) is True
+    else:
+        assert restored.validate_token(current) is False
+
+
 def test_expiry_restore_reports_reason_without_session_secrets(tmp_path, caplog):
     import json
     import logging

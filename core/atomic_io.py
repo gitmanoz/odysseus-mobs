@@ -15,7 +15,24 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any, Optional
+
+
+def _replace_with_windows_retry(source: str, target: str) -> None:
+    """Allow short Windows reader/share conflicts without weakening atomicity.
+
+    No permissions are changed. Persistent denials still raise and leave the
+    previous destination intact. Other errors are propagated immediately.
+    """
+    for attempt in range(5):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in (5, 32) or attempt == 4:
+                raise
+            time.sleep(0.025 * (2 ** attempt))
 
 
 def atomic_write_json(path: str, data: Any, *, indent: Optional[int] = None) -> None:
@@ -30,7 +47,7 @@ def atomic_write_json(path: str, data: Any, *, indent: Optional[int] = None) -> 
         json.dump(data, f, indent=indent)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, path)
+    _replace_with_windows_retry(tmp, path)
 
 
 def atomic_write_text(path: str, text: str) -> None:
@@ -42,4 +59,4 @@ def atomic_write_text(path: str, text: str) -> None:
         f.write(text)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, path)
+    _replace_with_windows_retry(tmp, path)

@@ -11,6 +11,7 @@ import time
 import contextlib
 import sys
 import types
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
@@ -210,6 +211,7 @@ class TestDiskConsistency:
 
         stop_event = threading.Event()
         corruption_found = []
+        writer_errors = []
 
         def reader():
             while not stop_event.is_set():
@@ -225,8 +227,11 @@ class TestDiskConsistency:
                 time.sleep(0.001)
 
         def writer():
-            for i in range(50):
-                mgr.create_user(f"stress{i}", f"pw{i}")
+            try:
+                for i in range(50):
+                    assert mgr.create_user(f"stress{i}", f"pw{i}")
+            except Exception as exc:
+                writer_errors.append(exc)
 
         reader_thread = threading.Thread(target=reader)
         writer_thread = threading.Thread(target=writer)
@@ -238,3 +243,6 @@ class TestDiskConsistency:
         reader_thread.join()
 
         assert not corruption_found, f"Corrupt JSON detected: {corruption_found[0]}"
+        assert not writer_errors, f"Writer failed: {writer_errors!r}"
+        persisted = json.loads(Path(mgr.auth_path).read_text(encoding="utf-8"))
+        assert all(f"stress{i}" in persisted["users"] for i in range(50))

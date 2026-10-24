@@ -164,7 +164,10 @@ class AuthManager:
         try:
             with self._sessions_lock:
                 snapshot = dict(self._sessions)
-            _atomic_write_json(self._sessions_path, snapshot)
+                # Keep the snapshot and its replacement in one critical
+                # section. Otherwise a delayed older save can erase a newer
+                # login or restore a revoked token after the next restart.
+                _atomic_write_json(self._sessions_path, snapshot)
         except Exception as e:
             logger.error(f"Failed to save sessions: {e}")
 

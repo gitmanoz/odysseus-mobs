@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Serialize session snapshots with their disk replacement so a delayed save cannot erase a newer login or restore an already revoked session after restart. Covered by deterministic concurrent login/logout regressions; this does not establish the cause of a previous real session loss.
+- Retry brief Windows access/share conflicts during atomic file replacement within a bounded 375 ms delay budget, preserving the old destination and raising on persistent denial. Make the auth disk-concurrency regression fail on writer exceptions or missing accounts.
 - Reserve minimal governed follow-up space and spend optional preset context before truncating the approved request; protected authorities and the existing capacity gates remain unchanged.
 - Feed completed commands back with their output, exit code and a digest reference to the full ledger receipt, avoiding repeated audit payloads in the model context.
 - Preserve observed tool results, partial preparation diagnostics and the blocking reason through the existing history-save path when a later institutional check interrupts a round. Forward preparation events to the existing diagnostics UI.
