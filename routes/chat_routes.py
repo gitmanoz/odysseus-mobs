@@ -59,6 +59,62 @@ from src.tool_policy import (
 logger = logging.getLogger(__name__)
 
 
+def _mobs_control_message(kind: str, data: dict) -> str:
+    """Stable history text for MOBS control-plane events.
+
+    These events return before the ordinary model/context pipeline, so they
+    need their own small persistence path if a governed conversation is to be
+    reconstructable after a reload.
+    """
+    if kind == "mobs_mandate_proposal":
+        return "Proposta MOBS preparada. A revisão institucional ainda está pendente."
+    if kind == "mobs_clarification_required":
+        detail = str(data.get("message") or "The task could not be classified safely.")
+        return f"MOBS needs clarification before it can build a mandate. {detail}"
+    if kind == "mobs_authority_reviewed":
+        return (
+            f"Authority snapshot reviewed: {data.get('authority_snapshot', '')}. "
+            f"Proposal: {data.get('proposal_id', '')}; version: {data.get('proposal_digest', '')}. "
+            "Mandate approval is still required."
+        )
+    if kind == "mobs_mandate_cancelled":
+        return "MOBS mandate cancelled."
+    if kind == "mobs_promotion_validated":
+        validation = data.get("validation") or {}
+        return (
+            "Sealed change validated privately with exit code "
+            f"{validation.get('exit_code', '')}. Human promotion approval is still required."
+        )
+    if kind == "mobs_promotion_applied":
+        effects = data.get("effects")
+        paths = (
+            ", ".join(str(item.get("path") or "") for item in effects)
+            if isinstance(effects, list)
+            else str(data.get("path") or "")
+        )
+        return f"MOBS promotion verified: {paths}"
+    return "MOBS institutional state updated."
+
+
+def _persist_mobs_control_exchange(session_manager, sess, message: str, kind: str,
+                                   data: dict, *, incognito: bool) -> None:
+    """Persist a non-model MOBS turn without duplicating the normal pipeline."""
+    if incognito:
+        return
+    if isinstance(message, str) and message.strip():
+        session_manager.add_message(sess.id, ChatMessage("user", message))
+    reference = {
+        key: data[key] for key in (
+            "proposal_id", "proposal_digest", "authority_snapshot", "status"
+        ) if data.get(key) is not None
+    }
+    session_manager.add_message(sess.id, ChatMessage(
+        "assistant",
+        _mobs_control_message(kind, data),
+        metadata={"mobs_control_event": kind, "mobs_reference": reference},
+    ))
+
+
 def _resolved_mobs_auto_session(
     sess,
     message: str,
@@ -1008,6 +1064,12 @@ def setup_chat_routes(
             yield f'data: {json.dumps({"type": kind, "data": data})}\n\n'
             yield "data: [DONE]\n\n"
 
+        def _mobs_control_response(kind: str, data: dict) -> StreamingResponse:
+            _persist_mobs_control_exchange(
+                session_manager, sess, message, kind, data, incognito=incognito,
+            )
+            return StreamingResponse(_mobs_reply(kind, data), media_type="text/event-stream")
+
         mobs_execution = None
         # Institutional Boot is on demand. Ordinary code/game/test work remains
         # on the normal project path; only explicit institutional or high-impact
@@ -1049,12 +1111,9 @@ def setup_chat_routes(
                 raise HTTPException(400, "Client cannot replace trusted MOBS proposal state")
             if mobs_action == "propose":
                 if not workspace:
-                    return StreamingResponse(
-                        _mobs_reply("mobs_clarification_required", {
-                            "message": "Select the target workspace before MOBS can build a proposal."
-                        }),
-                        media_type="text/event-stream",
-                    )
+                    return _mobs_control_response("mobs_clarification_required", {
+                        "message": "Select the target workspace before MOBS can build a proposal."
+                    })
                 try:
                     proposal = build_workspace_proposal(
                         message,
@@ -1066,14 +1125,12 @@ def setup_chat_routes(
                     save_proposal(session, proposal)
                 except MandateProposalError as exc:
                     if str(exc).startswith("Task classification needs clarification"):
-                        return StreamingResponse(
-                            _mobs_reply("mobs_clarification_required", {"message": str(exc)}),
-                            media_type="text/event-stream",
+                        return _mobs_control_response(
+                            "mobs_clarification_required", {"message": str(exc)}
                         )
                     raise HTTPException(400, f"MOBS proposal blocked: {exc}") from exc
-                return StreamingResponse(
-                    _mobs_reply("mobs_mandate_proposal", proposal_summary(proposal)),
-                    media_type="text/event-stream",
+                return _mobs_control_response(
+                    "mobs_mandate_proposal", proposal_summary(proposal)
                 )
             if mobs_action in {"promote", "validate_promotion"}:
                 try:
@@ -1103,7 +1160,7 @@ def setup_chat_routes(
                     raise HTTPException(400, f"MOBS promotion blocked: {exc}") from exc
                 kind = ("mobs_promotion_validated" if mobs_action == "validate_promotion" and human_required
                         else "mobs_promotion_applied")
-                return StreamingResponse(_mobs_reply(kind, result), media_type="text/event-stream")
+                return _mobs_control_response(kind, result)
             reference = {key: str(payload.get("mobs_" + key) or "") for key in
                          ("proposal_id", "proposal_digest", "authority_snapshot")}
             if mobs_action == "approve" and _is_image_generation_session(sess, owner=effective_user(request)):
@@ -1120,9 +1177,9 @@ def setup_chat_routes(
             except MandateProposalError as exc:
                 raise HTTPException(400, f"MOBS action blocked: {exc}") from exc
             if mobs_action in {"review", "cancel"}:
-                return StreamingResponse(
-                    _mobs_reply("mobs_authority_reviewed" if mobs_action == "review" else "mobs_mandate_cancelled", result),
-                    media_type="text/event-stream",
+                return _mobs_control_response(
+                    "mobs_authority_reviewed" if mobs_action == "review" else "mobs_mandate_cancelled",
+                    result,
                 )
             mobs_execution = result
             mobs_execution["_promotion_session_id"] = str(session)

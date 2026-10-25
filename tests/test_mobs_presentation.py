@@ -39,6 +39,34 @@ def test_reopening_recovers_exact_pending_proposal_without_decision(chat):
     assert not chat.model_calls
 
 
+def test_presentation_rechecks_repository_identity_without_rehashing_authorities(chat, monkeypatch):
+    from src import mobs_presentation
+    proposal = propose(chat)
+    validations = []
+    captures = []
+    real_validate = mobs_presentation.validate_authority_snapshot
+    real_capture = mobs_presentation.capture_repository
+
+    def validate(value):
+        validations.append(value["proposal_id"])
+        return real_validate(value)
+
+    def capture(path):
+        captures.append(str(Path(path).resolve()))
+        return real_capture(path)
+
+    monkeypatch.setattr(mobs_presentation, "validate_authority_snapshot", validate)
+    monkeypatch.setattr(mobs_presentation, "capture_repository", capture)
+    view = state(chat)
+
+    assert view["validity"] == "valid"
+    assert validations == [proposal["proposal_id"]]
+    source = str(chat.source.resolve())
+    target = str(chat.target.resolve())
+    assert captures.count(source) == 1
+    assert captures.count(target) == 2
+
+
 def test_fresh_backend_process_reads_persisted_pending_without_resuming(chat):
     proposal = propose(chat)
     before = facts(chat)

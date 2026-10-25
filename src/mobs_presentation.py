@@ -219,12 +219,15 @@ def session_presentation(session_id, request, preview_reference=None):
             if sorted(before_rows, key=lambda r: r[0]) != sorted(map(tuple, after_rows), key=lambda r: r[0]):
                 raise ValueError("Concurrent promotion change")
             _assert_target_not_quarantined(db, Path(proposal["target"]["path"]))
-        # A replaced proposal or concurrent lifecycle change invalidates this view.
-        if result["validity"] == "valid" and (load_proposal(session_id) != proposal or
+        # A replaced proposal, source drift, target drift, or concurrent
+        # lifecycle change invalidates this view. The full authority/document
+        # validation already ran above; repeat only the exact repository
+        # identities here instead of hashing every authority document twice.
+        if result["validity"] == "valid" and (
+                load_proposal(session_id) != proposal or
+                capture_repository(proposal["source"]["path"]) != proposal["source"] or
                 capture_repository(proposal["target"]["path"]) != proposal["target"]):
             raise ValueError("Concurrent state change")
-        if result["validity"] == "valid":
-            validate_authority_snapshot(proposal)
     except Exception:
         result.update(validity="unavailable", reviewed=False, reviewer_available=False, actions=[])
         for item in result["promotions"]:

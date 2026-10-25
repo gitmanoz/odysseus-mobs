@@ -9,6 +9,11 @@
 ### Changed
 
 - Make MOBS Institutional Boot on demand. Ordinary code, game-development, refactoring and local-test requests stay on the normal project path; explicit institutional or high-impact operations retain proposal review, authority snapshots, execution boundaries and promotion safeguards. The governed loader now treats only `PROJECT_INDEX.md` as universal and loads integration plus branch authorities as needed.
+- Reconstruct institutional state without rehashing every authority document twice in one read. The final concurrency guard still recaptures and compares the exact institutional and target repository identities.
+
+### Fixed
+
+- Persist proposal, clarification, authority-review, cancellation and promotion control turns with their immutable MOBS references before returning the non-model response, so governed conversations retain their visible request and decision context after a reload.
 
 ## Unreleased — 2026-10-24
 

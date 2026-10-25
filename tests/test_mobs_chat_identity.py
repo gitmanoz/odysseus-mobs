@@ -47,10 +47,12 @@ def chat(projects, tmp_path, monkeypatch):
     with factory() as db:
         db.add(database.Session(id="s", name="Test", model="fixture", endpoint_url="http://localhost/api/chat"))
         db.commit()
-    sess = SimpleNamespace(model="fixture", name="Test", endpoint_url="http://localhost/api/chat",
-                           headers={}, history=[], add_message=lambda value: None)
+    history = []
+    sess = SimpleNamespace(id="s", model="fixture", name="Test", endpoint_url="http://localhost/api/chat",
+                           headers={}, history=history, add_message=history.append)
     manager = MagicMock()
     manager.get_session.return_value = sess
+    manager.add_message.side_effect = lambda session_id, value: history.append(value)
     monkeypatch.setattr(routes, "effective_user", lambda request: "founder")
     monkeypatch.setattr(routes, "get_current_user", lambda request: "founder")
     for name in ("_verify_session_owner", "_enforce_chat_privileges", "resolve_session_auth",
@@ -121,6 +123,77 @@ def test_workspace_first_proposal_reaches_route_without_client_category_or_autho
     assert proposal["profile"] == "read_only"
     assert stored["source"]["path"] == str(chat.source.resolve())
     assert stored["category"] == "Código"
+
+
+def test_governed_control_turns_survive_history_reload(chat):
+    request = "Execute sob mandato MOBS python -m pytest -q tests/test_probe.py."
+    proposal = event(
+        chat.post("propose", message=request),
+        "mobs_mandate_proposal",
+    )
+    assert [(item.role, item.content) for item in chat.sess.history] == [
+        ("user", request),
+        ("assistant", "Proposta MOBS preparada. A revisão institucional ainda está pendente."),
+    ]
+    proposal_message = chat.sess.history[-1]
+    assert proposal_message.metadata["mobs_control_event"] == "mobs_mandate_proposal"
+    assert proposal_message.metadata["mobs_reference"]["proposal_id"] == proposal["proposal_id"]
+
+    review = "Confirmo a revisão do snapshot exibido para esta proposta."
+    event(chat.post("review", proposal, message=review), "mobs_authority_reviewed")
+    assert [item.role for item in chat.sess.history[-2:]] == ["user", "assistant"]
+    assert chat.sess.history[-2].content == review
+    reviewed_message = chat.sess.history[-1]
+    assert reviewed_message.content.startswith("Authority snapshot reviewed:")
+    assert reviewed_message.metadata["mobs_control_event"] == "mobs_authority_reviewed"
+    assert reviewed_message.metadata["mobs_reference"]["proposal_id"] == proposal["proposal_id"]
+    assert chat.manager.add_message.call_count == 4
+    assert not chat.model_calls
+
+
+def test_governed_control_exchange_reopens_from_real_message_rows(tmp_path, monkeypatch):
+    import core.session_manager as manager_module
+    from core.database import Base, Session
+    from core.models import Session as MemorySession
+    from core.session_manager import SessionManager
+    from routes.chat_routes import _persist_mobs_control_exchange
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'history.sqlite'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    monkeypatch.setattr(manager_module, "SessionLocal", factory)
+    with factory() as db:
+        db.add(Session(
+            id="governed", name="Governed", model="fixture",
+            endpoint_url="http://localhost/api/chat", owner="founder",
+        ))
+        db.commit()
+    live = MemorySession(
+        id="governed", name="Governed", model="fixture",
+        endpoint_url="http://localhost/api/chat", owner="founder",
+    )
+    manager = SessionManager.__new__(SessionManager)
+    manager.sessions = {"governed": live}
+    manager.upload_handler = None
+    _persist_mobs_control_exchange(
+        manager,
+        live,
+        "Faça a inspeção governada.",
+        "mobs_mandate_proposal",
+        {"proposal_id": "p", "proposal_digest": "d", "authority_snapshot": "a"},
+        incognito=False,
+    )
+
+    reopened = SessionManager.__new__(SessionManager)
+    reopened.sessions = {}
+    reopened.upload_handler = None
+    reopened.load_sessions()
+    history = reopened.get_session("governed").history
+    assert [item.role for item in history] == ["user", "assistant"]
+    assert history[0].content == "Faça a inspeção governada."
+    assert history[1].metadata["mobs_control_event"] == "mobs_mandate_proposal"
+    assert history[1].metadata["mobs_reference"]["proposal_id"] == "p"
+    engine.dispose()
 
 
 def test_common_engineering_request_uses_normal_project_flow(chat):
