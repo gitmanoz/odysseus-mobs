@@ -123,26 +123,31 @@ def test_workspace_first_proposal_reaches_route_without_client_category_or_autho
     assert stored["category"] == "Código"
 
 
-def test_intent_first_engineering_request_automatically_builds_only_a_proposal(chat):
-    proposal = event(chat.post(workspace_first=True, message="Ayla, corrija este bug no código."), "mobs_mandate_proposal")
-    assert proposal["category"] == "Código"
-    assert proposal["profile"] == "development"
-    assert proposal["status"] == "pending"
-    assert load_proposal("s")["status"] == "pending"
+def test_common_engineering_request_uses_normal_project_flow(chat):
+    response = chat.post(workspace_first=True, message="Ayla, corrija este bug no código.")
+    assert response.status_code == 200, response.text
+    assert "mobs_mandate_proposal" not in response.text
+    assert "observed" in response.text
+    assert load_proposal("s") is None
 
 
-def test_intent_first_engineering_request_without_workspace_requires_clarification(chat):
+def test_common_engineering_request_without_workspace_does_not_require_institutional_root(chat):
     response = chat.post(message="Ayla, corrija este bug no código.", workspace="")
-    clarification = event(response, "mobs_clarification_required")
-    assert "workspace" in clarification["message"].lower()
+    assert response.status_code == 200, response.text
+    assert "mobs_clarification_required" not in response.text
+    assert "observed" in response.text
     assert load_proposal("s") is None
 
 
-def test_intent_first_ambiguous_engineering_request_requires_clarification(chat):
-    response = chat.post(workspace_first=True, message="Atualize a arquitetura e a documentação.")
-    clarification = event(response, "mobs_clarification_required")
-    assert "classification" in clarification["message"].lower()
-    assert load_proposal("s") is None
+def test_explicit_institutional_architecture_request_uses_index_branch(chat):
+    response = chat.post(workspace_first=True, message="Atualize a arquitetura e a documentação institucional do MOBS.")
+    proposal = event(response, "mobs_mandate_proposal")
+    assert proposal["category"] == "Arquitetura"
+    assert set(proposal["authority_evidence"]["authorities"]) == {
+        "PROJECT_INDEX.md",
+        "docs/mobs/governance/ARCHITECTURE_TASK_PROTOCOL.md",
+        "project/automation/future/AGENT_RUNTIME_INTEGRATION.md",
+    }
 
 
 def test_intent_first_conversation_stays_outside_mobs(chat):
@@ -265,7 +270,8 @@ def test_drift_invalidates_corresponding_action(chat, drift):
     p = propose(chat)
     event(chat.post("review", p), "mobs_authority_reviewed")
     if drift == "authority":
-        (chat.source / "PROJECT_RULES.md").write_text("# changed authority\n", encoding="utf-8")
+        (chat.source / "project/automation/future/AGENT_RUNTIME_INTEGRATION.md").write_text(
+            "# changed authority\n", encoding="utf-8")
     elif drift == "source_commit":
         git(chat.source, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "drift")
     else:
@@ -361,7 +367,7 @@ def test_current_canonical_mop_produces_minimal_read_only_proposal(projects):
     _, target = projects
     p = build_proposal("Inspect code", target_workspace=str(target), authority_workspace=str(canonical), category="Código")
     assert not (canonical / "docs/mobs/governance/AGENT_RUNTIME_INTEGRATION.md").exists()
-    assert set(p["authorities"]) == {"PROJECT_INDEX.md", "AI_CONTEXT.md", "PROJECT_RULES.md",
+    assert set(p["authorities"]) == {"PROJECT_INDEX.md",
                                      "project/automation/future/AGENT_RUNTIME_INTEGRATION.md"}
 
 

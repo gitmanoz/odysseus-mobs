@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — 2026-10-25
+
+### Added
+
+- Explicit coverage for the three MOBS documentation modes: ordinary local work, branch-minimal institutional decisions, and governed materialization. Historical `old-documentation/` paths are rejected as active authorities.
+
+### Changed
+
+- Make MOBS Institutional Boot on demand. Ordinary code, game-development, refactoring and local-test requests stay on the normal project path; explicit institutional or high-impact operations retain proposal review, authority snapshots, execution boundaries and promotion safeguards. The governed loader now treats only `PROJECT_INDEX.md` as universal and loads integration plus branch authorities as needed.
+
 ## Unreleased — 2026-10-24
 
 ### Added

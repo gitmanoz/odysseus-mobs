@@ -25,7 +25,8 @@ _GOVERNED_ACTION_RE = re.compile(
     r"adicione|adiciona|adicionar|atualize|atualiza|atualizar|remova|remover|"
     r"refatore|refatora|refatorar|edite|edita|editar|crie|cria|criar|"
     r"teste|testa|testar|valide|validar|execute|executar|roda|rode|rodar|"
-    r"faça|faca|faz|fazer|build|fix|implement|add|remove|refactor)\b",
+    r"publique|publicar|faça|faca|faz|fazer|promova|promover|deploy|build|"
+    r"fix|implement|add|remove|refactor)\b",
     re.IGNORECASE,
 )
 _REQUEST_PREFIX_RE = re.compile(
@@ -41,7 +42,16 @@ _REQUEST_PREFIX_RE = re.compile(
 _GOVERNED_SUBJECT_RE = re.compile(
     r"\b(?:bug|c[oó]digo|code|teste|tests?|lint|build|arquivo|m[oó]dulo|"
     r"fun[cç][aã]o|classe|reposit[oó]rio|repo|projeto|project|workspace|"
-    r"arquitetura|architect\w*|documenta[cç][aã]o|document\w*)\b",
+    r"arquitetura|architect\w*|documenta[cç][aã]o|document\w*|deploy|"
+    r"publica[cç][aã]o|credenciais?|segredos?|promotion|promo[cç][aã]o)\b",
+    re.IGNORECASE,
+)
+_INSTITUTIONAL_TRIGGER_RE = re.compile(
+    r"\b(?:boot\s+institucional|execu[cç][aã]o\s+governada|mandato|"
+    r"institucion\w*|autoridade\s+institucional|revis[aã]o\s+institucional|snapshot\s+institucional|"
+    r"controlled\s+promotion|promo[cç][aã]o\s+controlada|teb|"
+    r"project_index|ai_context|project_rules|opera[cç][aã]o\s+mobs|deploy|publi\w*|publica[cç][aã]o|"
+    r"credenciais?|segredos?)\b",
     re.IGNORECASE,
 )
 
@@ -73,17 +83,20 @@ def decision_tree_categories(index: str) -> list[str]:
 
 
 def requests_governed_proposal(user_request: str) -> bool:
-    """Return true only for an explicit engineering request, never for chat.
+    """Return true only for explicit institutional/high-impact work.
 
-    This does not infer authorization, capabilities, a Decision Tree category,
-    or an execution mode. It merely enters the existing workspace-first
-    proposal path, where those values are derived and verified independently.
+    Ordinary code, game, refactoring and local-test requests stay on the normal
+    project path. This detector does not infer authorization or capabilities;
+    it only enters the reviewed proposal path when the request itself supplies
+    an institutional or high-impact trigger.
     """
     text = str(user_request or '')
     # Quoted examples and code are evidence, not requests to execute them.
     text = re.sub(r"""```.*?```|"[^"\n]*"|“[^”\n]*”|'[^'\n]*'""", ' ', text, flags=re.S)
     for clause in re.split(r'[.;!?\n]+', text):
         clause = re.sub(r'[,\s]+', ' ', clause).strip()
+        if not _INSTITUTIONAL_TRIGGER_RE.search(clause):
+            continue
         # Optional vocative/short conversational lead-in; it never changes persona.
         clause = re.sub(r'^(?:ayla|assistente|por favor|por gentileza)\b\s*', '', clause, flags=re.I)
         clause = re.sub(r'^(?:tarefa|objetivo|faz o seguinte|faça o seguinte)\s*:\s*', '', clause, flags=re.I)
@@ -95,8 +108,10 @@ def requests_governed_proposal(user_request: str) -> bool:
         # evidence of a request (the adverbial "de novo" is different).
         if action and re.match(r"\s+(?:de|do|da|dos|das)\b(?!\s+novo\b)", candidate[action.end():], re.I):
             continue
-        if action and any(subject.start() >= action.end()
-                          for subject in _GOVERNED_SUBJECT_RE.finditer(candidate)):
+        # The institutional/high-impact marker already supplies the governed
+        # subject. Requiring a second technical noun caused explicit requests
+        # such as "execute sob mandato MOBS" and "publique" to be missed.
+        if action:
             return True
     return False
 

@@ -26,7 +26,7 @@ e evidência parcial pelo caminho HTTP. A repetição no Desktop desta rodada
 depende de login manual: a tela de autenticação não é automatizada. Não foi
 certificado um novo ciclo completo, teste negativo ou edição/promoção por UI.
 
-Nota técnica do consumidor, não autoridade institucional, novo roadmap ou autorização. A prioridade pertence ao [Roadmap](../../ROADMAP.md); a cobertura pertence ao [Capability Map](../product/PLATFORM_CAPABILITY_MAP.md). Seguir PROJECT_INDEX → Decision Tree no MOBS oficial para cada execução. Baseline deste ciclo: consumidor `dev` em `d2a7312d44966452c9f8dfff61ec0444178224db`, mais as correções descritas; MOBS `009feb3558df7919070971656411f6c0a58cf8cf`, somente leitura.
+Nota técnica do consumidor, não autoridade institucional, novo roadmap ou autorização. A prioridade pertence ao [Roadmap](../../ROADMAP.md); a cobertura pertence ao [Capability Map](../product/PLATFORM_CAPABILITY_MAP.md). Trabalho comum usa código, testes e requisitos locais; decisões institucionais e execuções governadas seguem `PROJECT_INDEX.md` → Decision Tree no MOBS oficial. Baseline deste ciclo: consumidor `dev` em `d2a7312d44966452c9f8dfff61ec0444178224db`, mais as correções descritas; MOBS `009feb3558df7919070971656411f6c0a58cf8cf`, somente leitura.
 
 ## Decisão técnica recomendada
 

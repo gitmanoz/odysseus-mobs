@@ -1,8 +1,9 @@
-# MOBS Institutional Boot — Phase 2, first executable slice
+# MOBS Institutional Boot Sob Demanda — first executable consumer
 
 This is a consumer implementation note, not an institutional authority.
-Authority remains in the authorized MOBS repository, starting at `PROJECT_INDEX.md`
-and governed by `PROJECT_RULES.md` and `AGENT_RUNTIME_INTEGRATION.md`.
+Authority remains in the authorized MOBS repository, starting at `PROJECT_INDEX.md`.
+Runtime integration follows `AGENT_RUNTIME_INTEGRATION.md`; repository-operation
+rules in `PROJECT_RULES.md` apply only when that aspect is in scope.
 
 ## Existing components and boundary
 
@@ -19,9 +20,11 @@ development verification with the existing file and shell tools. It has no new
 standalone UI, HTTP endpoint, execution CLI, dispatcher, model router or institutional
 memory. Trusted Python callers supply `mobs_execution`; the existing chat
 route constructs it only after exact proposal approval and snapshot review.
-Ordinary calls, including MOBS Auto model selection alone, retain existing behavior.
-Callers must explicitly mark **every** governed turn; inferred natural-language
-classification and sticky institutional sessions are outside this slice. Only
+Ordinary calls, including code, game development, local tests and MOBS Auto model
+selection alone, retain the normal project behavior without institutional Boot.
+Only explicit institutional/high-impact intent or an explicit institutional MOBS operation enters
+proposal construction. Callers must explicitly mark **every** governed turn; sticky
+institutional sessions remain outside this slice. Only
 the governed `bash` forms described below are enabled; the `python` tool,
 Git mutation, publishing, deployment and credential-management tools remain
 outside it.
@@ -103,7 +106,9 @@ browser; advanced choices are validated against the trusted Index and capability
 profiles. The resulting proposal still contains a `profile` of `read_only` or
 `development`.
 
-The default execution profile is `read_only`. The integration authority's path
+The default execution profile is `read_only`. `PROJECT_INDEX.md` is the only
+universal institutional document in a proposal; `AI_CONTEXT.md`, `PROJECT_RULES.md`
+and specialized authorities are branch inputs. The integration authority's path
 is discovered from the official Index rather than pinned in this consumer.
 Conditional Programmer context is loaded for materialization; read-only Code
 tasks do not load that role. Categories requiring unresolved directory/task

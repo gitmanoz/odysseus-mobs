@@ -24,7 +24,7 @@ def mandate(tmp_path, monkeypatch):
     root.mkdir()
     git(root, 'init', '-b', 'dev')
     docs = {
-        'PROJECT_INDEX.md': '# PROJECT INDEX\n[Agent Runtime Integration](project/automation/future/AGENT_RUNTIME_INTEGRATION.md)\n# Decision Tree\n```\n├─ Código\n│ → AI_CONTEXT.md\n│ → PROJECT_RULES.md\n└─ Branding\n│ → BRAND.md\n```\n',
+        'PROJECT_INDEX.md': '# PROJECT INDEX\n[Agent Runtime Integration](project/automation/future/AGENT_RUNTIME_INTEGRATION.md)\n# Decision Tree\n```\n├─ Código\n│ (trabalho comum)\n└─ Branding\n│ → BRAND.md\n```\n',
         'AI_CONTEXT.md': '# Context\nInstitution governs; runtime executes.\n',
         'PROJECT_RULES.md': '# Rules\nReview before promotion.\n',
         CONTRACT: '# Integration\nFail closed on drift.\n',
@@ -39,7 +39,7 @@ def mandate(tmp_path, monkeypatch):
     result = dict(source=baseline, target=copy.deepcopy(baseline), mandate='Inspect code',
                 exclusions='No writes or publication', category='Código',
                 authority_review='consistent',
-                authorities={n: authority_digest(c) for n, c in docs.items()},
+                authorities={n: authority_digest(docs[n]) for n in ('PROJECT_INDEX.md', CONTRACT)},
                 objective='Inspect code', scope='Read the authorized repository only',
                 allowed_paths=['**'],
                 allowed_tools=['read_file', 'ls', 'grep', 'glob', 'get_workspace'],
@@ -139,7 +139,7 @@ def test_reviewed_content_mismatch(mandate):
 
 
 def test_selected_route_cannot_omit_required_authority(mandate):
-    del mandate['authorities']['PROJECT_RULES.md']
+    del mandate['authorities'][CONTRACT]
     with pytest.raises(InstitutionalBootError, match='omits required'):
         boot(mandate)
 
@@ -158,7 +158,7 @@ def test_invalid_workspace(mandate, tmp_path):
 
 def test_drift_during_execution(mandate):
     ctx = boot(mandate)
-    (Path(ctx.source['path']) / 'PROJECT_RULES.md').write_text('# Changed', encoding='utf-8')
+    (Path(ctx.source['path']) / CONTRACT).write_text('# Changed', encoding='utf-8')
     with pytest.raises(InstitutionalBootError, match='drift'):
         ctx.verify()
 
@@ -344,7 +344,7 @@ def test_non_mobs_delegates_without_boot(monkeypatch):
 def test_loop_blocks_drift_before_tool_dispatch(mandate, monkeypatch):
     loop = loop_setup(monkeypatch)
     async def stream(candidates, messages, **kwargs):
-        (Path(mandate['source']['path']) / 'PROJECT_RULES.md').write_text('# Changed', encoding='utf-8')
+        (Path(mandate['source']['path']) / CONTRACT).write_text('# Changed', encoding='utf-8')
         yield 'data: ' + json.dumps({'delta': '```read_file\nPROJECT_RULES.md\n```'}) + '\n\n'
         yield 'data: [DONE]\n\n'
     def forbidden(*args, **kwargs):
@@ -410,7 +410,7 @@ def test_governed_request_fitting_real_window_survives_smaller_soft_budget(manda
     original = InstitutionalContext.message
     def full_context(self):
         message = original(self)
-        return {**message, 'content': message['content'] + '\n' + 'Reviewed context. ' * 4500}
+        return {**message, 'content': message['content'] + '\n' + 'Reviewed context. ' * 4000}
     monkeypatch.setattr(InstitutionalContext, 'message', full_context)
     monkeypatch.setattr('src.model_context.get_context_length_known', lambda *a: (32768, True))
     monkeypatch.setattr('src.context_budget.compute_input_token_budget', lambda *a, **kw: 20000)
@@ -423,7 +423,7 @@ def test_governed_request_fitting_real_window_survives_smaller_soft_budget(manda
         seen.extend(messages)
         assert any(m.get('content') == request for m in messages)
         assert any('fenced code block' in str(m.get('content')) for m in messages)
-        assert any(m.get('content', '').endswith('Reviewed context. ' * 4500) for m in messages)
+        assert any(m.get('content', '').endswith('Reviewed context. ' * 4000) for m in messages)
         assert loop.estimate_tokens(messages) + 2048 <= 32768
         yield 'data: {"delta":"Available tools checked."}\n\n'
         yield 'data: [DONE]\n\n'

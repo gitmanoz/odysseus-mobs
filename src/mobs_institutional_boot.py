@@ -679,6 +679,8 @@ def _document(root: Path, name: str) -> str:
     from src.tool_execution import _is_sensitive_path
     if not isinstance(name, str) or '\\' in name or '..' in name.split('/'):
         raise InstitutionalBootError('Invalid authority path')
+    if name.split('/', 1)[0].casefold() == 'old-documentation':
+        raise InstitutionalBootError('Historical documentation cannot be loaded as active authority')
     path = root / name
     if Path(name).is_absolute() or path.suffix != '.md':
         raise InstitutionalBootError('Authority must be a relative Markdown file')
@@ -712,7 +714,10 @@ def _required_authorities(index: str, category: str, *, materialization: bool = 
     matches = [b for b in branches[1:] if b.splitlines()[0].strip() == category]
     if len(matches) != 1:
         raise InstitutionalBootError('Missing or ambiguous Decision Tree category')
-    required = {'PROJECT_INDEX.md', 'AI_CONTEXT.md', 'PROJECT_RULES.md'}
+    # The compact Index is the only universal institutional source. Product,
+    # repository-operation and historical authorities are branch/on-demand
+    # inputs; common work never reaches this governed loader implicitly.
+    required = {'PROJECT_INDEX.md'}
     # This consumer always integrates an external runtime. Discover its authority
     # from the official Index, including universal discovery links. Never pin a
     # physical institutional location in the runtime.

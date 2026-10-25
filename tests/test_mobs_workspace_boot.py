@@ -41,9 +41,12 @@ def test_bug_fix_derives_development_without_granting_category_from_persona():
 
 
 def test_intent_first_enters_proposal_only_for_clear_engineering_requests():
-    assert requests_governed_proposal("Ayla, corrija este bug no código.")
-    assert requests_governed_proposal("Analise este projeto e execute os testes.")
-    assert requests_governed_proposal("Atualize a arquitetura e a documentação.")
+    assert not requests_governed_proposal("Ayla, corrija este bug no código.")
+    assert not requests_governed_proposal("Analise este projeto e execute os testes.")
+    assert not requests_governed_proposal("Corrija o bug no MOBS Studio.")
+    assert requests_governed_proposal("Execute esta operação sob mandato MOBS.")
+    assert requests_governed_proposal("Atualize o PROJECT_INDEX e a arquitetura MOBS.")
+    assert requests_governed_proposal("Faça o deploy deste projeto.")
     assert not requests_governed_proposal("Explique o que é uma função Python.")
     assert not requests_governed_proposal("Olá, como você está?")
 
@@ -64,7 +67,7 @@ def test_descriptive_test_word_is_not_both_action_and_engineering_subject(messag
     "Atualize a arquitetura e a documentação.",
 ])
 def test_engineering_action_with_distinct_subject_still_reaches_classification(message):
-    assert requests_governed_proposal(message)
+    assert not requests_governed_proposal(message)
 
 
 def test_ambiguous_or_unclassified_request_fails_closed():
@@ -135,4 +138,15 @@ def test_conversation_questions_reports_and_negations_do_not_propose(message):
     'Please implement the code.',
 ])
 def test_explicit_informal_and_polite_requests_still_only_enter_proposal(message):
+    assert not requests_governed_proposal(message)
+
+
+@pytest.mark.parametrize('message', [
+    'Execute os testes sob este mandato MOBS.',
+    'Revise o snapshot institucional antes da execução governada.',
+    'Publique o projeto em produção.',
+    'Promova o candidato pela TEB e Controlled Promotion.',
+    'Atualize a autoridade institucional PROJECT_INDEX.',
+])
+def test_explicit_institutional_or_high_impact_requests_enter_proposal(message):
     assert requests_governed_proposal(message)

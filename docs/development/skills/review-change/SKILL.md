@@ -13,7 +13,7 @@ source: taught
 Quando houver um delta identificado e evidências disponíveis para revisão. Este rascunho não cria reviewer binding, independência nem autorização de aplicação.
 
 ## Procedure
-1. Comece pelo PROJECT_INDEX.md e siga a Decision Tree. Identifique objetivo, baseline, versão do candidato, escopo e exclusões.
+1. Em revisão comum, comece pelo delta, código, testes e requisitos locais. Use `PROJECT_INDEX.md` e a Decision Tree somente para decisão institucional ou execução governada. Identifique objetivo, baseline, versão do candidato, escopo e exclusões.
 2. Leia diff e arquivos pertinentes pelas ferramentas já autorizadas. Confira interfaces, efeitos laterais, dados pessoais e compatibilidade das chamadas.
 3. Priorize defeitos demonstráveis com arquivo, localização, condição de ocorrência e impacto; separe dúvida de achado confirmado.
 4. Confronte testes e retornos com o delta exato. Verifique cenários de falha, cancelamento, timeout e isolamento quando pertinentes, sem executar nada não autorizado.

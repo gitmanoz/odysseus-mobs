@@ -24,10 +24,12 @@ def projects(tmp_path, monkeypatch):
     git(source, "init", "-b", "dev")
     git(target, "init", "-b", "dev")
     docs = {
-        "PROJECT_INDEX.md": "# Index\n[Agent Runtime Integration](project/automation/future/AGENT_RUNTIME_INTEGRATION.md)\n# Decision Tree\n```\n└─ Código\n  → PROJECT_RULES.md\n```\n",
+        "PROJECT_INDEX.md": "# Index\n[Agent Runtime Integration](project/automation/future/AGENT_RUNTIME_INTEGRATION.md)\n# Decision Tree\n```\n├─ Código\n│ (trabalho comum)\n│ (+ docs/mobs/models/PROGRAMMER_PARTNER.md se execução governada com materialização)\n└─ Arquitetura\n  → docs/mobs/governance/ARCHITECTURE_TASK_PROTOCOL.md\n```\n",
         "AI_CONTEXT.md": "# Context\nInstitution governs.\n",
         "PROJECT_RULES.md": "# Rules\nFollow reviewed scope.\n",
         "project/automation/future/AGENT_RUNTIME_INTEGRATION.md": "# Integration\nFail closed.\n",
+        "docs/mobs/models/PROGRAMMER_PARTNER.md": "# Programmer Partner\nMaterialize only the authorized mandate.\n",
+        "docs/mobs/governance/ARCHITECTURE_TASK_PROTOCOL.md": "# Architecture task protocol\nDecide with explicit evidence.\n",
     }
     for name, text in docs.items():
         path = source / name
@@ -79,6 +81,26 @@ def test_creates_conservative_proposal_from_selected_local_workspaces(projects):
     assert "commit" not in " ".join(item["allowed_commands"])
     assert set(proposal_summary(item)) >= {"objective", "scope", "allowed_paths", "limits"}
     assert proposal_summary(item)["authority_evidence"]["documents"]["PROJECT_INDEX.md"].startswith("# Index")
+    assert set(item["authorities"]) == {
+        "PROJECT_INDEX.md",
+        "project/automation/future/AGENT_RUNTIME_INTEGRATION.md",
+        "docs/mobs/models/PROGRAMMER_PARTNER.md",
+    }
+    assert "AI_CONTEXT.md" not in item["authorities"]
+    assert "PROJECT_RULES.md" not in item["authorities"]
+
+
+def test_institutional_architecture_decision_loads_only_its_branch(projects):
+    source, target = projects
+    item = build_proposal(
+        "Decide the institutional architecture.", target_workspace=str(target),
+        authority_workspace=str(source), category="Arquitetura", profile="read_only",
+    )
+    assert set(item["authorities"]) == {
+        "PROJECT_INDEX.md",
+        "project/automation/future/AGENT_RUNTIME_INTEGRATION.md",
+        "docs/mobs/governance/ARCHITECTURE_TASK_PROTOCOL.md",
+    }
 
 
 def test_python_profile_derives_only_existing_supported_paths(projects):
@@ -231,10 +253,9 @@ def test_ambiguous_integration_discovery_fails_closed(projects):
 def test_minimal_read_only_selection_omits_conditional_programmer_role(projects):
     source, target = projects
     index = source / "PROJECT_INDEX.md"
-    index.write_text(index.read_text(encoding="utf-8").replace(
-        "  → PROJECT_RULES.md", "  → PROJECT_RULES.md\n  → docs/mobs/models/PROGRAMMER_PARTNER.md ← materialização técnica sob mandato (quando o papel se aplicar)"), encoding="utf-8")
     item = build_proposal("Inspect", target_workspace=str(target), authority_workspace=str(source), category="Código")
     assert "docs/mobs/models/PROGRAMMER_PARTNER.md" not in item["authorities"]
+    (source / "docs/mobs/models/PROGRAMMER_PARTNER.md").unlink()
     with pytest.raises(MandateProposalError, match="Missing or unreadable authority"):
         build_proposal("Edit", target_workspace=str(target), authority_workspace=str(source), category="Código", profile="development")
 
@@ -273,6 +294,9 @@ def test_approved_proposal_reaches_the_existing_agent_loop(projects, monkeypatch
     monkeypatch.setattr("src.tool_security.owner_is_admin_or_single_user", lambda owner: True)
     monkeypatch.setattr(loop, "get_setting", lambda key, default=None: default)
     monkeypatch.setattr(loop, "get_mcp_manager", lambda: None)
+    monkeypatch.setattr("src.model_context.get_context_length_known", lambda *a: (100000, True))
+    monkeypatch.setattr("src.model_context.budget_context_for_model", lambda *a, **kw: 100000)
+    monkeypatch.setattr("src.model_context.verify_governed_ollama_window", lambda *a, **kw: None)
     async def stream(candidates, messages, **kwargs):
         yield 'data: {"delta":"governed"}\n\n'
         yield 'data: [DONE]\n\n'
@@ -285,7 +309,7 @@ def test_approved_proposal_reaches_the_existing_agent_loop(projects, monkeypatch
         )]
     events = asyncio.run(collect())
     assert any("institutional_boot" in event for event in events)
-    assert any("institutional_verified" in event for event in events)
+    assert any("institutional_verified" in event for event in events), events
 
 
 def test_mandate_approval_alone_does_not_make_authority_consistent(projects):
@@ -309,9 +333,24 @@ def test_authority_change_invalidates_review(projects):
     source, _ = projects
     item = proposal(projects)
     review = review_authority_snapshot(item, "reviewer")
-    (source / "PROJECT_RULES.md").write_text("# changed\n", encoding="utf-8")
+    (source / "project/automation/future/AGENT_RUNTIME_INTEGRATION.md").write_text("# changed\n", encoding="utf-8")
     with pytest.raises(MandateProposalError, match="changed since review"):
         approved_execution({**item, "status": "approved"}, review)
+
+
+def test_historical_documentation_is_never_an_active_authority(projects):
+    source, target = projects
+    index = source / "PROJECT_INDEX.md"
+    index.write_text(index.read_text(encoding="utf-8").replace(
+        "docs/mobs/governance/ARCHITECTURE_TASK_PROTOCOL.md",
+        "old-documentation/ARCHITECTURE_TASK_PROTOCOL.md",
+    ), encoding="utf-8")
+    historical = source / "old-documentation/ARCHITECTURE_TASK_PROTOCOL.md"
+    historical.parent.mkdir()
+    historical.write_text("# Historical only\n", encoding="utf-8")
+    with pytest.raises(MandateProposalError, match="Historical documentation"):
+        build_proposal("Decide", target_workspace=str(target),
+                       authority_workspace=str(source), category="Arquitetura")
 
 
 def test_source_baseline_change_invalidates_review(projects):

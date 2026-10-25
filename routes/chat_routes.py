@@ -1009,9 +1009,9 @@ def setup_chat_routes(
             yield "data: [DONE]\n\n"
 
         mobs_execution = None
-        # The normal product path is intent-first. A clear engineering request
-        # may create a proposal, but it never infers review, approval, or
-        # execution. Ambiguity remains fail-closed in build_workspace_proposal.
+        # Institutional Boot is on demand. Ordinary code/game/test work remains
+        # on the normal project path; only explicit institutional or high-impact
+        # intent may create a proposal. It never infers review or approval.
         if not mobs_action and isinstance(message, str):
             from src.mobs_workspace_boot import requests_governed_proposal
             if requests_governed_proposal(message):

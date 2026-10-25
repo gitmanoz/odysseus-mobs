@@ -13,7 +13,7 @@ source: taught
 Quando existir solicitação autorizada de alteração no projeto selecionado. Este rascunho não substitui autoridades, receitas nem autorização de execução ou promoção.
 
 ## Procedure
-1. Comece pelo PROJECT_INDEX.md e siga a Decision Tree. Registre resultado esperado, exclusões, baseline e arquivos afetados antes de editar.
+1. Em trabalho comum, comece pelo código, testes e requisitos locais. Use `PROJECT_INDEX.md` e a Decision Tree somente para decisão institucional ou execução governada. Registre resultado esperado, exclusões, baseline e arquivos afetados antes de editar.
 2. Inspecione interfaces e convenções pertinentes dentro do escopo permitido. Prefira mecanismos existentes; não crie runtime, serviço ou protocolo alternativo por conveniência.
 3. Planeje uma mudança coesa; exponha dependências entre arquivos. Limite a promoção às capacidades existentes, sem dividir uma mudança atômica para contornar limites.
 4. Faça alterações somente no target privado admitido pela TEB. Preserve preimages e não modifique o executor ativo ou dados pessoais.
